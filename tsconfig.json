@@ -15,7 +15,10 @@
     "jsx": "react-jsx",
     "strict": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@/*": ["./src/renderer/*"]
+    }
   },
   "include": ["electron.vite.config.ts", "src/**/*.ts", "src/**/*.tsx"]
 }
