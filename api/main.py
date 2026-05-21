@@ -1,12 +1,15 @@
-from fastapi import FastAPI, HTTPException
+# main.py
+from fastapi import FastAPI
 from pydantic import BaseModel, Field, validator
+
+from services import get_fx_and_inflation, get_kgco2e_per_usd
+from calculator import compute_emissions
 
 app = FastAPI()
 
 
-# ----------------------
-# INPUT MODELS
-# ----------------------
+# ---------- INPUT MODELS ----------
+
 
 class Allocation(BaseModel):
     raw_material_pct: float = Field(..., ge=0)
@@ -39,9 +42,8 @@ class InputData(BaseModel):
     naics: Naics
 
 
-# ----------------------
-# OUTPUT MODELS
-# ----------------------
+# ---------- OUTPUT MODELS ----------
+
 
 class CostBreakdown(BaseModel):
     raw_material_usd2022: float
@@ -62,31 +64,41 @@ class OutputData(BaseModel):
     emissions: EmissionBreakdown
 
 
-# ----------------------
-# MAIN API ENDPOINT
-# ----------------------
+# ---------- ENDPOINTS ----------
+
 
 @app.post("/calculate", response_model=OutputData)
 def calculate_emissions(data: InputData):
+    # 1) Fetch DB data (connectivity happens here)
+    sgd_to_usd, us_inflation = get_fx_and_inflation(data.year)
 
-    # MOCK CALCULATIONS (replace these later)
-    mock_costs = CostBreakdown(
-        raw_material_usd2022=1173.03,
-        fabrication_usd2022=3519.09,
-        surface_treatment_usd2022=1173.03
-    )
+    k_raw = get_kgco2e_per_usd(data.naics.raw_material)
+    k_fab = get_kgco2e_per_usd(data.naics.fabrication)
+    k_surf = get_kgco2e_per_usd(data.naics.surface_treatment)
 
-    mock_emissions = EmissionBreakdown(
-        raw_material=12.5,
-        fabrication=30.2,
-        surface_treatment=5.3,
-        total=48.0
-    )
+    # 2) Prepare payload for the calculator module
+    payload = {
+        "invoice_id": data.invoice_id,
+        "year": data.year,
+        "total_amount_sgd": data.total_amount_sgd,
+        "allocation": data.allocation.dict(),
+        "naics": data.naics.dict(),
+        "fx": sgd_to_usd,
+        "inflation": us_inflation,
+        "factors": {
+            "raw_material": k_raw,
+            "fabrication": k_fab,
+            "surface_treatment": k_surf,
+        },
+    }
+
+    # 3) Delegate all math to your teammate’s function
+    result = compute_emissions(payload)
 
     return OutputData(
         invoice_id=data.invoice_id,
-        costs=mock_costs,
-        emissions=mock_emissions
+        costs=CostBreakdown(**result["costs"]),
+        emissions=EmissionBreakdown(**result["emissions"]),
     )
 
 
