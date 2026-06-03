@@ -2,8 +2,32 @@
 
 const fs = require('node:fs')
 const path = require('node:path')
+const { execSync } = require('node:child_process')
 
-const chunksDir = path.join(__dirname, '..', 'node_modules', 'electron-vite', 'dist', 'chunks')
+const root = path.join(__dirname, '..')
+const chunksDir = path.join(root, 'node_modules', 'electron-vite', 'dist', 'chunks')
+
+function ensureElectronBinary() {
+  let electronDir
+
+  try {
+    electronDir = path.dirname(require.resolve('electron/package.json', { paths: [root] }))
+  } catch {
+    return
+  }
+
+  const pathFile = path.join(electronDir, 'path.txt')
+  const distDir = path.join(electronDir, 'dist')
+
+  if (fs.existsSync(pathFile) && fs.existsSync(distDir)) {
+    return
+  }
+
+  console.log('[postinstall] Electron binary missing; downloading…')
+  execSync('node install.js', { cwd: electronDir, stdio: 'inherit' })
+}
+
+ensureElectronBinary()
 
 if (!fs.existsSync(chunksDir)) {
   process.exit(0)

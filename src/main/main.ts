@@ -1,8 +1,17 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { postCalculate } from './api-client'
+import type { CalculateRequest } from '../shared/calculator-types'
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+function registerApiHandlers() {
+  ipcMain.handle('calculator:calculate', async (_event, payload: CalculateRequest) => {
+    return postCalculate(payload)
+  })
+}
 
 function createWindow() {
   const window = new BrowserWindow({
@@ -26,6 +35,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  registerApiHandlers()
   createWindow()
 
   app.on('activate', () => {

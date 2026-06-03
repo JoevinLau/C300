@@ -10,6 +10,7 @@ import {
   Workflow,
 } from 'lucide-react'
 
+import Method1Page from '@/pages/Method1Page'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -29,10 +30,10 @@ const modules = [
   },
   {
     icon: FileSpreadsheet,
-    title: 'Method 1',
+    title: 'USEEIO',
     href: '#method-1',
     description:
-      'Use supplier-specific emissions data when direct carbon reporting is available and verified.',
+      'Split invoice spend across raw material, fabrication, and surface treatment, then calculate emissions with NAICS factors.',
   },
   {
     icon: BarChart3,
@@ -264,6 +265,10 @@ function App() {
 
   if (route === '#naics-mapping') {
     return <NaicsMappingPage />
+  }
+
+  if (route === '#method-1') {
+    return <Method1Page />
   }
 
   return <HomePage />

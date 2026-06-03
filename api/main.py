@@ -1,11 +1,37 @@
 # main.py
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, validator
 
-from services import get_fx_and_inflation, get_kgco2e_per_usd
+from service import get_fx_and_inflation, get_kgco2e_per_usd, list_naics_options
 from calculator import compute_emissions
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(_request: Request, exc: HTTPException) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal server error: {exc}"},
+    )
 
 
 # ---------- INPUT MODELS ----------
@@ -64,7 +90,18 @@ class OutputData(BaseModel):
     emissions: EmissionBreakdown
 
 
+class NaicsOption(BaseModel):
+    code: str
+    description: str
+    kgco2e_per_usd: float | None = None
+
+
 # ---------- ENDPOINTS ----------
+
+
+@app.get("/naics", response_model=list[NaicsOption])
+def get_naics_options():
+    return list_naics_options()
 
 
 @app.post("/calculate", response_model=OutputData)
@@ -81,8 +118,8 @@ def calculate_emissions(data: InputData):
         "invoice_id": data.invoice_id,
         "year": data.year,
         "total_amount_sgd": data.total_amount_sgd,
-        "allocation": data.allocation.dict(),
-        "naics": data.naics.dict(),
+        "allocation": data.allocation.model_dump(),
+        "naics": data.naics.model_dump(),
         "fx": sgd_to_usd,
         "inflation": us_inflation,
         "factors": {
@@ -105,3 +142,9 @@ def calculate_emissions(data: InputData):
 @app.get("/")
 def home():
     return {"message": "API is running!"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="127.0.0.1", port=8000)
