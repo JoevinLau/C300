@@ -6,7 +6,7 @@ def _sgd_to_usd_2022(amount_sgd: float, fx: float, inflation_index: float) -> fl
     amount_usd = amount_sgd * fx
     return amount_usd * (100.0 / inflation_index)
 
-
+#addline
 def _sgd_to_usd(amount_sgd: float, fx: float) -> float:
     return amount_sgd * fx
 

@@ -122,8 +122,8 @@ class OutputData(BaseModel):
 class NaicsOption(BaseModel):
     code: str
     description: str
+    category: str | None = None
     kgco2e_per_usd: float | None = None
-
 
 # ---------- ENDPOINTS ----------
 

@@ -16,7 +16,7 @@ import type { LucideIcon } from 'lucide-react'
 
 import { AppBackground } from '@/components/AppBackground'
 import { calculateEmissions, fetchNaicsOptions, type CalculateResponse, type NaicsOption } from '@/lib/calculator-api'
-import { naicsCatalogByCode, NAICS_CATALOG } from '../../shared/naics-catalog'
+import { naicsCatalogByCode } from '../../shared/naics-catalog'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -87,7 +87,7 @@ const CATEGORIES: {
     barClass: 'bg-emerald-400',
     rowClass: 'border-emerald-400/20 bg-emerald-400/[0.04]',
     textClass: 'text-emerald-200',
-    defaultNaics: '332710',
+    defaultNaics: '331110',
   },
   {
     id: 'fabrication',
@@ -127,7 +127,7 @@ const defaultForm: Record<FormKey, string> = {
   raw_material_sgd: '',
   fabrication_sgd: '',
   surface_treatment_sgd: '',
-  naics_raw_material: '332710',
+  naics_raw_material: '331110',
   naics_fabrication: '332710',
   naics_surface_treatment: '332812',
 }
@@ -558,7 +558,7 @@ function Method1Page() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<CalculateResponse | null>(null)
-  const [naicsOptions, setNaicsOptions] = useState<NaicsOption[]>(NAICS_CATALOG)
+  const [naicsOptions, setNaicsOptions] = useState<NaicsOption[]>([])
 
   useEffect(() => {
     let cancelled = false

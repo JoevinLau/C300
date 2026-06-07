@@ -9,4 +9,5 @@ def get_conn():
         user="avnadmin",
         password="AVNS_E5TJdiiOvowUaEzLNMq",
         database="defaultdb",
+        ssl_ca="ca.pem"
     )

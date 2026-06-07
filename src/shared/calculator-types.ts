@@ -59,5 +59,6 @@ export interface CalculateResponse {
 export interface NaicsOption {
   code: string
   description: string
+  category?: string
   kgco2e_per_usd?: number
 }
