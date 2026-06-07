@@ -1,4 +1,4 @@
-# services.py
+﻿# services.py
 from typing import Tuple
 
 import mysql.connector
@@ -65,11 +65,27 @@ def get_fx_and_inflation(year: int) -> Tuple[float, float]:
 def _dev_naics_catalog() -> list[dict[str, object]]:
     return DEV_NAICS_CATALOG
 
+#addline
+# NAICS code descriptions
+NAICS_DESCRIPTIONS: dict[str, str] = {
+    "331110": "Iron and Steel Mills and Ferroalloy Manufacturing",
+    "331315": "Aluminum Sheet, Plate, and Foil Manufacturing",
+    "331420": "Copper Rolling, Drawing, Extruding and Alloying",
+    "331491": "Nonferrous Metal (except Aluminum) Rolling, Drawing, Extruding",
+    "335991": "Other Electrical Equipment Manufacturing",
+    "332999": "All Other Miscellaneous Fabricated Metal Product Manufacturing",
+    "326199": "All Other Plastics Product Manufacturing",
+    "325220": "Artificial and Synthetic Fibers' Manufacturing",
+    "326113": "Unlaminated Plastics Film and Sheet Manufacturing",
+    "326130": "Plastics Pipe, Pipe Fitting, and Unlaminated Profile Shape Manufacturing",
+    "326119": "Unlaminated Plastics Bag Manufacturing",
+}
+
 
 def list_naics_options() -> list[dict[str, object]]:
     """
-    List available NAICS codes with sector descriptions.
-    Falls back to dev_data when MySQL is unreachable or schema differs.
+    List available NAICS codes with descriptions from database.
+    Falls back to dev_data when MySQL is unreachable.
     """
     try:
         conn = get_conn()
@@ -80,10 +96,7 @@ def list_naics_options() -> list[dict[str, object]]:
         cur = conn.cursor(dictionary=True)
         cur.execute(
             """
-            SELECT
-                CAST(naics_code AS CHAR) AS code,
-                COALESCE(sector_description, sector_name, description, '') AS description,
-                kgco2e_per_usd
+            SELECT naics_code, kgco2e_per_usd
             FROM USEEIO_Factors_Table
             ORDER BY naics_code
             """
@@ -94,16 +107,16 @@ def list_naics_options() -> list[dict[str, object]]:
 
         options: list[dict[str, object]] = []
         for row in rows:
-            code = str(row.get("code", "")).strip()
+            code = str(row.get("naics_code", "")).strip()
             if not code:
                 continue
-            description = str(row.get("description") or f"NAICS {code}").strip()
+            description = NAICS_DESCRIPTIONS.get(code, f"NAICS {code}")
             option: dict[str, object] = {"code": code, "description": description}
             if row.get("kgco2e_per_usd") is not None:
                 option["kgco2e_per_usd"] = float(row["kgco2e_per_usd"])
             options.append(option)
 
-        return options or _dev_naics_catalog()
+        return options if options else _dev_naics_catalog()
     except MySQLError:
         return _dev_naics_catalog()
     finally:

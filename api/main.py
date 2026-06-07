@@ -34,9 +34,6 @@ async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSON
     )
 
 
-# ---------- INPUT MODELS ----------
-
-
 class Allocation(BaseModel):
     raw_material_pct: float = Field(..., ge=0)
     fabrication_pct: float = Field(..., ge=0)
@@ -68,7 +65,38 @@ class InputData(BaseModel):
     naics: Naics
 
 
-# ---------- OUTPUT MODELS ----------
+class SgdAmounts(BaseModel):
+    raw_material: float
+    fabrication: float
+    surface_treatment: float
+
+
+class UsdAmounts(BaseModel):
+    raw_material: float
+    fabrication: float
+    surface_treatment: float
+
+
+class Usd2022Amounts(BaseModel):
+    raw_material: float
+    fabrication: float
+    surface_treatment: float
+
+
+class EmissionFactors(BaseModel):
+    raw_material: float
+    fabrication: float
+    surface_treatment: float
+
+
+class CalculationDetails(BaseModel):
+    fx_rate: float
+    inflation_index: float
+    year: int
+    sgd_amounts: SgdAmounts
+    usd_amounts: UsdAmounts
+    usd2022_amounts: Usd2022Amounts
+    factors: EmissionFactors
 
 
 class CostBreakdown(BaseModel):
@@ -86,6 +114,7 @@ class EmissionBreakdown(BaseModel):
 
 class OutputData(BaseModel):
     invoice_id: str
+    calculation: CalculationDetails
     costs: CostBreakdown
     emissions: EmissionBreakdown
 
@@ -134,6 +163,7 @@ def calculate_emissions(data: InputData):
 
     return OutputData(
         invoice_id=data.invoice_id,
+        calculation=CalculationDetails(**result["calculation"]),
         costs=CostBreakdown(**result["costs"]),
         emissions=EmissionBreakdown(**result["emissions"]),
     )
@@ -146,5 +176,4 @@ def home():
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="127.0.0.1", port=8000)

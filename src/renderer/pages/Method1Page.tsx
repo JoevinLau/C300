@@ -422,6 +422,136 @@ function ResultsPanel({
   )
 }
 
+function CalculationProcessPanel({
+  result,
+  loading,
+}: {
+  result: CalculateResponse | null
+  loading: boolean
+}) {
+  if (loading || !result) {
+    return null
+  }
+
+  const { calculation } = result
+  const calc = calculation
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-amber-400/25 bg-amber-400/5 p-4">
+        <p className="mb-3 font-medium text-amber-100">Step 1: SGD to USD</p>
+        <p className="mb-3 text-xs text-muted-foreground">
+          FX rate: 1 SGD = {usd.format(calc.fx_rate)} USD
+        </p>
+        <div className="space-y-3 text-sm">
+          <div className="space-y-1.5 rounded-lg border border-white/10 bg-black/20 p-3">
+            <p className="flex items-center gap-2 text-muted-foreground">
+              <Layers className="text-emerald-400" />
+              Raw material
+            </p>
+            <p className="font-mono tabular-nums text-amber-200">
+              {currency.format(calc.sgd_amounts.raw_material)} * {calc.fx_rate.toFixed(4)} = {usd.format(calc.usd_amounts.raw_material)}
+            </p>
+          </div>
+          <div className="space-y-1.5 rounded-lg border border-white/10 bg-black/20 p-3">
+            <p className="flex items-center gap-2 text-muted-foreground">
+              <Cog className="text-cyan-400" />
+              Fabrication
+            </p>
+            <p className="font-mono tabular-nums text-amber-200">
+              {currency.format(calc.sgd_amounts.fabrication)} * {calc.fx_rate.toFixed(4)} = {usd.format(calc.usd_amounts.fabrication)}
+            </p>
+          </div>
+          <div className="space-y-1.5 rounded-lg border border-white/10 bg-black/20 p-3">
+            <p className="flex items-center gap-2 text-muted-foreground">
+              <Paintbrush className="text-amber-400" />
+              Surface treatment
+            </p>
+            <p className="font-mono tabular-nums text-amber-200">
+              {currency.format(calc.sgd_amounts.surface_treatment)} * {calc.fx_rate.toFixed(4)} = {usd.format(calc.usd_amounts.surface_treatment)}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-cyan-400/25 bg-cyan-400/5 p-4">
+        <p className="mb-3 font-medium text-cyan-100">Step 2: USD Inflation Adjustment</p>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Inflation index: {calc.inflation_index.toFixed(2)} ({calc.year} to 2022)
+        </p>
+        <div className="space-y-3 text-sm">
+          <div className="space-y-1.5 rounded-lg border border-white/10 bg-black/20 p-3">
+            <p className="flex items-center gap-2 text-muted-foreground">
+              <Layers className="text-emerald-400" />
+              Raw material
+            </p>
+            <p className="font-mono tabular-nums text-cyan-200">
+              {usd.format(calc.usd_amounts.raw_material)} * (100 / {calc.inflation_index.toFixed(2)}) = {usd.format(calc.usd2022_amounts.raw_material)}
+            </p>
+          </div>
+          <div className="space-y-1.5 rounded-lg border border-white/10 bg-black/20 p-3">
+            <p className="flex items-center gap-2 text-muted-foreground">
+              <Cog className="text-cyan-400" />
+              Fabrication
+            </p>
+            <p className="font-mono tabular-nums text-cyan-200">
+              {usd.format(calc.usd_amounts.fabrication)} * (100 / {calc.inflation_index.toFixed(2)}) = {usd.format(calc.usd2022_amounts.fabrication)}
+            </p>
+          </div>
+          <div className="space-y-1.5 rounded-lg border border-white/10 bg-black/20 p-3">
+            <p className="flex items-center gap-2 text-muted-foreground">
+              <Paintbrush className="text-amber-400" />
+              Surface treatment
+            </p>
+            <p className="font-mono tabular-nums text-cyan-200">
+              {usd.format(calc.usd_amounts.surface_treatment)} * (100 / {calc.inflation_index.toFixed(2)}) = {usd.format(calc.usd2022_amounts.surface_treatment)}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-emerald-400/25 bg-emerald-400/5 p-4">
+        <p className="mb-3 font-medium text-emerald-100">Step 3: Calculate Emissions</p>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Emission factor (kg CO2e per USD)
+        </p>
+        <div className="space-y-3 text-sm">
+          <div className="space-y-1.5 rounded-lg border border-white/10 bg-black/20 p-3">
+            <p className="flex items-center gap-2 text-muted-foreground">
+              <Layers className="text-emerald-400" />
+              Raw material
+            </p>
+            <p className="font-mono tabular-nums text-emerald-200">
+              {usd.format(calc.usd2022_amounts.raw_material)} * {calc.factors.raw_material.toFixed(4)} = {kg.format(result.emissions.raw_material)} kg
+            </p>
+          </div>
+          <div className="space-y-1.5 rounded-lg border border-white/10 bg-black/20 p-3">
+            <p className="flex items-center gap-2 text-muted-foreground">
+              <Cog className="text-cyan-400" />
+              Fabrication
+            </p>
+            <p className="font-mono tabular-nums text-emerald-200">
+              {usd.format(calc.usd2022_amounts.fabrication)} * {calc.factors.fabrication.toFixed(4)} = {kg.format(result.emissions.fabrication)} kg
+            </p>
+          </div>
+          <div className="space-y-1.5 rounded-lg border border-white/10 bg-black/20 p-3">
+            <p className="flex items-center gap-2 text-muted-foreground">
+              <Paintbrush className="text-amber-400" />
+              Surface treatment
+            </p>
+            <p className="font-mono tabular-nums text-emerald-200">
+              {usd.format(calc.usd2022_amounts.surface_treatment)} * {calc.factors.surface_treatment.toFixed(4)} = {kg.format(result.emissions.surface_treatment)} kg
+            </p>
+          </div>
+          <div className="flex items-center justify-between rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-2.5 text-sm font-medium">
+            <span className="text-emerald-100">Total Emissions</span>
+            <span className="font-mono text-emerald-200 tabular-nums">{kg.format(result.emissions.total)} kg CO2e</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 function Method1Page() {
   const [form, setForm] = useState(defaultForm)
   const [activeStep, setActiveStep] = useState(1)
@@ -910,11 +1040,23 @@ function Method1Page() {
               </CardHeader>
               <CardContent>
                 <ResultsPanel
+                  totalSgd={totalSgd}
+                  year={form.year}
                   result={result}
                   loading={loading}
                   error={error}
-                  totalSgd={totalSgd}
-                  year={form.year}
+                />
+              </CardContent>
+            </Card>
+            <Card className="mt-4 border-white/10 bg-slate-950/60 shadow-xl shadow-black/30 backdrop-blur-xl">
+              <CardHeader>
+                <CardTitle>Calculation Process</CardTitle>
+                <CardDescription>Step-by-step breakdown of the calculation.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <CalculationProcessPanel
+                  loading={loading}
+                  result={result}
                 />
               </CardContent>
             </Card>

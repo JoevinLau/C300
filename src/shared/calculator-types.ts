@@ -14,8 +14,35 @@ export interface CalculateRequest {
   }
 }
 
+export interface CalculationDetails {
+  fx_rate: number
+  inflation_index: number
+  year: number
+  sgd_amounts: {
+    raw_material: number
+    fabrication: number
+    surface_treatment: number
+  }
+  usd_amounts: {
+    raw_material: number
+    fabrication: number
+    surface_treatment: number
+  }
+  usd2022_amounts: {
+    raw_material: number
+    fabrication: number
+    surface_treatment: number
+  }
+  factors: {
+    raw_material: number
+    fabrication: number
+    surface_treatment: number
+  }
+}
+
 export interface CalculateResponse {
   invoice_id: string
+  calculation: CalculationDetails
   costs: {
     raw_material_usd2022: number
     fabrication_usd2022: number
