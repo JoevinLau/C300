@@ -2,9 +2,9 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, model_validator
 
-from service import get_fx_and_inflation, get_kgco2e_per_usd, list_naics_options
+from service import list_naics_options
 from calculator import compute_emissions
 
 app = FastAPI()
@@ -39,16 +39,16 @@ class Allocation(BaseModel):
     fabrication_pct: float = Field(..., ge=0)
     surface_treatment_pct: float = Field(..., ge=0)
 
-    @validator("surface_treatment_pct")
-    def validate_total(cls, v, values):
+    @model_validator(mode="after")
+    def validate_allocation_total(self) -> "Allocation":
         total = (
-            v
-            + values.get("raw_material_pct", 0)
-            + values.get("fabrication_pct", 0)
+            self.raw_material_pct
+            + self.fabrication_pct
+            + self.surface_treatment_pct
         )
         if abs(total - 100) > 0.01:
             raise ValueError("Allocation percentages must add up to 100.")
-        return v
+        return self
 
 
 class Naics(BaseModel):
@@ -57,12 +57,55 @@ class Naics(BaseModel):
     surface_treatment: str = Field(..., min_length=6, max_length=6)
 
 
+class SgdAmountsInput(BaseModel):
+    raw_material: float = Field(..., ge=0)
+    fabrication: float = Field(..., ge=0)
+    surface_treatment: float = Field(..., ge=0)
+
+
 class InputData(BaseModel):
     invoice_id: str = Field(..., min_length=1)
     year: int = Field(..., ge=2020, le=2030)
     total_amount_sgd: float = Field(..., gt=0)
-    allocation: Allocation
+    sgd_amounts: SgdAmountsInput | None = None
+    allocation: Allocation | None = None
     naics: Naics
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_amounts(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+
+        total = data.get("total_amount_sgd")
+        sgd_amounts = data.get("sgd_amounts")
+        allocation = data.get("allocation")
+
+        if sgd_amounts is None and allocation is not None and total is not None:
+            data = {**data, "sgd_amounts": {
+                "raw_material": total * allocation["raw_material_pct"] / 100.0,
+                "fabrication": total * allocation["fabrication_pct"] / 100.0,
+                "surface_treatment": total * allocation["surface_treatment_pct"] / 100.0,
+            }}
+
+        return data
+
+    @model_validator(mode="after")
+    def validate_sgd_amounts_sum(self) -> "InputData":
+        if self.sgd_amounts is None:
+            raise ValueError("sgd_amounts or allocation is required")
+
+        component_sum = (
+            self.sgd_amounts.raw_material
+            + self.sgd_amounts.fabrication
+            + self.sgd_amounts.surface_treatment
+        )
+        if abs(component_sum - self.total_amount_sgd) > 0.01:
+            raise ValueError(
+                "sgd_amounts must sum to total_amount_sgd "
+                f"(got {component_sum:.2f} vs {self.total_amount_sgd:.2f})"
+            )
+        return self
 
 
 class SgdAmounts(BaseModel):
@@ -135,31 +178,18 @@ def get_naics_options():
 
 @app.post("/calculate", response_model=OutputData)
 def calculate_emissions(data: InputData):
-    # 1) Fetch DB data (connectivity happens here)
-    sgd_to_usd, us_inflation = get_fx_and_inflation(data.year)
-
-    k_raw = get_kgco2e_per_usd(data.naics.raw_material)
-    k_fab = get_kgco2e_per_usd(data.naics.fabrication)
-    k_surf = get_kgco2e_per_usd(data.naics.surface_treatment)
-
-    # 2) Prepare payload for the calculator module
     payload = {
         "invoice_id": data.invoice_id,
         "year": data.year,
         "total_amount_sgd": data.total_amount_sgd,
-        "allocation": data.allocation.model_dump(),
+        "sgd_amounts": data.sgd_amounts.model_dump(),
         "naics": data.naics.model_dump(),
-        "fx": sgd_to_usd,
-        "inflation": us_inflation,
-        "factors": {
-            "raw_material": k_raw,
-            "fabrication": k_fab,
-            "surface_treatment": k_surf,
-        },
     }
 
-    # 3) Delegate all math to your teammate’s function
-    result = compute_emissions(payload)
+    try:
+        result = compute_emissions(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return OutputData(
         invoice_id=data.invoice_id,

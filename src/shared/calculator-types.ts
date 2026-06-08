@@ -2,6 +2,11 @@ export interface CalculateRequest {
   invoice_id: string
   year: number
   total_amount_sgd: number
+  sgd_amounts: {
+    raw_material: number
+    fabrication: number
+    surface_treatment: number
+  }
   allocation: {
     raw_material_pct: number
     fabrication_pct: number

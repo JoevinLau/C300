@@ -1,48 +1,25 @@
 import pandas as pd
 
-# ------------------------------
-# 1. Reference Tables
-# ------------------------------
-
-FX_TABLE = {
-    2023: 0.75,
-    2024: 0.74,
-    2025: 0.73,
-    2026: 0.72,
-}
-
-GDP_DEFLATOR = {
-    2022: 100.0,
-    2023: 103.2,
-    2024: 106.5,
-    2025: 109.0,
-    2026: 111.5,
-}
-
-USEEIO_FACTORS = {
-    "metal": 0.85,       # placeholder: kg CO2 / USD
-    "machining": 0.45,
-    "surface": 1.20,
-}
-
-# ------------------------------
-# 2. Helper functions
-# ------------------------------
-
-
-def convert_sgd_to_usd(amount_sgd: float, year: int) -> float:
-    rate = FX_TABLE.get(year)
-    if rate is None:
-        raise ValueError(f"No FX rate for year {year}")
-    return amount_sgd * rate
-
-
-def convert_to_2022_usd(amount_usd: float, year: int) -> float:
-    gdp_year = GDP_DEFLATOR.get(year)
-    gdp_2022 = GDP_DEFLATOR[2022]
-    if gdp_year is None:
-        raise ValueError(f"No GDP deflator for year {year}")
-    return amount_usd * (gdp_2022 / gdp_year)
+try:
+    from calculation.engine import (
+        FX_TABLE,
+        GDP_DEFLATOR,
+        USEEIO_FACTORS,
+        compute_component_emission,
+        compute_from_sgd_amounts,
+        convert_sgd_to_usd,
+        convert_to_2022_usd,
+    )
+except ModuleNotFoundError:
+    from engine import (
+        FX_TABLE,
+        GDP_DEFLATOR,
+        USEEIO_FACTORS,
+        compute_component_emission,
+        compute_from_sgd_amounts,
+        convert_sgd_to_usd,
+        convert_to_2022_usd,
+    )
 
 
 # ------------------------------
@@ -631,60 +608,51 @@ def mode3_manual_input():
     print("\n" + "="*60)
     print("MODE 3: MANUAL INPUT - CUSTOM CALCULATION")
     print("="*60 + "\n")
-    
-    # Get user inputs
+
     part_name = input("Enter part/product name: ")
     year = int(input("Enter year (2023-2026): "))
-    
+
     metal_cost_sgd = float(input("Enter metal cost (SGD): "))
     machining_cost_sgd = float(input("Enter machining/fabrication cost (SGD): "))
     surface_cost_sgd = float(input("Enter surface treatment cost (SGD): "))
-    
-    # Convert SGD to USD
-    metal_usd = convert_sgd_to_usd(metal_cost_sgd, year)
-    machining_usd = convert_sgd_to_usd(machining_cost_sgd, year)
-    surface_usd = convert_sgd_to_usd(surface_cost_sgd, year)
-    
-    # Convert to 2022 USD
-    metal_usd_2022 = convert_to_2022_usd(metal_usd, year)
-    machining_usd_2022 = convert_to_2022_usd(machining_usd, year)
-    surface_usd_2022 = convert_to_2022_usd(surface_usd, year)
-    
-    # Calculate emissions
-    metal_emission = metal_usd_2022 * USEEIO_FACTORS["metal"]
-    machining_emission = machining_usd_2022 * USEEIO_FACTORS["machining"]
-    surface_emission = surface_usd_2022 * USEEIO_FACTORS["surface"]
-    total_emission = metal_emission + machining_emission + surface_emission
-    
-    # Display results
+
+    result = compute_from_sgd_amounts(
+        year, metal_cost_sgd, machining_cost_sgd, surface_cost_sgd
+    )
+    calc = result["calculation"]
+    emissions = result["emissions"]
+    usd2022 = calc["usd2022_amounts"]
+
     print("\n" + "="*60)
     print("CALCULATION RESULTS")
     print("="*60)
     print(f"Part Name: {part_name}")
     print(f"Year: {year}\n")
-    
+
     print("COSTS (Original SGD):")
     print(f"  Metal cost:              SGD {metal_cost_sgd:,.2f}")
     print(f"  Machining cost:          SGD {machining_cost_sgd:,.2f}")
     print(f"  Surface treatment cost:  SGD {surface_cost_sgd:,.2f}")
-    print(f"  Total cost:              SGD {metal_cost_sgd + machining_cost_sgd + surface_cost_sgd:,.2f}\n")
-    
+    print(
+        f"  Total cost:              SGD {metal_cost_sgd + machining_cost_sgd + surface_cost_sgd:,.2f}\n"
+    )
+
     print("COSTS CONVERTED (2022 USD):")
-    print(f"  Metal:                   ${metal_usd_2022:,.2f}")
-    print(f"  Machining:               ${machining_usd_2022:,.2f}")
-    print(f"  Surface treatment:       ${surface_usd_2022:,.2f}\n")
-    
+    print(f"  Metal:                   ${usd2022['raw_material']:,.2f}")
+    print(f"  Machining:               ${usd2022['fabrication']:,.2f}")
+    print(f"  Surface treatment:       ${usd2022['surface_treatment']:,.2f}\n")
+
     print("EMISSION FACTORS (kg CO2 / USD):")
     print(f"  Metal:                   {USEEIO_FACTORS['metal']} kg CO2/USD")
     print(f"  Machining:               {USEEIO_FACTORS['machining']} kg CO2/USD")
     print(f"  Surface treatment:       {USEEIO_FACTORS['surface']} kg CO2/USD\n")
-    
+
     print("CALCULATED EMISSIONS (kg CO2):")
-    print(f"  Metal emissions:         {metal_emission:,.2f} kg CO2")
-    print(f"  Machining emissions:     {machining_emission:,.2f} kg CO2")
-    print(f"  Surface treatment:       {surface_emission:,.2f} kg CO2")
+    print(f"  Metal emissions:         {emissions['raw_material']:,.2f} kg CO2")
+    print(f"  Machining emissions:     {emissions['fabrication']:,.2f} kg CO2")
+    print(f"  Surface treatment:       {emissions['surface_treatment']:,.2f} kg CO2")
     print(f"  " + "-"*50)
-    print(f"  TOTAL EMISSIONS:         {total_emission:,.2f} kg CO2")
+    print(f"  TOTAL EMISSIONS:         {emissions['total']:,.2f} kg CO2")
     print("="*60 + "\n")
 
 

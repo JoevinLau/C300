@@ -712,6 +712,11 @@ function Method1Page() {
         invoice_id: form.invoice_id.trim(),
         year,
         total_amount_sgd: totalSgd,
+        sgd_amounts: {
+          raw_material: parseAmount(form.raw_material_sgd),
+          fabrication: parseAmount(form.fabrication_sgd),
+          surface_treatment: parseAmount(form.surface_treatment_sgd),
+        },
         allocation: {
           raw_material_pct: allocationPercentages.raw,
           fabrication_pct: allocationPercentages.fabrication,

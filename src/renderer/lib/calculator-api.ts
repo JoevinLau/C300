@@ -10,7 +10,11 @@ function formatApiError(detail: unknown): string {
     return detail
       .map((item) => {
         if (item && typeof item === 'object' && 'msg' in item) {
-          return String((item as { msg: string }).msg)
+          const record = item as { msg: string; loc?: unknown }
+          const field = Array.isArray(record.loc)
+            ? record.loc.filter((part) => part !== 'body').join('.')
+            : ''
+          return field ? `${field}: ${record.msg}` : String(record.msg)
         }
         return JSON.stringify(item)
       })
