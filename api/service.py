@@ -3,15 +3,27 @@ from typing import Tuple, Optional
 
 import mysql.connector
 from fastapi import HTTPException
+from mysql.connector import Error as MySQLError
+
 from db import get_conn
+from dev_data import DEV_NAICS_OPTIONS, DEV_FX_INFLATION
 
 
 def get_fx_and_inflation(year: int) -> Tuple[float, float]:
     """
     Read SGD->USD rate and US inflation index from database for a given year.
+    Falls back to dev_data when cloud database is unavailable.
     Returns (fx_rate, inflation_index)
     """
-    conn = get_conn()
+    try:
+        conn = get_conn()
+    except MySQLError:
+        # Fallback to dev data
+        values = DEV_FX_INFLATION.get(year)
+        if values:
+            return values
+        raise HTTPException(status_code=400, detail=f"No exchange rate for year {year}")
+
     try:
         cur = conn.cursor(dictionary=True)
         
@@ -38,12 +50,21 @@ def get_fx_and_inflation(year: int) -> Tuple[float, float]:
         conn.close()
 
 
+
 def list_naics_options(category: Optional[str] = None) -> list[dict]:
     """
     List available NAICS codes with descriptions from database.
+    Falls back to dev_data when cloud database is unavailable.
     Optionally filter by category (raw_material, fabrication, surface_treatment).
     """
-    conn = get_conn()
+    try:
+        conn = get_conn()
+    except MySQLError:
+        # Fallback to dev data
+        if category:
+            return [n for n in DEV_NAICS_OPTIONS if n["category"] == category]
+        return DEV_NAICS_OPTIONS
+
     try:
         cur = conn.cursor(dictionary=True)
         
@@ -68,7 +89,7 @@ def list_naics_options(category: Optional[str] = None) -> list[dict]:
         
         rows = cur.fetchall()
         if not rows:
-            return []
+            return DEV_NAICS_OPTIONS if not category else [n for n in DEV_NAICS_OPTIONS if n["category"] == category]
 
         options: list[dict] = []
         for row in rows:
@@ -85,7 +106,7 @@ def list_naics_options(category: Optional[str] = None) -> list[dict]:
                 option["kgco2e_per_usd"] = float(row["kgco2e_per_usd"])
             options.append(option)
 
-        return options
+        return options if options else (DEV_NAICS_OPTIONS if not category else [n for n in DEV_NAICS_OPTIONS if n["category"] == category])
     finally:
         conn.close()
 
@@ -93,8 +114,17 @@ def list_naics_options(category: Optional[str] = None) -> list[dict]:
 def get_kgco2e_per_usd(naics_code: str) -> float:
     """
     Read kgCO2e per USD from naics_factors for a given NAICS code.
+    Falls back to dev_data when cloud database is unavailable.
     """
-    conn = get_conn()
+    try:
+        conn = get_conn()
+    except MySQLError:
+        # Fallback to dev data
+        for item in DEV_NAICS_OPTIONS:
+            if item["code"] == naics_code:
+                return item["kgco2e_per_usd"]
+        raise HTTPException(status_code=400, detail=f"No emission factor for NAICS code " + naics_code)
+
     try:
         cur = conn.cursor(dictionary=True)
         cur.execute(

@@ -50,35 +50,42 @@ export async function calculateEmissions(
 }
 
 export async function fetchNaicsOptions(): Promise<NaicsOption[]> {
-  const response = await fetch(`${API_BASE}/naics`)
-  const body: unknown = await response.json().catch(() => null)
+  try {
+    const response = await fetch(`${API_BASE}/naics`)
+    const body: unknown = await response.json().catch(() => null)
 
+    if (!response.ok || !Array.isArray(body)) {
+      throw new Error('Failed to fetch NAICS options from API')
+    }
 
-  if (!response.ok || !Array.isArray(body)) {
-    throw new Error('Failed to fetch NAICS options from API')
+    const options = body
+      .map((item) => {
+        if (!item || typeof item !== 'object') return null
+        const record = item as Record<string, unknown>
+        const code = String(record.code ?? '').trim()
+        const description = String(record.description ?? '').trim()
+        if (!code || !description) return null
+        const option: NaicsOption = { code, description }
+        if (typeof record.category === 'string') {
+          option.category = record.category
+        }
+        if (typeof record.kgco2e_per_usd === 'number') {
+          option.kgco2e_per_usd = record.kgco2e_per_usd
+        }
+        return option
+      })
+      .filter((item): item is NaicsOption => item !== null)
+
+    if (options.length === 0) {
+      throw new Error('No NAICS options available from API')
+    }
+
+    return options
+  } catch (error) {
+    throw new Error(
+      error instanceof Error 
+        ? error.message 
+        : 'Failed to connect to API. Please check that the API server is running.'
+    )
   }
-
-  const options = body
-    .map((item) => {
-      if (!item || typeof item !== 'object') return null
-      const record = item as Record<string, unknown>
-      const code = String(record.code ?? '').trim()
-      const description = String(record.description ?? '').trim()
-      if (!code || !description) return null
-      const option: NaicsOption = { code, description }
-      if (typeof record.category === 'string') {
-        option.category = record.category
-      }
-      if (typeof record.kgco2e_per_usd === 'number') {
-        option.kgco2e_per_usd = record.kgco2e_per_usd
-      }
-      return option
-    })
-    .filter((item): item is NaicsOption => item !== null)
-
-  if (options.length === 0) {
-    throw new Error('No NAICS options available from API')
-  }
-
-  return options
 }
