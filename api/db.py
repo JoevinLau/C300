@@ -1,13 +1,14 @@
 # db.py
+import os
 import mysql.connector
 
 def get_conn():
     return mysql.connector.connect(
-        host="fyp-mysql-db-myrp-ac11.g.aivencloud.com",
-        port=27226,
-        user="avnadmin",
-        password="AVNS_E5TJdiiOvowUaEzLNMq",
+        host="gateway01.ap-southeast-1.prod.aws.tidbcloud.com",
+        port=4000,
+        user="3Ldn8dvRqE6tKJp.root",
+        password="O7kqZLpRQi8D3jsu",
         database="defaultdb",
-        ssl_disabled=True,
-        connect_timeout=5
+        ssl_ca="C:\\Users\\24024145\\Downloads\\isrgrootx1.pem",
+        ssl_verify_cert=True
     )
