@@ -1,15 +1,25 @@
 # C300
 
-Desktop app for **carbon emissions estimation** from supplier and portfolio spend. The UI is an Electron + React client; calculations run in a local **FastAPI** service backed by **MySQL** (with built-in dev fallbacks when the database is unavailable).
+Desktop app for **carbon emissions estimation** from supplier and portfolio spend. The UI is an Electron + React workbench; calculations run in a local **FastAPI** service backed by **MySQL** with built-in development fallbacks when the database is unavailable.
 
 ## What it does
 
-- **Home hub** — Overview of calculation modules and sample NAICS mappings.
-- **NAICS mapping** (`#naics-mapping`) — Placeholder workflow for mapping companies and spend categories to NAICS sectors (UI scaffold).
-- **USEEIO / Method 1** (`#method-1`) — Split invoice spend across raw material, fabrication, and surface treatment; convert SGD → 2022 USD using FX and inflation; apply USEEIO kgCO₂e/USD factors per NAICS code.
+- **Home hub** — Workflow selection dashboard for NAICS mapping, USEEIO / Method 1, Method 2, and Method 3.
+- **NAICS mapping** (`#naics-mapping`) — UI workflow for preparing company, supplier, or spend-category records with NAICS codes before running emissions calculations.
+- **USEEIO / Method 1** (`#method-1`) — Workbench for invoice-level spend allocation. Split spend across raw material, fabrication, and surface treatment; convert SGD → 2022 USD using FX and inflation; apply USEEIO kgCO₂e/USD factors per NAICS code.
 - **Method 2 & 3** — Listed on the home screen; not implemented yet.
 
 Method 1 calls `POST /calculate` on the API. In Electron, requests go through the main process (`calculator:calculate` IPC) to avoid renderer CORS issues; the renderer can also call the API directly when running outside Electron.
+
+## UI overview
+
+The renderer is organized as a workflow dashboard:
+
+- **Workflow cards** on the home screen route users into each calculation path.
+- **NAICS mapping card** includes a short preview of the mapping workflow: upload or review spend records, search NAICS sectors, and prepare mapped records for calculation methods.
+- **NAICS mapping page** has a dark context rail, upload/search actions, a sample mapping table, and a suggested flow panel.
+- **Method 1 page** uses a workbench layout with a left workflow rail, central invoice/allocation form, and right-side results/process panels.
+- **History modal** stores the latest five Method 1 calculations in renderer state for quick review during the current session.
 
 ## Architecture
 
@@ -85,7 +95,7 @@ python main.py
 pnpm dev
 ```
 
-Open **USEEIO** from the home screen (or navigate to `#method-1`). Health check: `GET http://127.0.0.1:8000/` → `{"message":"API is running!"}`.
+Open **USEEIO** from the home screen (or navigate to `#method-1`). Open **NAICS mapping** from the home screen (or navigate to `#naics-mapping`) to review the mapping workflow UI. Health check: `GET http://127.0.0.1:8000/` → `{"message":"API is running!"}`.
 
 ### API endpoints
 
@@ -120,14 +130,14 @@ api/
 src/
   main/             Electron main process + API client
   preload/          contextBridge → window.electronAPI
-  renderer/         React UI (pages, components, Tailwind)
+  renderer/         React UI workbench (pages, components, Tailwind)
   shared/           calculator-types, naics-catalog, electron-api
 
 scripts/            predev and electron-vite spawn patch (Windows)
 out/                Build output (gitignored)
 ```
 
-UI stack: React 19, Tailwind CSS 4, Radix UI primitives under `src/renderer/components/ui/`.
+UI stack: React 19, Tailwind CSS 4, Lucide icons, and Radix UI primitives under `src/renderer/components/ui/`.
 
 ## Troubleshooting
 
