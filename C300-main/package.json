@@ -1,0 +1,46 @@
+{
+  "name": "electron-app",
+  "version": "1.0.0",
+  "description": "Electron + React + TypeScript starter",
+  "private": true,
+  "main": "./out/main/main.js",
+  "scripts": {
+    "dev": "node scripts/predev.cjs && electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "node scripts/predev.cjs && electron-vite preview",
+    "typecheck": "tsc --noEmit",
+    "postinstall": "node scripts/patch-electron-vite-spawn.cjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.33.2",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ]
+  },
+  "dependencies": {
+    "@radix-ui/react-select": "^2.2.6",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "electron": "^42.3.1",
+    "lucide-react": "^1.16.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "tailwind-merge": "^3.6.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/node": "^25.9.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron-vite": "^5.0.0",
+    "tailwindcss": "^4.3.0",
+    "tw-animate-css": "^1.4.0",
+    "typescript": "^6.0.3",
+    "vite": "^7.3.3"
+  }
+}
