@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+out/
+dist/
+release/
+graphify-out/
+
+# Vite / tooling caches
+.vite/
+.turbo/
+.cache/
+.codex/
+
+# Package manager artifacts
+package-lock.json
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# OS / editor files
+.DS_Store
+.idea/
+.vscode/
