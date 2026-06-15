@@ -86,9 +86,9 @@ const CATEGORIES: {
     label: 'Raw material',
     sector: 'Machine Shops',
     icon: Layers,
-    barClass: 'bg-emerald-400',
-    rowClass: 'border-emerald-400/20 bg-emerald-400/[0.04]',
-    textClass: 'text-emerald-200',
+    barClass: 'bg-lime-400',
+    rowClass: 'border-lime-400/20 bg-lime-400/[0.04]',
+    textClass: 'text-lime-700',
     defaultNaics: '331110',
   },
   {
@@ -98,9 +98,9 @@ const CATEGORIES: {
     label: 'Fabrication',
     sector: 'Machine Shops',
     icon: Cog,
-    barClass: 'bg-cyan-400',
-    rowClass: 'border-cyan-400/20 bg-cyan-400/[0.04]',
-    textClass: 'text-cyan-200',
+    barClass: 'bg-teal-400',
+    rowClass: 'border-teal-400/20 bg-teal-400/[0.04]',
+    textClass: 'text-teal-700',
     defaultNaics: '332710',
   },
   {
@@ -110,9 +110,9 @@ const CATEGORIES: {
     label: 'Surface treatment',
     sector: 'Metal Coating',
     icon: Paintbrush,
-    barClass: 'bg-amber-400',
-    rowClass: 'border-amber-400/20 bg-amber-400/[0.04]',
-    textClass: 'text-amber-200',
+    barClass: 'bg-rose-400',
+    rowClass: 'border-rose-400/20 bg-rose-400/[0.04]',
+    textClass: 'text-rose-700',
     defaultNaics: '332812',
   },
 ]
@@ -176,7 +176,7 @@ function sortNaicsOptions(options: NaicsOption[], preferredCode: string): NaicsO
 
 function StepIndicator({ activeStep }: { activeStep: number }) {
   return (
-    <ol className="flex flex-wrap gap-2 sm:gap-0 sm:divide-x sm:divide-white/10 sm:rounded-xl sm:border sm:border-white/10 sm:bg-slate-950/40 sm:p-1">
+    <ol className="grid gap-2">
       {STEPS.map((step) => {
         const isActive = step.id === activeStep
         const isDone = step.id < activeStep
@@ -184,24 +184,27 @@ function StepIndicator({ activeStep }: { activeStep: number }) {
           <li
             key={step.id}
             className={cn(
-              'flex min-w-[7.5rem] flex-1 items-center gap-3 rounded-lg px-3 py-2.5 transition-colors sm:rounded-md',
-              isActive && 'bg-white/[0.06] ring-1 ring-emerald-300/30',
-              isDone && !isActive && 'opacity-80',
+              'flex items-center gap-3 rounded-md border px-3 py-2.5 transition-colors',
+              isActive && 'border-lime-300 bg-lime-300 text-zinc-950',
+              isDone && !isActive && 'border-white/10 bg-white/10 text-white',
+              !isActive && !isDone && 'border-white/10 text-zinc-300',
             )}
           >
             <span
               className={cn(
-                'flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold',
-                isActive && 'bg-emerald-500 text-emerald-950',
-                isDone && !isActive && 'bg-emerald-500/20 text-emerald-200',
-                !isActive && !isDone && 'border border-white/15 bg-white/5 text-muted-foreground',
+                'flex size-8 shrink-0 items-center justify-center rounded-md text-sm font-semibold',
+                isActive && 'bg-zinc-950 text-lime-300',
+                isDone && !isActive && 'bg-lime-300 text-zinc-950',
+                !isActive && !isDone && 'bg-white/10 text-zinc-300',
               )}
             >
               {isDone && !isActive ? <CheckCircle2 className="size-4" /> : step.id}
             </span>
             <span className="min-w-0">
               <span className="block text-sm font-medium">{step.title}</span>
-              <span className="block truncate text-xs text-muted-foreground">{step.description}</span>
+              <span className={cn('block truncate text-xs', isActive ? 'text-zinc-700' : 'text-zinc-400')}>
+                {step.description}
+              </span>
             </span>
           </li>
         )
@@ -218,7 +221,7 @@ function AllocationBar({
   const barTotal = segments.reduce((sum, seg) => sum + seg.amount, 0)
 
   return (
-    <div className="overflow-hidden rounded-xl border border-white/10 bg-black/20">
+    <div className="overflow-hidden rounded-lg border border-zinc-900/12 bg-zinc-950/5">
       <div className="flex h-4">
         {segments.map((seg) =>
           seg.pct > 0 ? (
@@ -229,7 +232,7 @@ function AllocationBar({
               title={`${seg.label}: ${currency.format(seg.amount)} (${seg.pct.toFixed(1)}%)`}
             >
               {seg.pct >= 12 ? (
-                <span className="absolute inset-0 flex items-center justify-center text-[10px] font-semibold text-slate-950/80 tabular-nums">
+                <span className="absolute inset-0 flex items-center justify-center text-[10px] font-semibold text-zinc-950/80 tabular-nums">
                   {seg.pct.toFixed(0)}%
                 </span>
               ) : null}
@@ -237,7 +240,7 @@ function AllocationBar({
           ) : null,
         )}
       </div>
-      <div className="grid divide-x divide-white/10 sm:grid-cols-3">
+      <div className="grid divide-x divide-zinc-900/12 sm:grid-cols-3">
         {segments.map((seg) => (
           <div key={seg.label} className="px-3 py-2.5">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -251,7 +254,7 @@ function AllocationBar({
         ))}
       </div>
       {barTotal > 0 ? (
-        <div className="border-t border-white/10 px-3 py-2 text-right text-xs text-muted-foreground">
+        <div className="border-t border-zinc-900/12 px-3 py-2 text-right text-xs text-muted-foreground">
           Allocated total{' '}
           <span className="font-mono font-medium text-foreground tabular-nums">
             {currency.format(barTotal)}
@@ -294,7 +297,7 @@ function EmissionsBreakdownChart({
                 {kg.format(item.value)} kg
               </span>
             </div>
-            <div className="h-2 overflow-hidden rounded-full bg-white/10">
+            <div className="h-2 overflow-hidden rounded-full bg-zinc-900/10">
               <div
                 className={cn('h-full rounded-full transition-all duration-500', item.barClass)}
                 style={{ width: `${width}%` }}
@@ -322,8 +325,8 @@ function ResultsPanel({
 }) {
   if (loading) {
     return (
-      <div className="flex min-h-[280px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-white/15 bg-white/[0.02] p-8 text-center">
-        <Loader2 className="size-10 animate-spin text-emerald-300" />
+      <div className="flex min-h-[280px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-zinc-900/15 bg-white/70 p-8 text-center">
+        <Loader2 className="size-10 animate-spin text-lime-700" />
         <p className="text-sm text-muted-foreground">Running spend-based calculation…</p>
       </div>
     )
@@ -331,11 +334,11 @@ function ResultsPanel({
 
   if (error) {
     return (
-      <div className="flex gap-3 rounded-xl border border-red-400/30 bg-red-950/50 p-4">
-        <AlertCircle className="mt-0.5 size-5 shrink-0 text-red-300" />
+      <div className="flex gap-3 rounded-lg border border-red-400/30 bg-red-50 p-4">
+        <AlertCircle className="mt-0.5 size-5 shrink-0 text-red-600" />
         <div>
-          <p className="font-medium text-red-100">Calculation failed</p>
-          <p className="mt-1 text-sm text-red-200/90">{error}</p>
+          <p className="font-medium text-red-900">Calculation failed</p>
+          <p className="mt-1 text-sm text-red-700">{error}</p>
         </div>
       </div>
     )
@@ -343,9 +346,9 @@ function ResultsPanel({
 
   if (!result) {
     return (
-      <div className="flex min-h-[280px] flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-emerald-300/25 bg-emerald-300/[0.03] p-8 text-center">
-        <div className="flex size-14 items-center justify-center rounded-2xl border border-emerald-300/30 bg-emerald-300/10">
-          <Calculator className="size-7 text-emerald-200" />
+      <div className="flex min-h-[280px] flex-col items-center justify-center gap-4 rounded-lg border border-dashed border-lime-300/25 bg-lime-300/[0.03] p-8 text-center">
+        <div className="flex size-14 items-center justify-center rounded-lg border border-lime-300/30 bg-lime-300/10">
+          <Calculator className="size-7 text-lime-700" />
         </div>
         <div className="max-w-xs space-y-1">
           <p className="font-medium text-foreground">Results will appear here</p>
@@ -364,24 +367,24 @@ function ResultsPanel({
 
   return (
     <div className="space-y-5">
-      <div className="relative overflow-hidden rounded-2xl border border-emerald-300/30 bg-gradient-to-br from-emerald-500/15 via-slate-900/80 to-cyan-500/10 p-5">
+      <div className="relative overflow-hidden rounded-lg border border-lime-300/30 bg-gradient-to-br from-lime-500/15 via-white/80 to-teal-500/10 p-5">
         <div
           aria-hidden
-          className="pointer-events-none absolute -right-8 -top-8 size-32 rounded-full bg-emerald-400/20 blur-2xl"
+          className="pointer-events-none absolute -right-8 -top-8 size-32 rounded-full bg-lime-400/20 blur-2xl"
         />
-        <p className="text-xs font-medium uppercase tracking-wider text-emerald-200/80">
+        <p className="text-xs font-medium uppercase tracking-wider text-lime-700/80">
           Total emissions
         </p>
-        <p className="mt-1 font-mono text-4xl font-semibold tracking-tight text-white tabular-nums">
+        <p className="mt-1 font-mono text-4xl font-semibold tracking-tight text-zinc-950 tabular-nums">
           {kg.format(result.emissions.total)}
-          <span className="ml-2 text-lg font-normal text-emerald-200/90">kg CO₂e</span>
+          <span className="ml-2 text-lg font-normal text-lime-700/90">kg CO₂e</span>
         </p>
         <div className="mt-4 flex flex-wrap gap-2 text-xs">
-          <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 font-mono text-emerald-100">
+          <span className="rounded-full border border-zinc-900/12 bg-zinc-950/5 px-2.5 py-1 font-mono text-lime-800">
             {result.invoice_id}
           </span>
           {totalSgd > 0 ? (
-            <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-muted-foreground">
+            <span className="rounded-full border border-zinc-900/12 bg-zinc-950/5 px-2.5 py-1 text-muted-foreground">
               {currency.format(totalSgd)} · {year}
             </span>
           ) : null}
@@ -389,13 +392,13 @@ function ResultsPanel({
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+        <div className="rounded-lg border border-zinc-900/12 bg-white/70 p-3">
           <p className="text-xs text-muted-foreground">Spend (2022 USD)</p>
-          <p className="mt-1 font-mono text-lg text-cyan-200 tabular-nums">{usd.format(totalCostUsd)}</p>
+          <p className="mt-1 font-mono text-lg text-teal-700 tabular-nums">{usd.format(totalCostUsd)}</p>
         </div>
-        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+        <div className="rounded-lg border border-zinc-900/12 bg-white/70 p-3">
           <p className="text-xs text-muted-foreground">Intensity</p>
-          <p className="mt-1 font-mono text-lg text-emerald-200 tabular-nums">
+          <p className="mt-1 font-mono text-lg text-lime-700 tabular-nums">
             {totalCostUsd > 0
               ? (result.emissions.total / totalCostUsd).toFixed(2)
               : '—'}{' '}
@@ -409,7 +412,7 @@ function ResultsPanel({
         <EmissionsBreakdownChart result={result} />
       </div>
 
-      <div className="space-y-2 border-t border-white/10 pt-4">
+      <div className="space-y-2 border-t border-zinc-900/12 pt-4">
         <p className="text-sm font-medium text-muted-foreground">2022 USD cost breakdown</p>
         {CATEGORIES.map((cat) => {
           const costKey =
@@ -422,13 +425,13 @@ function ResultsPanel({
           return (
             <div
               key={cat.id}
-              className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2.5 text-sm"
+              className="flex items-center justify-between rounded-lg border border-zinc-900/12 bg-white/70 px-3 py-2.5 text-sm"
             >
               <span className="flex items-center gap-2">
                 <cat.icon className={cn('size-4', cat.textClass)} />
                 {cat.label}
               </span>
-              <span className="font-mono text-cyan-100/90 tabular-nums">{usd.format(value)}</span>
+              <span className="font-mono text-teal-800/90 tabular-nums">{usd.format(value)}</span>
             </div>
           )
         })}
@@ -453,114 +456,114 @@ function CalculationProcessPanel({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-amber-400/25 bg-amber-400/5 p-4">
-        <p className="mb-3 font-medium text-amber-100">Step 1: SGD to USD</p>
+      <div className="rounded-lg border border-rose-400/25 bg-rose-400/5 p-4">
+        <p className="mb-3 font-medium text-rose-800">Step 1: SGD to USD</p>
         <p className="mb-3 text-xs text-muted-foreground">
           FX rate: 1 SGD = {usd.format(calc.fx_rate)} USD
         </p>
         <div className="space-y-3 text-sm">
-          <div className="space-y-1.5 rounded-lg border border-white/10 bg-black/20 p-3">
+          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
             <p className="flex items-center gap-2 text-muted-foreground">
-              <Layers className="text-emerald-400" />
+              <Layers className="text-lime-400" />
               Raw material
             </p>
-            <p className="font-mono tabular-nums text-amber-200">
+            <p className="font-mono tabular-nums text-rose-700">
               {currency.format(calc.sgd_amounts.raw_material)} * {calc.fx_rate.toFixed(4)} = {usd.format(calc.usd_amounts.raw_material)}
             </p>
           </div>
-          <div className="space-y-1.5 rounded-lg border border-white/10 bg-black/20 p-3">
+          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
             <p className="flex items-center gap-2 text-muted-foreground">
-              <Cog className="text-cyan-400" />
+              <Cog className="text-teal-400" />
               Fabrication
             </p>
-            <p className="font-mono tabular-nums text-amber-200">
+            <p className="font-mono tabular-nums text-rose-700">
               {currency.format(calc.sgd_amounts.fabrication)} * {calc.fx_rate.toFixed(4)} = {usd.format(calc.usd_amounts.fabrication)}
             </p>
           </div>
-          <div className="space-y-1.5 rounded-lg border border-white/10 bg-black/20 p-3">
+          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
             <p className="flex items-center gap-2 text-muted-foreground">
-              <Paintbrush className="text-amber-400" />
+              <Paintbrush className="text-rose-400" />
               Surface treatment
             </p>
-            <p className="font-mono tabular-nums text-amber-200">
+            <p className="font-mono tabular-nums text-rose-700">
               {currency.format(calc.sgd_amounts.surface_treatment)} * {calc.fx_rate.toFixed(4)} = {usd.format(calc.usd_amounts.surface_treatment)}
             </p>
           </div>
         </div>
       </div>
 
-      <div className="rounded-xl border border-cyan-400/25 bg-cyan-400/5 p-4">
-        <p className="mb-3 font-medium text-cyan-100">Step 2: USD Inflation Adjustment</p>
+      <div className="rounded-lg border border-teal-400/25 bg-teal-400/5 p-4">
+        <p className="mb-3 font-medium text-teal-800">Step 2: USD Inflation Adjustment</p>
         <p className="mb-3 text-xs text-muted-foreground">
           Inflation index: {calc.inflation_index.toFixed(2)} ({calc.year} to 2022)
         </p>
         <div className="space-y-3 text-sm">
-          <div className="space-y-1.5 rounded-lg border border-white/10 bg-black/20 p-3">
+          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
             <p className="flex items-center gap-2 text-muted-foreground">
-              <Layers className="text-emerald-400" />
+              <Layers className="text-lime-400" />
               Raw material
             </p>
-            <p className="font-mono tabular-nums text-cyan-200">
+            <p className="font-mono tabular-nums text-teal-700">
               {usd.format(calc.usd_amounts.raw_material)} * (100 / {calc.inflation_index.toFixed(2)}) = {usd.format(calc.usd2022_amounts.raw_material)}
             </p>
           </div>
-          <div className="space-y-1.5 rounded-lg border border-white/10 bg-black/20 p-3">
+          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
             <p className="flex items-center gap-2 text-muted-foreground">
-              <Cog className="text-cyan-400" />
+              <Cog className="text-teal-400" />
               Fabrication
             </p>
-            <p className="font-mono tabular-nums text-cyan-200">
+            <p className="font-mono tabular-nums text-teal-700">
               {usd.format(calc.usd_amounts.fabrication)} * (100 / {calc.inflation_index.toFixed(2)}) = {usd.format(calc.usd2022_amounts.fabrication)}
             </p>
           </div>
-          <div className="space-y-1.5 rounded-lg border border-white/10 bg-black/20 p-3">
+          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
             <p className="flex items-center gap-2 text-muted-foreground">
-              <Paintbrush className="text-amber-400" />
+              <Paintbrush className="text-rose-400" />
               Surface treatment
             </p>
-            <p className="font-mono tabular-nums text-cyan-200">
+            <p className="font-mono tabular-nums text-teal-700">
               {usd.format(calc.usd_amounts.surface_treatment)} * (100 / {calc.inflation_index.toFixed(2)}) = {usd.format(calc.usd2022_amounts.surface_treatment)}
             </p>
           </div>
         </div>
       </div>
 
-      <div className="rounded-xl border border-emerald-400/25 bg-emerald-400/5 p-4">
-        <p className="mb-3 font-medium text-emerald-100">Step 3: Calculate Emissions</p>
+      <div className="rounded-lg border border-lime-400/25 bg-lime-400/5 p-4">
+        <p className="mb-3 font-medium text-lime-800">Step 3: Calculate Emissions</p>
         <p className="mb-3 text-xs text-muted-foreground">
           Emission factor (kg CO2e per USD)
         </p>
         <div className="space-y-3 text-sm">
-          <div className="space-y-1.5 rounded-lg border border-white/10 bg-black/20 p-3">
+          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
             <p className="flex items-center gap-2 text-muted-foreground">
-              <Layers className="text-emerald-400" />
+              <Layers className="text-lime-400" />
               Raw material
             </p>
-            <p className="font-mono tabular-nums text-emerald-200">
+            <p className="font-mono tabular-nums text-lime-700">
               {usd.format(calc.usd2022_amounts.raw_material)} * {calc.factors.raw_material.toFixed(4)} = {kg.format(result.emissions.raw_material)} kg
             </p>
           </div>
-          <div className="space-y-1.5 rounded-lg border border-white/10 bg-black/20 p-3">
+          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
             <p className="flex items-center gap-2 text-muted-foreground">
-              <Cog className="text-cyan-400" />
+              <Cog className="text-teal-400" />
               Fabrication
             </p>
-            <p className="font-mono tabular-nums text-emerald-200">
+            <p className="font-mono tabular-nums text-lime-700">
               {usd.format(calc.usd2022_amounts.fabrication)} * {calc.factors.fabrication.toFixed(4)} = {kg.format(result.emissions.fabrication)} kg
             </p>
           </div>
-          <div className="space-y-1.5 rounded-lg border border-white/10 bg-black/20 p-3">
+          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
             <p className="flex items-center gap-2 text-muted-foreground">
-              <Paintbrush className="text-amber-400" />
+              <Paintbrush className="text-rose-400" />
               Surface treatment
             </p>
-            <p className="font-mono tabular-nums text-emerald-200">
+            <p className="font-mono tabular-nums text-lime-700">
               {usd.format(calc.usd2022_amounts.surface_treatment)} * {calc.factors.surface_treatment.toFixed(4)} = {kg.format(result.emissions.surface_treatment)} kg
             </p>
           </div>
-          <div className="flex items-center justify-between rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-2.5 text-sm font-medium">
-            <span className="text-emerald-100">Total Emissions</span>
-            <span className="font-mono text-emerald-200 tabular-nums">{kg.format(result.emissions.total)} kg CO2e</span>
+          <div className="flex items-center justify-between rounded-lg border border-lime-400/30 bg-lime-500/10 px-3 py-2.5 text-sm font-medium">
+            <span className="text-lime-800">Total Emissions</span>
+            <span className="font-mono text-lime-700 tabular-nums">{kg.format(result.emissions.total)} kg CO2e</span>
           </div>
         </div>
       </div>
@@ -773,11 +776,11 @@ function Method1Page() {
 
   return (
     <AppBackground>
-      <section className="relative z-10 mx-auto flex w-full max-w-6xl flex-col gap-8 pb-16">
-        <header className="space-y-6">
+      <section className="relative z-10 mx-auto grid w-full max-w-7xl gap-4 pb-8 lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[15rem_minmax(0,1fr)_23rem]">
+        <aside className="rounded-lg bg-zinc-950 p-5 text-white lg:sticky lg:top-4 lg:self-start">
           <Button
             variant="ghost"
-            className="-ml-2 text-muted-foreground hover:text-foreground"
+            className="-ml-2 mb-8 text-zinc-300 hover:bg-white/10 hover:text-white"
             onClick={() => {
               window.location.hash = ''
             }}
@@ -786,20 +789,27 @@ function Method1Page() {
             Back to workflows
           </Button>
 
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-2xl space-y-4">
-              <div className="flex size-12 items-center justify-center rounded-xl border border-emerald-300/20 bg-emerald-300/10 text-emerald-200">
+          <div className="space-y-5">
+            <div className="flex size-12 items-center justify-center rounded-md bg-lime-300 text-zinc-950">
                 <FileSpreadsheet className="size-6" />
               </div>
-              <h1 className="bg-gradient-to-br from-white via-slate-100 to-emerald-200 bg-clip-text text-4xl font-semibold tracking-tight text-transparent sm:text-5xl">
+              <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-lime-300">USEEIO</p>
+              <h1 className="mt-3 text-4xl font-semibold tracking-tight">
                 Method 1
               </h1>
-              <p className="text-lg leading-relaxed text-muted-foreground">
+              </div>
+              <p className="text-sm leading-6 text-zinc-300">
                 Spend-based calculator for invoice-level carbon estimates. Allocate spend across
                 manufacturing stages and apply sector emission factors.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+
+          <div className="mt-8 border-t border-white/10 pt-5">
+            <StepIndicator activeStep={result ? 2 : activeStep} />
+          </div>
+
+          <div className="mt-8 grid gap-2">
               <Button type="button" variant="outline" size="sm" onClick={loadDemo}>
                 <Sparkles />
                 Load demo
@@ -807,23 +817,39 @@ function Method1Page() {
               <Button type="button" variant="ghost" size="sm" onClick={resetForm}>
                 Reset
               </Button>
-            </div>
           </div>
+        </aside>
 
-          <StepIndicator activeStep={result ? 2 : activeStep} />
-        </header>
+        <form onSubmit={handleCalculate} className="contents">
+          <div className="space-y-4">
+            <div className="rounded-lg border border-zinc-900/12 bg-white p-5 shadow-sm">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">Calculation workspace</p>
+                  <h2 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-950">Invoice allocation</h2>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div className="rounded-md bg-zinc-950 px-4 py-3 text-white">
+                    <p className="text-xs text-zinc-400">Invoice total</p>
+                    <p className="mt-1 font-mono text-lg">{hasInvoiceTotal ? currency.format(totalSgd) : '—'}</p>
+                  </div>
+                  <div className="rounded-md bg-lime-200 px-4 py-3 text-lime-950">
+                    <p className="text-xs text-lime-950/70">Allocated</p>
+                    <p className="mt-1 font-mono text-lg">{allocationSum > 0 ? currency.format(allocationSum) : '—'}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
 
-        <form onSubmit={handleCalculate} className="grid items-start gap-6 lg:grid-cols-[1fr_22rem] xl:grid-cols-[1fr_24rem]">
-          <div className="space-y-5">
-            <Card className="border-white/10 bg-slate-950/55 shadow-lg shadow-black/20 backdrop-blur-xl">
-              <CardHeader className="pb-4">
+            <Card className="overflow-hidden border-zinc-900/12 bg-white shadow-sm">
+              <CardHeader className="border-b border-zinc-900/10 bg-zinc-950 px-5 py-4 text-white">
                 <div className="flex items-center gap-3">
-                  <span className="flex size-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-sm font-semibold text-emerald-200">
+                  <span className="flex size-9 items-center justify-center rounded-md bg-lime-300 text-sm font-semibold text-zinc-950">
                     1
                   </span>
                   <div>
                     <CardTitle>Invoice details</CardTitle>
-                    <CardDescription>Spend record and reporting year for FX adjustment.</CardDescription>
+                    <CardDescription className="text-zinc-300">Spend record and reporting year for FX adjustment.</CardDescription>
                   </div>
                 </div>
               </CardHeader>
@@ -866,11 +892,11 @@ function Method1Page() {
               </CardContent>
             </Card>
 
-            <Card className="border-white/10 bg-slate-950/55 shadow-lg shadow-black/20 backdrop-blur-xl">
-              <CardHeader className="pb-4">
+            <Card className="overflow-hidden border-zinc-900/12 bg-white shadow-sm">
+              <CardHeader className="border-b border-zinc-900/10 bg-[#faf8f1] pb-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <span className="flex size-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-sm font-semibold text-emerald-200">
+                    <span className="flex size-9 items-center justify-center rounded-md bg-zinc-950 text-sm font-semibold text-lime-300">
                       2
                     </span>
                     <div>
@@ -904,7 +930,7 @@ function Method1Page() {
               </CardHeader>
               <CardContent className="space-y-5">
                 {!hasInvoiceTotal ? (
-                  <div className="flex gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-muted-foreground">
+                  <div className="flex gap-3 rounded-lg border border-zinc-900/12 bg-white/70 px-3 py-2.5 text-sm text-muted-foreground">
                     <CircleDollarSign className="mt-0.5 size-4 shrink-0" />
                     Enter the invoice total above before allocating amounts.
                   </div>
@@ -916,8 +942,8 @@ function Method1Page() {
                   className={cn(
                     'flex flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-sm',
                     allocationValid
-                      ? 'border border-emerald-400/25 bg-emerald-400/10 text-emerald-100'
-                      : 'border border-amber-400/25 bg-amber-400/10 text-amber-100',
+                      ? 'border border-lime-400/25 bg-lime-400/10 text-lime-800'
+                      : 'border border-rose-400/25 bg-rose-400/10 text-rose-800',
                   )}
                 >
                   <span className="flex items-center gap-2">
@@ -940,15 +966,15 @@ function Method1Page() {
                   </span>
                 </div>
 
-                <div className="overflow-hidden rounded-xl border border-white/10">
-                  <div className="hidden bg-white/[0.04] px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground sm:grid sm:grid-cols-[1.2fr_9rem_4rem_minmax(13rem,1.2fr)] sm:gap-3">
+                <div className="overflow-hidden rounded-lg border border-zinc-900/12">
+                  <div className="hidden bg-zinc-950/5 px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground sm:grid sm:grid-cols-[1.2fr_9rem_4rem_minmax(13rem,1.2fr)] sm:gap-3">
                     <span>Component</span>
                     <span>Amount (SGD)</span>
                     <span className="text-right">Share</span>
                     <span>NAICS sector</span>
                   </div>
 
-                  <div className="divide-y divide-white/10">
+                  <div className="divide-y divide-zinc-900/12">
                     {categoryAmounts.map((cat) => {
                       const pct = allocationPercentages[cat.id]
                       const selectedNaics = naicsByCode.get(form[cat.naicsKey])
@@ -965,7 +991,7 @@ function Method1Page() {
                           <div className="flex min-w-0 items-center gap-3">
                             <span
                               className={cn(
-                                'flex size-9 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-black/20',
+                                'flex size-9 shrink-0 items-center justify-center rounded-lg border border-zinc-900/12 bg-zinc-950/5',
                                 cat.textClass,
                               )}
                             >
@@ -1038,7 +1064,7 @@ function Method1Page() {
                               {selectedNaics?.description ?? 'Select a NAICS sector for this line.'}
                             </p>
                             {selectedNaics?.kgco2e_per_usd != null ? (
-                              <p className="font-mono text-[11px] text-emerald-200/80 tabular-nums">
+                              <p className="font-mono text-[11px] text-lime-700/80 tabular-nums">
                                 {selectedNaics.kgco2e_per_usd.toFixed(2)} kg CO₂e / USD
                               </p>
                             ) : null}
@@ -1054,7 +1080,7 @@ function Method1Page() {
             <Button
               type="submit"
               size="lg"
-              className="h-12 w-full bg-emerald-600 text-base text-white shadow-lg shadow-emerald-950/50 hover:bg-emerald-500"
+              className="h-12 w-full bg-lime-600 text-base text-white shadow-lg shadow-lime-900/20 hover:bg-lime-500"
               disabled={loading || !allocationValid}
             >
               {loading ? (
@@ -1072,13 +1098,13 @@ function Method1Page() {
 
             {historyItems.length > 0 ? (
               <div className="mt-4">
-                <Card className="border-white/10 bg-slate-950/55 shadow-lg shadow-black/20 backdrop-blur-xl">
-                  <CardHeader className="pb-3">
+                <Card className="overflow-hidden border-zinc-900/12 bg-white shadow-sm">
+                  <CardHeader className="border-b border-zinc-900/10 bg-[#faf8f1] pb-3">
                     <CardTitle>History</CardTitle>
                     <CardDescription>Latest 5 calculations.</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-2">
+                    <div className="divide-y divide-zinc-900/10 overflow-hidden rounded-md border border-zinc-900/10">
                       {historyItems.map((item, idx) => (
                         <button
                           key={`${item.invoiceId}-${item.year}-${idx}`}
@@ -1087,13 +1113,13 @@ function Method1Page() {
                             setSelectedHistory(item)
                             setHistoryOpen(true)
                           }}
-                          className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.06]"
+                          className="w-full bg-white px-3 py-3 text-left transition-colors hover:bg-lime-50"
                         >
                           <div className="flex items-center justify-between gap-3">
-                            <span className="min-w-0 truncate font-mono text-sm text-emerald-100">
+                            <span className="min-w-0 truncate font-mono text-sm text-lime-800">
                               {item.invoiceId}
                             </span>
-                            <span className="shrink-0 font-mono text-sm text-emerald-200">
+                            <span className="shrink-0 font-mono text-sm text-lime-700">
                               {kg.format(item.totalKgCo2e)} kg CO₂e
                             </span>
                           </div>
@@ -1109,7 +1135,7 @@ function Method1Page() {
               <div
                 role="dialog"
                 aria-modal="true"
-                className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-3 sm:items-center"
+                className="fixed inset-0 z-50 flex items-end justify-center bg-zinc-950/50 p-3 sm:items-center"
                 onMouseDown={(e) => {
                   if (e.target === e.currentTarget) {
                     setHistoryOpen(false)
@@ -1117,12 +1143,12 @@ function Method1Page() {
                   }
                 }}
               >
-                <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-white/10 bg-slate-950 shadow-2xl">
-                  <div className="flex items-start justify-between gap-3 border-b border-white/10 bg-white/[0.03] px-4 py-4">
+                <div className="w-full max-w-xl overflow-hidden rounded-lg border border-zinc-900/12 bg-white shadow-2xl">
+                  <div className="flex items-start justify-between gap-3 border-b border-zinc-900/12 bg-white/70 px-4 py-4">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-white/90">Invoice</p>
+                      <p className="text-sm font-medium text-zinc-900">Invoice</p>
                       <div className="mt-1 flex items-baseline gap-3">
-                        <p className="truncate font-mono text-lg font-semibold text-emerald-100">
+                        <p className="truncate font-mono text-lg font-semibold text-lime-800">
                           {selectedHistory.invoiceId}
                         </p>
 
@@ -1130,7 +1156,7 @@ function Method1Page() {
                     </div>
                     <button
                       type="button"
-                      className="rounded-lg p-2 text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
+                      className="rounded-lg p-2 text-muted-foreground hover:bg-lime-50 hover:text-foreground"
                       onClick={() => {
                         setHistoryOpen(false)
                         setSelectedHistory(null)
@@ -1141,7 +1167,7 @@ function Method1Page() {
                   </div>
 
                   <div className="space-y-4 px-4 py-4">
-                    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                    <div className="rounded-lg border border-zinc-900/12 bg-white/70 p-4">
                       <div className="mb-2 flex items-baseline justify-between gap-3">
                         <p className="text-sm font-medium text-muted-foreground">Cost & FX</p>
                         <p className="text-xs text-muted-foreground">
@@ -1151,24 +1177,24 @@ function Method1Page() {
                       <div className="space-y-2 text-sm">
                         {selectedHistory.calc.sgd_amounts.raw_material > 0 ? (
                           <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground">Raw material : <span className="font-mono text-emerald-200 tabular-nums">{selectedHistory.naics.raw}</span></span>
-                            <span className="font-mono text-emerald-200 tabular-nums">
+                            <span className="text-muted-foreground">Raw material : <span className="font-mono text-lime-700 tabular-nums">{selectedHistory.naics.raw}</span></span>
+                            <span className="font-mono text-lime-700 tabular-nums">
                               {currency.format(selectedHistory.calc.sgd_amounts.raw_material)} * {selectedHistory.calc.fx_rate.toFixed(4)} = {usd.format(selectedHistory.calc.usd_amounts.raw_material)}
                             </span>
                           </div>
                         ) : null}
                         {selectedHistory.calc.sgd_amounts.fabrication > 0 ? (
                           <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground">Fabrication :  <span className="font-mono text-cyan-200 tabular-nums">{selectedHistory.naics.fabrication}</span></span>
-                            <span className="font-mono text-cyan-200 tabular-nums">
+                            <span className="text-muted-foreground">Fabrication :  <span className="font-mono text-teal-700 tabular-nums">{selectedHistory.naics.fabrication}</span></span>
+                            <span className="font-mono text-teal-700 tabular-nums">
                               {currency.format(selectedHistory.calc.sgd_amounts.fabrication)} * {selectedHistory.calc.fx_rate.toFixed(4)} = {usd.format(selectedHistory.calc.usd_amounts.fabrication)}
                             </span>
                           </div>
                         ) : null}
                         {selectedHistory.calc.sgd_amounts.surface_treatment > 0 ? (
                           <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground">Surface treatment :  <span className="font-mono text-amber-200 tabular-nums">{selectedHistory.naics.surface}</span></span>
-                            <span className="font-mono text-amber-200 tabular-nums">
+                            <span className="text-muted-foreground">Surface treatment :  <span className="font-mono text-rose-700 tabular-nums">{selectedHistory.naics.surface}</span></span>
+                            <span className="font-mono text-rose-700 tabular-nums">
                               {currency.format(selectedHistory.calc.sgd_amounts.surface_treatment)} * {selectedHistory.calc.fx_rate.toFixed(4)} = {usd.format(selectedHistory.calc.usd_amounts.surface_treatment)}
                             </span>
                           </div>
@@ -1176,7 +1202,7 @@ function Method1Page() {
                       </div>
                     </div>
 
-                    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                    <div className="rounded-lg border border-zinc-900/12 bg-white/70 p-4">
                       <div className="mb-2 flex items-baseline justify-between gap-3">
                         <p className="text-sm font-medium text-muted-foreground">Year inflation adjustment</p>
                         <p className="text-xs text-muted-foreground">
@@ -1186,24 +1212,24 @@ function Method1Page() {
                       <div className="space-y-2 text-sm">
                         {selectedHistory.calc.sgd_amounts.raw_material > 0 ? (
                           <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground">Raw material : <span className="font-mono text-emerald-200 tabular-nums">{selectedHistory.naics.raw}</span></span>
-                            <span className="font-mono text-emerald-200 tabular-nums">
+                            <span className="text-muted-foreground">Raw material : <span className="font-mono text-lime-700 tabular-nums">{selectedHistory.naics.raw}</span></span>
+                            <span className="font-mono text-lime-700 tabular-nums">
                               {usd.format(selectedHistory.calc.usd_amounts.raw_material)} * (100 / {selectedHistory.calc.inflation_index.toFixed(2)}) = {usd.format(selectedHistory.calc.usd2022_amounts.raw_material)}
                             </span>
                           </div>
                         ) : null}
                         {selectedHistory.calc.sgd_amounts.fabrication > 0 ? (
                           <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground">Fabrication :  <span className="font-mono text-cyan-200 tabular-nums">{selectedHistory.naics.fabrication}</span></span>
-                            <span className="font-mono text-cyan-200 tabular-nums">
+                            <span className="text-muted-foreground">Fabrication :  <span className="font-mono text-teal-700 tabular-nums">{selectedHistory.naics.fabrication}</span></span>
+                            <span className="font-mono text-teal-700 tabular-nums">
                               {usd.format(selectedHistory.calc.usd_amounts.fabrication)} * (100 / {selectedHistory.calc.inflation_index.toFixed(2)}) = {usd.format(selectedHistory.calc.usd2022_amounts.fabrication)}
                             </span>
                           </div>
                         ) : null}
                         {selectedHistory.calc.sgd_amounts.surface_treatment > 0 ? (
                           <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground">Surface treatment :  <span className="font-mono text-amber-200 tabular-nums">{selectedHistory.naics.surface}</span></span>
-                            <span className="font-mono text-amber-200 tabular-nums">
+                            <span className="text-muted-foreground">Surface treatment :  <span className="font-mono text-rose-700 tabular-nums">{selectedHistory.naics.surface}</span></span>
+                            <span className="font-mono text-rose-700 tabular-nums">
                               {usd.format(selectedHistory.calc.usd_amounts.surface_treatment)} * (100 / {selectedHistory.calc.inflation_index.toFixed(2)}) = {usd.format(selectedHistory.calc.usd2022_amounts.surface_treatment)}
                             </span>
                           </div>
@@ -1211,15 +1237,15 @@ function Method1Page() {
                       </div>
                     </div>
 
-                    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                    <div className="rounded-lg border border-zinc-900/12 bg-white/70 p-4">
                       <p className="mb-3 text-sm font-medium text-muted-foreground">NAICS & kg CO₂e</p>
                       <div className="space-y-2 text-sm">
                         {selectedHistory.naics.raw && selectedHistory.calc.sgd_amounts.raw_material > 0 ? (
                           <div className="flex items-center justify-between gap-3">
                             <span className="text-muted-foreground">
-                              Raw material : <span className="font-mono text-emerald-200 tabular-nums">{selectedHistory.naics.raw}</span>
+                              Raw material : <span className="font-mono text-lime-700 tabular-nums">{selectedHistory.naics.raw}</span>
                             </span>
-                            <span className="font-mono text-emerald-200 tabular-nums">
+                            <span className="font-mono text-lime-700 tabular-nums">
                               {usd.format(selectedHistory.calc.usd2022_amounts.raw_material)} * {((naicsByCode.get(selectedHistory.naics.raw)?.kgco2e_per_usd ?? NaN)).toFixed(2)} = {kg.format(selectedHistory.calc.usd2022_amounts.raw_material * (naicsByCode.get(selectedHistory.naics.raw)?.kgco2e_per_usd ?? 0))} kg CO₂e
                             </span>
                           </div>
@@ -1227,20 +1253,20 @@ function Method1Page() {
                         {selectedHistory.naics.fabrication && selectedHistory.calc.sgd_amounts.fabrication > 0 ? (
                           <div className="flex items-center justify-between gap-3">
                             <span className="text-muted-foreground">
-                              Fabrication :  <span className="font-mono text-cyan-200 tabular-nums">{selectedHistory.naics.fabrication}</span>
+                              Fabrication :  <span className="font-mono text-teal-700 tabular-nums">{selectedHistory.naics.fabrication}</span>
                             </span>
-                            <span className="font-mono text-cyan-200 tabular-nums">
-                              {usd.format(selectedHistory.calc.usd2022_amounts.fabrication)} * {(naicsByCode.get(selectedHistory.naics.fabrication)?.kgco2e_per_usd ?? NaN).toFixed(2)} = {kg.format(result.emissions.fabrication)} kg CO₂e
+                            <span className="font-mono text-teal-700 tabular-nums">
+                              {usd.format(selectedHistory.calc.usd2022_amounts.fabrication)} * {(naicsByCode.get(selectedHistory.naics.fabrication)?.kgco2e_per_usd ?? NaN).toFixed(2)} = {kg.format(selectedHistory.calc.usd2022_amounts.fabrication * (naicsByCode.get(selectedHistory.naics.fabrication)?.kgco2e_per_usd ?? 0))} kg CO₂e
                             </span>
                           </div>
                         ) : null}
                         {selectedHistory.naics.surface && selectedHistory.calc.sgd_amounts.surface_treatment > 0 ? (
                           <div className="flex items-center justify-between gap-3">
                             <span className="text-muted-foreground">
-                              Surface treatment :  <span className="font-mono text-amber-200 tabular-nums">{selectedHistory.naics.surface}</span>
+                              Surface treatment :  <span className="font-mono text-rose-700 tabular-nums">{selectedHistory.naics.surface}</span>
                             </span>
-                            <span className="font-mono text-amber-200 tabular-nums">
-                              {usd.format(selectedHistory.calc.usd2022_amounts.surface_treatment)} * {(naicsByCode.get(selectedHistory.naics.surface)?.kgco2e_per_usd ?? NaN).toFixed(2)} = {kg.format(result.emissions.surface_treatment)} kg CO₂e
+                            <span className="font-mono text-rose-700 tabular-nums">
+                              {usd.format(selectedHistory.calc.usd2022_amounts.surface_treatment)} * {(naicsByCode.get(selectedHistory.naics.surface)?.kgco2e_per_usd ?? NaN).toFixed(2)} = {kg.format(selectedHistory.calc.usd2022_amounts.surface_treatment * (naicsByCode.get(selectedHistory.naics.surface)?.kgco2e_per_usd ?? 0))} kg CO₂e
                             </span>
                           </div>
                         ) : null}
@@ -1249,9 +1275,9 @@ function Method1Page() {
                         ) : null}
                       </div>
                     </div>
-                    <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
+                    <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-900/12 bg-white/70 px-4 py-3">
                     <span className="text-sm font-medium text-muted-foreground">Total</span>
-                    <span className="font-mono text-sm text-emerald-200 tabular-nums">
+                    <span className="font-mono text-sm text-lime-700 tabular-nums">
                       {kg.format(selectedHistory.totalKgCo2e)} kg CO₂e
                     </span>
                   </div>
@@ -1264,11 +1290,11 @@ function Method1Page() {
           </div>
 
 
-          <aside className="lg:sticky lg:top-8">
-            <Card className="border-white/10 bg-slate-950/60 shadow-xl shadow-black/30 backdrop-blur-xl">
-              <CardHeader>
+          <aside className="space-y-4 lg:col-start-2 xl:sticky xl:top-4 xl:col-start-3 xl:self-start">
+            <Card className="overflow-hidden border-zinc-900/12 bg-white shadow-sm">
+              <CardHeader className="border-b border-zinc-900/10 bg-zinc-950 text-white">
                 <CardTitle>Results</CardTitle>
-                <CardDescription>Live output from your calculation.</CardDescription>
+                <CardDescription className="text-zinc-300">Live output from your calculation.</CardDescription>
               </CardHeader>
               <CardContent>
                 <ResultsPanel
@@ -1281,8 +1307,8 @@ function Method1Page() {
               </CardContent>
             </Card>
 
-            <Card className="mt-4 border-white/10 bg-slate-950/60 shadow-xl shadow-black/30 backdrop-blur-xl">
-              <CardHeader>
+            <Card className="overflow-hidden border-zinc-900/12 bg-white shadow-sm">
+              <CardHeader className="border-b border-zinc-900/10 bg-[#faf8f1]">
                 <CardTitle>Calculation Process</CardTitle>
                 <CardDescription>Step-by-step breakdown of the calculation.</CardDescription>
               </CardHeader>

@@ -6,11 +6,13 @@ node_modules/
 out/
 dist/
 release/
+graphify-out/
 
 # Vite / tooling caches
 .vite/
 .turbo/
 .cache/
+.codex/
 
 # Package manager artifacts
 package-lock.json

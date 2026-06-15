@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 
 import Method1Page from '@/pages/Method1Page'
+import { AppBackground } from '@/components/AppBackground'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -27,6 +28,11 @@ const modules = [
     href: '#naics-mapping',
     description:
       'Map portfolio companies or spend categories to NAICS codes before calculating emissions factors.',
+    bullets: [
+      'Upload or review company and supplier spend records.',
+      'Search NAICS sectors and assign the right industry code.',
+      'Prepare mapped records for Method 1, Method 2, or Method 3.',
+    ],
   },
   {
     icon: FileSpreadsheet,
@@ -72,76 +78,72 @@ const sampleMappings = [
   },
 ]
 
-function AppBackground({ children }: { children: React.ReactNode }) {
-  return (
-    <main className="relative isolate min-h-screen overflow-hidden bg-[#071014] px-6 py-10">
-      <div
-        aria-hidden="true"
-        className="absolute inset-0 -z-20 bg-[radial-gradient(circle_at_18%_12%,rgba(34,197,94,0.2),transparent_28%),radial-gradient(circle_at_82%_20%,rgba(14,165,233,0.18),transparent_26%),linear-gradient(135deg,#071014_0%,#0d171c_44%,#111827_100%)]"
-      />
-      <div
-        aria-hidden="true"
-        className="absolute inset-0 -z-10 opacity-[0.18] [background-image:linear-gradient(rgba(255,255,255,0.18)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.18)_1px,transparent_1px)] [background-size:48px_48px]"
-      />
-      <div
-        aria-hidden="true"
-        className="absolute -left-24 top-24 -z-10 h-72 w-96 border border-emerald-300/20 bg-emerald-400/10 [clip-path:polygon(0_18%,72%_0,100%_48%,42%_100%,0_82%)]"
-      />
-      <div
-        aria-hidden="true"
-        className="absolute -right-28 bottom-10 -z-10 h-96 w-[32rem] border border-cyan-300/20 bg-cyan-400/10 [clip-path:polygon(22%_0,100%_16%,82%_100%,0_76%)]"
-      />
-      <div
-        aria-hidden="true"
-        className="absolute right-16 top-28 -z-10 h-40 w-56 rotate-12 border border-white/10 bg-white/[0.03] [clip-path:polygon(10%_0,100%_0,74%_100%,0_68%)]"
-      />
-
-      {children}
-    </main>
-  )
-}
-
 function HomePage() {
   return (
     <AppBackground>
-      <section className="relative z-10 mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-5xl flex-col justify-center gap-10">
-        <div className="mx-auto max-w-3xl space-y-4 text-center">
-          <h1 className="bg-gradient-to-br from-white via-slate-100 to-emerald-200 bg-clip-text text-4xl font-semibold tracking-tight text-balance text-transparent sm:text-6xl">
-            PE CarbonSpend Calculator
-          </h1>
-          <p className="mx-auto max-w-2xl text-lg text-muted-foreground">
+      <section className="relative z-10 mx-auto grid min-h-[calc(100vh-2rem)] w-full max-w-7xl gap-4 lg:grid-cols-[16rem_1fr]">
+        <aside className="flex flex-col justify-between rounded-lg bg-zinc-950 p-5 text-white shadow-2xl shadow-zinc-950/20">
+          <div>
+            <div className="mb-10 flex size-12 items-center justify-center rounded-md bg-lime-300 text-zinc-950">
+              <Workflow className="size-6" />
+            </div>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-lime-300">Workspace</p>
+            <h1 className="mt-3 text-3xl font-semibold leading-tight tracking-tight">
+              PE CarbonSpend Calculator
+            </h1>
+          </div>
+          <p className="mt-8 text-sm leading-6 text-zinc-300">
             Select a workflow to map sectors, apply emissions calculation methods, and prepare spend-based
             carbon estimates for portfolio analysis.
           </p>
-        </div>
+        </aside>
 
-        <div className="flex flex-col gap-4">
-          {modules.map((module) => (
-            <a
-              key={module.title}
-              href={module.href}
-              className="group rounded-xl border border-white/10 bg-slate-950/55 py-6 text-left text-card-foreground shadow-sm backdrop-blur-xl transition-all hover:-translate-y-1 hover:border-emerald-300/45 hover:bg-slate-900/75 hover:shadow-xl hover:shadow-emerald-950/40 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none"
-            >
-              <div className="flex flex-col gap-4 px-6 sm:flex-row sm:items-center sm:justify-between">
-                <CardHeader className="flex-1 px-0">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-                    <div className="flex size-12 shrink-0 items-center justify-center rounded-xl border border-emerald-300/20 bg-emerald-300/10 text-emerald-200">
-                      <module.icon className="size-6" />
-                    </div>
-                    <div className="space-y-2">
-                      <CardTitle className="text-2xl">{module.title}</CardTitle>
-                      <CardDescription className="text-base leading-relaxed">
-                        {module.description}
-                      </CardDescription>
-                    </div>
+        <div className="grid gap-4 lg:grid-rows-[auto_1fr]">
+          <div className="grid gap-4">
+            <div className="rounded-lg border border-zinc-900/12 bg-white p-5 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">Carbon workflows</p>
+              <h2 className="mt-3 max-w-2xl text-4xl font-semibold tracking-tight text-zinc-950">
+                Choose the calculation path and move straight into data entry.
+              </h2>
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            {modules.map((module, index) => (
+              <a
+                key={module.title}
+                href={module.href}
+                className="group grid min-h-[15rem] grid-rows-[auto_1fr_auto] rounded-lg border border-zinc-900/12 bg-white p-5 text-left shadow-sm transition-all hover:-translate-y-1 hover:border-zinc-950 hover:shadow-xl hover:shadow-zinc-950/10 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex size-11 items-center justify-center rounded-md bg-zinc-950 text-lime-300">
+                    <module.icon className="size-5" />
                   </div>
-                </CardHeader>
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-emerald-100">
-                  <ArrowRight className="size-5"/>
+                  <span className="font-mono text-xs text-zinc-400">0{index + 1}</span>
                 </div>
-              </div>
-            </a>
-          ))}
+                <div className="mt-8">
+                  <CardTitle className="text-3xl">{module.title}</CardTitle>
+                  <CardDescription className="mt-3 max-w-md text-base leading-relaxed">
+                    {module.description}
+                  </CardDescription>
+                  {module.bullets ? (
+                    <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
+                      {module.bullets.map((item) => (
+                        <li key={item} className="flex gap-2">
+                          <span className="mt-2 size-1.5 shrink-0 rounded-full bg-lime-500" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+                <div className="mt-6 flex items-center justify-between border-t border-zinc-900/10 pt-4 text-sm font-semibold text-zinc-950">
+                  Open workflow
+                  <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
+                </div>
+              </a>
+            ))}
+          </div>
         </div>
       </section>
     </AppBackground>
@@ -151,11 +153,11 @@ function HomePage() {
 function NaicsMappingPage() {
   return (
     <AppBackground>
-      <section className="relative z-10 mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-6xl flex-col gap-8">
-        <div>
+      <section className="relative z-10 mx-auto grid min-h-[calc(100vh-2rem)] w-full max-w-7xl gap-4 lg:grid-cols-[15rem_1fr]">
+        <aside className="rounded-lg bg-zinc-950 p-5 text-white">
           <Button
             variant="ghost"
-            className="mb-6"
+            className="-ml-2 mb-8 text-zinc-300 hover:bg-white/10 hover:text-white"
             onClick={() => {
               window.location.hash = ''
             }}
@@ -164,70 +166,71 @@ function NaicsMappingPage() {
             Back to workflows
           </Button>
 
-          <div className="max-w-3xl space-y-4">
-            <div className="flex size-12 items-center justify-center rounded-xl border border-emerald-300/20 bg-emerald-300/10 text-emerald-200">
+          <div className="space-y-4">
+            <div className="flex size-12 items-center justify-center rounded-md bg-lime-300 text-zinc-950">
               <DatabaseZap className="size-6" />
             </div>
-            <h1 className="bg-gradient-to-br from-white via-slate-100 to-emerald-200 bg-clip-text text-4xl font-semibold tracking-tight text-transparent sm:text-5xl">
+            <h1 className="text-4xl font-semibold tracking-tight">
               NAICS Mapping
             </h1>
-            <p className="text-lg text-muted-foreground">
+            <p className="text-sm leading-6 text-zinc-300">
               Prepare company, supplier, or spend-category records by assigning NAICS codes before calculating
               sector-based carbon factors.
             </p>
           </div>
-        </div>
+        </aside>
 
-        <div className="grid gap-5 lg:grid-cols-[1fr_0.8fr]">
-          <Card className="border-white/10 bg-slate-950/55 backdrop-blur-xl">
-            <CardHeader>
-              <CardTitle>Mapping Workspace</CardTitle>
-              <CardDescription>
+        <div className="grid gap-4 lg:grid-cols-[1fr_19rem]">
+          <section className="rounded-lg border border-zinc-900/12 bg-white shadow-sm">
+            <div className="border-b border-zinc-900/10 p-5">
+              <CardTitle className="text-2xl">Mapping Workspace</CardTitle>
+              <CardDescription className="mt-2">
                 A starting point for uploading data, searching sectors, and reviewing suggested mappings.
               </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <button className="flex items-center gap-3 rounded-xl border border-dashed border-emerald-300/30 bg-emerald-300/5 p-4 text-left transition-colors hover:bg-emerald-300/10">
-                  <Upload className="size-5 text-emerald-200" />
-                  <span>
-                    <span className="block font-medium">Upload spend file</span>
-                    <span className="text-sm text-muted-foreground">CSV or spreadsheet import placeholder</span>
-                  </span>
-                </button>
-                <button className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left transition-colors hover:bg-white/[0.06]">
-                  <Search className="size-5 text-cyan-200" />
-                  <span>
-                    <span className="block font-medium">Search NAICS sectors</span>
-                    <span className="text-sm text-muted-foreground">Find matching industry classifications</span>
-                  </span>
-                </button>
-              </div>
+            </div>
+            <div className="grid gap-0 border-b border-zinc-900/10 sm:grid-cols-2">
+              <button className="flex items-center gap-4 border-b border-zinc-900/10 p-5 text-left transition-colors hover:bg-lime-50 sm:border-b-0 sm:border-r">
+                <span className="flex size-10 items-center justify-center rounded-md bg-lime-200 text-lime-950">
+                  <Upload className="size-5" />
+                </span>
+                <span>
+                  <span className="block font-medium">Upload spend file</span>
+                  <span className="text-sm text-muted-foreground">CSV or spreadsheet import placeholder</span>
+                </span>
+              </button>
+              <button className="flex items-center gap-4 p-5 text-left transition-colors hover:bg-teal-50">
+                <span className="flex size-10 items-center justify-center rounded-md bg-teal-100 text-teal-900">
+                  <Search className="size-5" />
+                </span>
+                <span>
+                  <span className="block font-medium">Search NAICS sectors</span>
+                  <span className="text-sm text-muted-foreground">Find matching industry classifications</span>
+                </span>
+              </button>
+            </div>
 
-              <div className="overflow-hidden rounded-xl border border-white/10">
-                <div className="grid grid-cols-[1.1fr_1fr_0.6fr_1fr] bg-white/[0.04] px-4 py-3 text-sm font-medium text-muted-foreground">
-                  <span>Company</span>
-                  <span>Activity</span>
-                  <span>NAICS</span>
-                  <span>Sector</span>
+            <div className="overflow-x-auto">
+              <div className="min-w-[42rem]">
+                <div className="grid grid-cols-[1.1fr_1fr_0.6fr_1fr] bg-zinc-950 px-5 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-300">
+                  <span>Company</span><span>Activity</span><span>NAICS</span><span>Sector</span>
                 </div>
                 {sampleMappings.map((mapping) => (
                   <div
                     key={mapping.company}
-                    className="grid grid-cols-[1.1fr_1fr_0.6fr_1fr] border-t border-white/10 px-4 py-3 text-sm"
+                    className="grid grid-cols-[1.1fr_1fr_0.6fr_1fr] border-t border-zinc-900/10 px-5 py-4 text-sm"
                   >
                     <span>{mapping.company}</span>
                     <span className="text-muted-foreground">{mapping.activity}</span>
-                    <span className="font-mono text-emerald-200">{mapping.code}</span>
+                    <span className="font-mono text-lime-700">{mapping.code}</span>
                     <span className="text-muted-foreground">{mapping.sector}</span>
                   </div>
                 ))}
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </section>
 
-          <Card className="border-white/10 bg-slate-950/55 backdrop-blur-xl">
-            <CardHeader>
+          <Card className="border-zinc-900/12 bg-white">
+            <CardHeader className="border-b border-zinc-900/10 pb-5">
               <CardTitle>Suggested Flow</CardTitle>
               <CardDescription>How this page can evolve as you add the real calculation logic.</CardDescription>
             </CardHeader>
@@ -238,8 +241,8 @@ function NaicsMappingPage() {
                 'Review ambiguous mappings and confidence scores.',
                 'Pass mapped records into Method 1, Method 2, or Method 3.',
               ].map((step, index) => (
-                <div key={step} className="flex gap-3">
-                  <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-300/10 text-sm text-emerald-200">
+                <div key={step} className="flex gap-3 border-b border-zinc-900/10 pb-4 last:border-0 last:pb-0">
+                  <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-zinc-950 text-sm text-lime-300">
                     {index + 1}
                   </div>
                   <p className="text-sm leading-6 text-muted-foreground">{step}</p>
