@@ -1,4 +1,6 @@
 import type { CalculateRequest, CalculateResponse } from '../shared/calculator-types'
+import { spawnSync } from 'node:child_process'
+import path from 'node:path'
 
 const API_BASE = 'http://127.0.0.1:8000'
 
@@ -22,6 +24,34 @@ function formatApiError(detail: unknown): string {
 }
 
 export async function postCalculate(payload: CalculateRequest): Promise<CalculateResponse> {
+  // Try Python CLI in project `api/cli_compute.py` so calculation runs from `calculation/`
+  try {
+    const scriptPath = path.join(__dirname, '..', '..', 'api', 'cli_compute.py')
+    const candidates = ['python', 'python3', 'py']
+    for (const exe of candidates) {
+      try {
+        const proc = spawnSync(exe, [scriptPath], {
+          input: JSON.stringify(payload),
+          encoding: 'utf8',
+          maxBuffer: 20 * 1024 * 1024,
+        })
+
+        if (proc.status === 0 && proc.stdout) {
+          try {
+            const parsed = JSON.parse(proc.stdout)
+            return parsed as CalculateResponse
+          } catch (e) {
+            // parse failed; continue to next candidate or fallback
+          }
+        }
+      } catch (e) {
+        // ignore and try next python executable
+      }
+    }
+  } catch (e) {
+    // ignore and fall back to HTTP
+  }
+
   const response = await fetch(`${API_BASE}/calculate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

@@ -21,6 +21,19 @@ except ModuleNotFoundError:
         convert_to_2022_usd,
     )
 
+try:
+    from calculation.transport_data import (
+        DISTANCES_TO_SINGAPORE_KM,
+        EMISSION_FACTORS_KG_PER_TKM,
+        DEFAULT_WEIGHT_KG,
+    )
+except ModuleNotFoundError:
+    from transport_data import (
+        DISTANCES_TO_SINGAPORE_KM,
+        EMISSION_FACTORS_KG_PER_TKM,
+        DEFAULT_WEIGHT_KG,
+    )
+
 
 # ------------------------------
 # 3. Load data from Excel
@@ -609,6 +622,112 @@ def mode3_manual_input():
     print("MODE 3: MANUAL INPUT - CUSTOM CALCULATION")
     print("="*60 + "\n")
 
+
+def transport_emission_calc_mode():
+    """Interactive transportation emissions calculator."""
+    print("\n" + "="*70)
+    print("TRANSPORTATION EMISSIONS CALCULATOR")
+    print("="*70 + "\n")
+
+    countries = sorted(list(DISTANCES_TO_SINGAPORE_KM.keys()))
+    print("Available source countries:")
+    for i, c in enumerate(countries, 1):
+        print(f"{i:3d}. {c}")
+
+    while True:
+        try:
+            sel = int(input(f"Select country number (1-{len(countries)}): "))
+            if 1 <= sel <= len(countries):
+                country = countries[sel - 1]
+                break
+        except ValueError:
+            pass
+        print("❌ Invalid selection. Try again.")
+
+    modes = ["sea", "land", "air"]
+    print("\nSelect transport mode:")
+    for i, m in enumerate(modes, 1):
+        print(f"{i:3d}. {m.capitalize()}")
+
+    while True:
+        try:
+            sel = int(input(f"Select mode number (1-{len(modes)}): "))
+            if 1 <= sel <= len(modes):
+                chosen_mode = modes[sel - 1]
+                break
+        except ValueError:
+            pass
+        print("❌ Invalid selection. Try again.")
+
+    while True:
+        w = input(f"Enter shipment weight in kg (default {DEFAULT_WEIGHT_KG}): ").strip()
+        if w == "":
+            weight_kg = DEFAULT_WEIGHT_KG
+            break
+        try:
+            weight_kg = float(w)
+            if weight_kg > 0:
+                break
+        except ValueError:
+            pass
+        print("❌ Please enter a positive number.")
+
+    distance_km = DISTANCES_TO_SINGAPORE_KM.get(country, None)
+    if distance_km is None:
+        while True:
+            d = input("Enter estimated distance to Singapore in km: ")
+            try:
+                distance_km = float(d)
+                if distance_km > 0:
+                    break
+            except ValueError:
+                pass
+            print("❌ Please enter a positive number.")
+
+    tonnes = weight_kg / 1000.0
+    emissions_by_mode = {}
+    for m, factor in EMISSION_FACTORS_KG_PER_TKM.items():
+        emissions_by_mode[m] = tonnes * distance_km * factor
+
+    chosen_emission = emissions_by_mode[chosen_mode]
+
+    print("\n" + "-"*60)
+    print(f"Source country: {country}")
+    print(f"Distance to Singapore (approx): {distance_km:,.0f} km")
+    print(f"Shipment weight: {weight_kg:,.2f} kg ({tonnes:.4f} t)")
+    print(f"Chosen mode: {chosen_mode.capitalize()}")
+    print(f"Estimated transport emissions: {chosen_emission:,.2f} kg CO2")
+    print("\nComparative emissions by mode:")
+    for m in modes:
+        marker = "<- chosen" if m == chosen_mode else ""
+        print(f"  {m.capitalize():6s}: {emissions_by_mode[m]:10,.2f} kg CO2 {marker}")
+
+    sorted_modes = sorted(emissions_by_mode.items(), key=lambda x: x[1])
+    best_mode, best_val = sorted_modes[0]
+    worst_mode, worst_val = sorted_modes[-1]
+
+    if chosen_mode == worst_mode and worst_val > best_val * 1.10:
+        print("\n⚠️  Warning: The selected transport mode has significantly higher emissions.")
+        suggestions = [m for m, v in sorted_modes if v <= best_val * 1.25]
+        sug_text = ", ".join([s.capitalize() for s in suggestions if s != chosen_mode])
+        if sug_text:
+            print(f"Suggestion: consider using {sug_text} instead to reduce emissions.")
+        else:
+            print("Suggestion: consider reducing shipment weight or consolidating shipments.")
+    else:
+        print("\n✓ The chosen transport mode is reasonable compared to alternatives.")
+
+    print("\n" + "="*60 + "\n")
+
+    return {
+        "country": country,
+        "distance_km": distance_km,
+        "weight_kg": weight_kg,
+        "chosen_mode": chosen_mode,
+        "chosen_emission_kgco2": chosen_emission,
+        "emissions_by_mode": emissions_by_mode,
+    }
+
     part_name = input("Enter part/product name: ")
     year = int(input("Enter year (2023-2026): "))
 
@@ -666,6 +785,7 @@ def main_menu():
         print("2. Batch calculate all parts from Excel")
         print("3. Manual input (custom calculation)")
         print("4. Exit")
+        print("5. Transportation calculation (choose mode & country)")
         
         choice = input("\nSelect option (1-4): ")
         
@@ -691,6 +811,11 @@ def main_menu():
         elif choice == "4":
             print("\nExiting...")
             break
+        elif choice == "5":
+            try:
+                transport_emission_calc_mode()
+            except Exception as e:
+                print(f"\n❌ Error: {e}")
         else:
             print("\n❌ Invalid option. Please try again.")
 

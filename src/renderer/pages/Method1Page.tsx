@@ -143,6 +143,42 @@ const demoForm: Record<FormKey, string> = {
   surface_treatment_sgd: '392.1',
 }
 
+const TRANSPORT_COUNTRIES = [
+  'China',
+  'Japan',
+  'South Korea',
+  'Vietnam',
+  'Thailand',
+  'Malaysia',
+  'Indonesia',
+  'Australia',
+  'United States',
+  'Germany',
+  'India',
+  'Brazil',
+]
+
+const TRANSPORT_DISTANCES_KM: Record<string, number> = {
+  China: 3600,
+  Japan: 5300,
+  'South Korea': 3800,
+  Vietnam: 1700,
+  Thailand: 1400,
+  Malaysia: 400,
+  Indonesia: 1500,
+  Australia: 3800,
+  'United States': 15300,
+  Germany: 10400,
+  India: 4300,
+  Brazil: 17500,
+}
+
+const TRANSPORT_EMISSION_FACTORS: Record<string, number> = {
+  sea: 0.015, // kg CO2 per tonne-km
+  land: 0.120,
+  air: 1.200,
+}
+
 type HistoryItem = {
   invoiceId: string
   year: number
@@ -316,12 +352,14 @@ function ResultsPanel({
   error,
   totalSgd,
   year,
+  transport,
 }: {
   result: CalculateResponse | null
   loading: boolean
   error: string | null
   totalSgd: number
   year: string
+  transport?: any | null
 }) {
   if (loading) {
     return (
@@ -364,6 +402,9 @@ function ResultsPanel({
     result.costs.raw_material_usd2022 +
     result.costs.fabrication_usd2022 +
     result.costs.surface_treatment_usd2022
+
+  const transportEmissions = transport?.transport?.chosen_emissions_kg ?? 0
+  const combinedEmissions = result.emissions.total + transportEmissions
 
   return (
     <div className="space-y-5">
@@ -436,6 +477,19 @@ function ResultsPanel({
           )
         })}
       </div>
+
+      {transportEmissions > 0 ? (
+        <div className="mt-4">
+          <div className="flex items-center justify-between">
+            <div className="text-xs text-muted-foreground">Transport emissions</div>
+            <div className="font-mono text-sm text-foreground">{kg.format(transportEmissions)} kg CO₂e</div>
+          </div>
+          <div className="flex items-center justify-between border-t pt-2">
+            <div className="text-sm font-medium">Total including transport</div>
+            <div className="font-mono text-sm font-semibold text-foreground">{kg.format(combinedEmissions)} kg CO₂e</div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -580,6 +634,13 @@ function Method1Page() {
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([])
   const [historyOpen, setHistoryOpen] = useState(false)
   const [selectedHistory, setSelectedHistory] = useState<HistoryItem | null>(null)
+  // Transportation UI state (only affects transport part)
+  const [transportWeight, setTransportWeight] = useState<string>('')
+  const [transportOrigin, setTransportOrigin] = useState<string>('China')
+  const [transportMode, setTransportMode] = useState<'sea' | 'land' | 'air'>('sea')
+  const [transportLoading, setTransportLoading] = useState(false)
+  const [transportError, setTransportError] = useState<string | null>(null)
+  const [transportResult, setTransportResult] = useState<any | null>(null)
 
   useEffect(() => {
 
@@ -629,6 +690,50 @@ function Method1Page() {
       categoryAmounts.map((cat) => [cat.id, pctFromAmount(cat.amount, pctBase)]),
     ) as Record<CategoryId, number>
   }, [allocationSum, categoryAmounts, totalSgd])
+
+  async function handleTransportCalculate(e?: React.SyntheticEvent) {
+    if (e) e.preventDefault()
+    setTransportError(null)
+    setTransportResult(null)
+      const weight = Number(transportWeight)
+      if (!Number.isFinite(weight) || weight <= 0) {
+        setTransportError('Enter a valid shipment weight in kg')
+        return
+      }
+      if (!transportOrigin || transportOrigin.trim().length === 0) {
+        setTransportError('Enter origin country')
+        return
+      }
+
+      setTransportLoading(true)
+      try {
+        // Local client-side calculation using transport distances and emission factors
+        const origin = transportOrigin
+        const distance = TRANSPORT_DISTANCES_KM[origin] ?? 0
+        const tonnes = weight / 1000
+        const alternatives = {
+          sea: tonnes * distance * TRANSPORT_EMISSION_FACTORS.sea,
+          land: tonnes * distance * TRANSPORT_EMISSION_FACTORS.land,
+          air: tonnes * distance * TRANSPORT_EMISSION_FACTORS.air,
+        }
+        const chosen_emissions_kg = alternatives[transportMode]
+
+        setTransportResult({
+          transport: {
+            origin,
+            distance_km: distance,
+            weight_kg: weight,
+            chosen_mode: transportMode,
+            chosen_emissions_kg,
+            alternatives,
+          },
+        })
+      } catch (err) {
+        setTransportError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setTransportLoading(false)
+      }
+  }
 
   function updateField(key: FormKey, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -756,7 +861,7 @@ function Method1Page() {
       const item: HistoryItem = {
         invoiceId: response.invoice_id,
         year: response.calculation.year,
-        totalKgCo2e: response.emissions.total,
+        totalKgCo2e: response.emissions.total + (transportResult?.transport?.chosen_emissions_kg ?? 0),
         calc: response.calculation,
         naics: {
           raw: form.naics_raw_material.trim() || undefined,
@@ -776,7 +881,7 @@ function Method1Page() {
 
   return (
     <AppBackground>
-      <section className="relative z-10 mx-auto grid w-full max-w-7xl gap-4 pb-8 lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[15rem_minmax(0,1fr)_23rem]">
+      <section className="relative z-10 mx-auto grid w-full max-w-lg sm:max-w-3xl lg:max-w-6xl xl:max-w-screen-xl gap-4 pb-8 lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[15rem_minmax(0,1fr)_23rem]">
         <aside className="rounded-lg bg-zinc-950 p-5 text-white lg:sticky lg:top-4 lg:self-start">
           <Button
             variant="ghost"
@@ -1077,6 +1182,126 @@ function Method1Page() {
               </CardContent>
             </Card>
 
+            {/* Transportation calculator (local calculation from calculation folder) */}
+            <Card className="overflow-hidden border-zinc-900/12 bg-white shadow-sm">
+              <CardHeader className="border-b border-zinc-900/10 bg-zinc-950 px-5 py-4 text-white">
+                <div className="flex items-center gap-3">
+                  <span className="flex size-9 items-center justify-center rounded-md bg-lime-300 text-sm font-semibold text-zinc-950">
+                    T
+                  </span>
+                  <div>
+                    <CardTitle>Transportation</CardTitle>
+                    <CardDescription className="text-zinc-300">Estimate transport emissions (sea / land / air) from origin country.</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="grid gap-4 sm:grid-cols-3">
+                <div className="space-y-2 sm:col-span-1">
+                  <Label htmlFor="transport_weight">Shipment weight (kg)</Label>
+                  <Input id="transport_weight" value={transportWeight} onChange={(e) => setTransportWeight(e.target.value)} />
+                </div>
+                <div className="space-y-2 sm:col-span-1">
+                  <Label htmlFor="transport_origin">Origin country</Label>
+                  <Select value={transportOrigin} onValueChange={(v) => setTransportOrigin(v)}>
+                    <SelectTrigger id="transport_origin" className="w-full font-mono">
+                      <SelectValue placeholder="Select country">{transportOrigin}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TRANSPORT_COUNTRIES.map((c) => (
+                        <SelectItem key={c} value={c}>{c}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2 sm:col-span-1">
+                  <Label htmlFor="transport_mode">Mode</Label>
+                  <Select onValueChange={(v) => setTransportMode(v as any)}>
+                    <SelectTrigger id="transport_mode" className="w-full">
+                      <SelectValue placeholder="Select mode">{transportMode}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="sea">Sea</SelectItem>
+                      <SelectItem value="land">Land</SelectItem>
+                      <SelectItem value="air">Air</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="sm:col-span-3">
+                  <div className="flex gap-2">
+                    <Button type="button" size="sm" onClick={handleTransportCalculate} disabled={transportLoading}>
+                      {transportLoading ? 'Calculating…' : 'Calculate transport'}
+                    </Button>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => { setTransportWeight(''); setTransportOrigin('China'); setTransportMode('sea'); setTransportResult(null); setTransportError(null); }}>
+                      Reset
+                    </Button>
+                  </div>
+
+                  {transportError ? (
+                    <div className="mt-3 text-rose-600">{transportError}</div>
+                  ) : null}
+
+                  {transportResult ? (
+                    <div className="mt-3">
+                      <div className="font-medium">Transport results</div>
+                      <div className="mt-2">
+                        <div>Origin: {transportResult.transport.origin}</div>
+                        <div>Distance: {transportResult.transport.distance_km} km</div>
+                        <div>Weight: {transportResult.transport.weight_kg} kg</div>
+                        <div className="mt-2">Emissions:</div>
+                        <ul className="list-disc pl-5">
+                          <li>Sea: {Number(transportResult.transport.alternatives.sea).toFixed(2)} kg CO2</li>
+                          <li>Land: {Number(transportResult.transport.alternatives.land).toFixed(2)} kg CO2</li>
+                          <li>Air: {Number(transportResult.transport.alternatives.air).toFixed(2)} kg CO2</li>
+                        </ul>
+                        <div className="mt-2">
+                          Chosen ({transportResult.transport.chosen_mode}): {Number(transportResult.transport.chosen_emissions_kg).toFixed(2)} kg CO2
+                        </div>
+                        {(() => {
+                          const alternatives = transportResult.transport.alternatives as Record<string, number>
+                          const entries = Object.entries(alternatives)
+                          if (entries.length === 0) return null
+                          const sorted = entries.sort((a, b) => a[1] - b[1])
+                          const bestMode = sorted[0][0]
+                          const bestVal = sorted[0][1]
+                          const worstVal = sorted[sorted.length - 1][1]
+                          const chosen = transportResult.transport.chosen_mode as string
+
+                          // If chosen mode is the worst and >10% worse than best, warn and suggest alternatives
+                          if (chosen === sorted[sorted.length - 1][0] && worstVal > bestVal * 1.10) {
+                            const suggestions = sorted
+                              .filter(([, v]) => v <= bestVal * 1.25)
+                              .map(([m]) => m)
+                              .filter((m) => m !== chosen)
+
+                            if (suggestions.length > 0) {
+                              return (
+                                <div className="mt-2 text-amber-700">
+                                  ⚠️ The selected transport has significantly higher emissions. Suggest: {suggestions.map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(', ')}.
+                                </div>
+                              )
+                            }
+
+                            return (
+                              <div className="mt-2 text-amber-700">⚠️ The selected transport has significantly higher emissions. Consider reducing shipment weight or consolidating shipments.</div>
+                            )
+                          }
+
+                          // Otherwise show positive message when chosen is within reasonable range
+                          if (chosen === bestMode || alternatives[chosen] <= bestVal * 1.25) {
+                            return <div className="mt-2 text-lime-700">✓ Chosen mode is reasonable compared to alternatives.</div>
+                          }
+
+                          return <div className="mt-2 text-amber-700">⚠️ Consider lower-emission alternatives.</div>
+                        })()}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </CardContent>
+            </Card>
+
+            
             <Button
               type="submit"
               size="lg"
@@ -1303,6 +1528,7 @@ function Method1Page() {
                   result={result}
                   loading={loading}
                   error={error}
+                    transport={transportResult}
                 />
               </CardContent>
             </Card>
