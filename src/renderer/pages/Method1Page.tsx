@@ -634,6 +634,16 @@ function Method1Page() {
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([])
   const [historyOpen, setHistoryOpen] = useState(false)
   const [selectedHistory, setSelectedHistory] = useState<HistoryItem | null>(null)
+  // Allow multiple line items per component
+  const [rawItems, setRawItems] = useState<{ amount: string; naics: string }[]>([
+    { amount: '', naics: '331110' },
+  ])
+  const [fabItems, setFabItems] = useState<{ amount: string; naics: string }[]>([
+    { amount: '', naics: '332710' },
+  ])
+  const [surfaceItems, setSurfaceItems] = useState<{ amount: string; naics: string }[]>([
+    { amount: '', naics: '332812' },
+  ])
   // Transportation UI state (only affects transport part)
   const [transportWeight, setTransportWeight] = useState<string>('')
   const [transportOrigin, setTransportOrigin] = useState<string>('China')
@@ -657,11 +667,16 @@ function Method1Page() {
 
   const categoryAmounts = useMemo(
     () =>
-      CATEGORIES.map((cat) => ({
-        ...cat,
-        amount: parseAmount(form[cat.amountKey]),
-      })),
-    [form],
+      CATEGORIES.map((cat) => {
+        let amount = 0
+        if (cat.id === 'raw') amount = rawItems.reduce((s, it) => s + parseAmount(it.amount), 0)
+        if (cat.id === 'fabrication') amount = fabItems.reduce((s, it) => s + parseAmount(it.amount), 0)
+        if (cat.id === 'surface') amount = surfaceItems.reduce((s, it) => s + parseAmount(it.amount), 0)
+        // Fallback to single-field form values if no items present
+        if (amount === 0) amount = parseAmount(form[cat.amountKey])
+        return { ...cat, amount }
+      }),
+    [form, rawItems, fabItems, surfaceItems],
   )
 
   const allocationSum = useMemo(
@@ -690,6 +705,25 @@ function Method1Page() {
       categoryAmounts.map((cat) => [cat.id, pctFromAmount(cat.amount, pctBase)]),
     ) as Record<CategoryId, number>
   }, [allocationSum, categoryAmounts, totalSgd])
+
+  // Helpers to mutate items
+  function updateItem(category: CategoryId, index: number, fields: Partial<{ amount: string; naics: string }>) {
+    if (category === 'raw') setRawItems((prev) => prev.map((it, i) => (i === index ? { ...it, ...fields } : it)))
+    if (category === 'fabrication') setFabItems((prev) => prev.map((it, i) => (i === index ? { ...it, ...fields } : it)))
+    if (category === 'surface') setSurfaceItems((prev) => prev.map((it, i) => (i === index ? { ...it, ...fields } : it)))
+  }
+
+  function addItem(category: CategoryId) {
+    if (category === 'raw') setRawItems((p) => [...p, { amount: '', naics: CATEGORIES.find(c => c.id === 'raw')!.defaultNaics }])
+    if (category === 'fabrication') setFabItems((p) => [...p, { amount: '', naics: CATEGORIES.find(c => c.id === 'fabrication')!.defaultNaics }])
+    if (category === 'surface') setSurfaceItems((p) => [...p, { amount: '', naics: CATEGORIES.find(c => c.id === 'surface')!.defaultNaics }])
+  }
+
+  function removeItem(category: CategoryId, index: number) {
+    if (category === 'raw') setRawItems((p) => p.filter((_, i) => i !== index))
+    if (category === 'fabrication') setFabItems((p) => p.filter((_, i) => i !== index))
+    if (category === 'surface') setSurfaceItems((p) => p.filter((_, i) => i !== index))
+  }
 
   async function handleTransportCalculate(e?: React.SyntheticEvent) {
     if (e) e.preventDefault()
@@ -783,6 +817,9 @@ function Method1Page() {
 
   function loadDemo() {
     setForm(demoForm)
+    setRawItems([{ amount: demoForm.raw_material_sgd, naics: demoForm.naics_raw_material }])
+    setFabItems([{ amount: demoForm.fabrication_sgd, naics: demoForm.naics_fabrication }])
+    setSurfaceItems([{ amount: demoForm.surface_treatment_sgd, naics: demoForm.naics_surface_treatment }])
     setActiveStep(1)
     setError(null)
     setResult(null)
@@ -790,6 +827,9 @@ function Method1Page() {
 
   function resetForm() {
     setForm(defaultForm)
+    setRawItems([{ amount: '', naics: '331110' }])
+    setFabItems([{ amount: '', naics: '332710' }])
+    setSurfaceItems([{ amount: '', naics: '332812' }])
     setActiveStep(1)
     setError(null)
     setResult(null)
@@ -835,14 +875,19 @@ function Method1Page() {
 
     setLoading(true)
     try {
+      // Aggregate line items per category to send canonical payload
+      const rawSum = rawItems.reduce((s, it) => s + parseAmount(it.amount), 0) || parseAmount(form.raw_material_sgd)
+      const fabSum = fabItems.reduce((s, it) => s + parseAmount(it.amount), 0) || parseAmount(form.fabrication_sgd)
+      const surfSum = surfaceItems.reduce((s, it) => s + parseAmount(it.amount), 0) || parseAmount(form.surface_treatment_sgd)
+
       const response = await calculateEmissions({
         invoice_id: form.invoice_id.trim(),
         year,
         total_amount_sgd: totalSgd,
         sgd_amounts: {
-          raw_material: parseAmount(form.raw_material_sgd),
-          fabrication: parseAmount(form.fabrication_sgd),
-          surface_treatment: parseAmount(form.surface_treatment_sgd),
+          raw_material: rawSum,
+          fabrication: fabSum,
+          surface_treatment: surfSum,
         },
         allocation: {
           raw_material_pct: allocationPercentages.raw,
@@ -850,9 +895,9 @@ function Method1Page() {
           surface_treatment_pct: allocationPercentages.surface,
         },
         naics: {
-          raw_material: form.naics_raw_material.trim(),
-          fabrication: form.naics_fabrication.trim(),
-          surface_treatment: form.naics_surface_treatment.trim(),
+          raw_material: (rawItems[0]?.naics ?? form.naics_raw_material).trim(),
+          fabrication: (fabItems[0]?.naics ?? form.naics_fabrication).trim(),
+          surface_treatment: (surfaceItems[0]?.naics ?? form.naics_surface_treatment).trim(),
         },
       })
       setResult(response)
@@ -1109,20 +1154,52 @@ function Method1Page() {
                           </div>
 
                           <div className="space-y-1">
-                            <Label htmlFor={cat.amountKey} className="text-xs sm:sr-only">
-                              {cat.label} amount
-                            </Label>
-                            <Input
-                              id={cat.amountKey}
-                              type="number"
-                              min={0}
-                              step="0.01"
-                              placeholder="0.00"
-                              disabled={!hasInvoiceTotal}
-                              value={form[cat.amountKey]}
-                              onChange={(e) => updateField(cat.amountKey, e.target.value)}
-                              className="font-mono tabular-nums"
-                            />
+                            <Label className="text-xs sm:sr-only">{cat.label} items</Label>
+                            <div className="space-y-2">
+                              {(cat.id === 'raw' ? rawItems : cat.id === 'fabrication' ? fabItems : surfaceItems).map((it, idx) => (
+                                <div key={idx} className="flex items-center gap-2">
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    step="0.01"
+                                    placeholder="0.00"
+                                    disabled={!hasInvoiceTotal}
+                                    value={it.amount}
+                                    onChange={(e) => updateItem(cat.id as CategoryId, idx, { amount: e.target.value })}
+                                    className="w-28 font-mono tabular-nums"
+                                  />
+                                  <span className={cn('ml-1 w-16 text-right font-mono text-sm', cat.textClass)}>
+                                    {totalSgd > 0 && parseAmount(it.amount) > 0
+                                      ? `${((parseAmount(it.amount) / totalSgd) * 100).toFixed(1)}%`
+                                      : '—'}
+                                  </span>
+                                  <Select
+                                    value={it.naics}
+                                    onValueChange={(v) => updateItem(cat.id as CategoryId, idx, { naics: v })}
+                                  >
+                                    <SelectTrigger className="w-44 font-mono">
+                                      <SelectValue>{naicsByCode.get(it.naics)?.code ?? it.naics}</SelectValue>
+                                    </SelectTrigger>
+                                    <SelectContent position="popper" className="max-w-[min(24rem,calc(100vw-2rem))]">
+                                      {sortNaicsOptions(naicsOptions, cat.defaultNaics).map((option) => (
+                                        <SelectItem key={option.code} value={option.code} textValue={`${option.code} ${option.description}`} className="items-start py-2.5">
+                                          <div className="flex flex-col gap-0.5 pr-2">
+                                            <span className="font-mono font-medium">{option.code}</span>
+                                            <span className="text-xs leading-snug text-muted-foreground">{option.description}</span>
+                                          </div>
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <Button type="button" variant="ghost" onClick={() => removeItem(cat.id as CategoryId, idx)}>
+                                    <X />
+                                  </Button>
+                                </div>
+                              ))}
+                              <Button type="button" size="sm" onClick={() => addItem(cat.id as CategoryId)} disabled={!hasInvoiceTotal}>
+                                Add
+                              </Button>
+                            </div>
                           </div>
 
                           <p
@@ -1135,44 +1212,8 @@ function Method1Page() {
                           </p>
 
                           <div className="space-y-1.5 sm:col-start-4">
-                            <Label htmlFor={cat.naicsKey} className="text-xs sm:sr-only">
-                              {cat.label} NAICS
-                            </Label>
-                            <Select
-                              value={form[cat.naicsKey]}
-                              onValueChange={(value) => updateField(cat.naicsKey, value)}
-                            >
-                              <SelectTrigger id={cat.naicsKey} className="w-full font-mono">
-                                <SelectValue placeholder="Select NAICS sector">
-                                  {selectedNaics?.code}
-                                </SelectValue>
-                              </SelectTrigger>
-                              <SelectContent position="popper" className="max-w-[min(24rem,calc(100vw-2rem))]">
-                                {categoryNaicsOptions.map((option) => (
-                                  <SelectItem
-                                    key={option.code}
-                                    value={option.code}
-                                    textValue={`${option.code} ${option.description}`}
-                                    className="items-start py-2.5"
-                                  >
-                                    <div className="flex flex-col gap-0.5 pr-2">
-                                      <span className="font-mono font-medium">{option.code}</span>
-                                      <span className="text-xs leading-snug text-muted-foreground">
-                                        {option.description}
-                                      </span>
-                                    </div>
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <p className="text-xs leading-snug text-muted-foreground">
-                              {selectedNaics?.description ?? 'Select a NAICS sector for this line.'}
-                            </p>
-                            {selectedNaics?.kgco2e_per_usd != null ? (
-                              <p className="font-mono text-[11px] text-lime-700/80 tabular-nums">
-                                {selectedNaics.kgco2e_per_usd.toFixed(2)} kg CO₂e / USD
-                              </p>
-                            ) : null}
+                            <Label className="text-xs sm:sr-only">NAICS per line</Label>
+                            <p className="text-xs leading-snug text-muted-foreground">Select NAICS for each line item in the column to the left.</p>
                           </div>
                         </div>
                       )
