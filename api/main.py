@@ -6,6 +6,11 @@ from pydantic import BaseModel, Field, model_validator
 
 from service import list_naics_options
 from calculator import compute_emissions
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).with_name('.env'))
 
 app = FastAPI()
 
@@ -198,6 +203,49 @@ def calculate_emissions(data: InputData):
         emissions=EmissionBreakdown(**result["emissions"]),
     )
 
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1)
+
+
+class ChatResponse(BaseModel):
+    reply: str
+
+
+@app.post("/method2-chat", response_model=ChatResponse)
+def method2_chat(req: ChatRequest):
+    key = os.environ.get("AI_KEY")
+    if not key:
+        raise HTTPException(
+            status_code=500,
+            detail="AI_KEY environment variable not set. Place AI_KEY=your_new_key_here in .env.",
+        )
+
+    try:
+        from openai import OpenAI
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"OpenAI dependency missing: {exc}. Install requirements with `pip install -r requirements.txt`.",
+        ) from exc
+
+    try:
+        client = OpenAI(api_key=key)
+        resp = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": req.message}],
+            max_tokens=500,
+        )
+        choice = resp.choices[0] if resp.choices else None
+        text = None
+        if choice and hasattr(choice, 'message') and choice.message is not None:
+            text = choice.message.get('content') if isinstance(choice.message, dict) else getattr(choice.message, 'content', None)
+        if not isinstance(text, str):
+            raise ValueError("OpenAI API response did not contain a valid text reply.")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return ChatResponse(reply=text)
 
 @app.get("/")
 def home():

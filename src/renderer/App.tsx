@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 
 import Method1Page from '@/pages/Method1Page'
+import Method2Page from '@/pages/Method2Page'
 import { AppBackground } from '@/components/AppBackground'
 import { Button } from '@/components/ui/button'
 import {
@@ -272,6 +273,10 @@ function App() {
 
   if (route === '#method-1') {
     return <Method1Page />
+  }
+
+  if (route === '#method-2') {
+    return <Method2Page />
   }
 
   return <HomePage />
