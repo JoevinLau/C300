@@ -1,5 +1,5 @@
 # main.py
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
@@ -204,16 +204,15 @@ def calculate_emissions(data: InputData):
     )
 
 
-class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1)
-
-
 class ChatResponse(BaseModel):
     reply: str
 
 
 @app.post("/method2-chat", response_model=ChatResponse)
-def method2_chat(req: ChatRequest):
+def method2_chat(
+    message: str = Form(...),
+    excel_file: UploadFile | None = File(None),
+):
     key = os.environ.get("AI_KEY")
     if not key:
         raise HTTPException(
@@ -231,9 +230,83 @@ def method2_chat(req: ChatRequest):
 
     try:
         client = OpenAI(api_key=key)
+        content = message
+        file_description = None
+
+        if excel_file is not None:
+            contents = excel_file.file.read()
+            if contents:
+                file_description = f"Uploaded spreadsheet filename={excel_file.filename} size={len(contents)} bytes"
+                content = f"{file_description}\n\n{message}"
+            excel_file.file.close()
+
         resp = client.chat.completions.create(
             model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": req.message}],
+            messages=[{"role": "user", "content": content}],
+            max_tokens=500,
+        )
+        choice = resp.choices[0] if resp.choices else None
+        text = None
+        if choice and hasattr(choice, 'message') and choice.message is not None:
+            text = choice.message.get('content') if isinstance(choice.message, dict) else getattr(choice.message, 'content', None)
+        if not isinstance(text, str):
+            raise ValueError("OpenAI API response did not contain a valid text reply.")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return ChatResponse(reply=text)
+
+
+@app.post("/method2-chat-file", response_model=ChatResponse)
+def method2_chat_file(
+    message: str = Form(...),
+    excel_file: UploadFile | None = File(None),
+):
+    key = os.environ.get("AI_KEY")
+    if not key:
+        raise HTTPException(
+            status_code=500,
+            detail="AI_KEY environment variable not set. Place AI_KEY=your_new_key_here in .env.",
+        )
+
+    file_content_description = ""
+    if excel_file is not None:
+        try:
+            from openpyxl import load_workbook
+        except ImportError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Python dependency openpyxl is missing: {exc}. Install requirements with `pip install -r requirements.txt`.",
+            ) from exc
+
+        try:
+            workbook = load_workbook(filename=excel_file.file, data_only=True)
+            sheet = workbook.active
+            rows = []
+            for row in sheet.iter_rows(values_only=True):
+                rows.append([str(cell) if cell is not None else "" for cell in row])
+            excel_file.file.close()
+            file_content_description = f"Extracted spreadsheet table with {len(rows)} rows and {len(rows[0]) if rows else 0} columns."
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Failed to parse uploaded Excel file: {exc}") from exc
+
+    try:
+        from openai import OpenAI
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"OpenAI dependency missing: {exc}. Install requirements with `pip install -r requirements.txt`.",
+        ) from exc
+
+    try:
+        client = OpenAI(api_key=key)
+        content = message
+        if file_content_description:
+            content = f"{file_content_description}\n\n{message}"
+
+        resp = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": content}],
             max_tokens=500,
         )
         choice = resp.choices[0] if resp.choices else None
