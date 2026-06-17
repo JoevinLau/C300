@@ -174,7 +174,7 @@ const TRANSPORT_DISTANCES_KM: Record<string, number> = {
 }
 
 const TRANSPORT_EMISSION_FACTORS: Record<string, number> = {
-  sea: 0.015, // kg CO2 per tonne-km
+  sea: 0.015,
   land: 0.120,
   air: 1.200,
 }
@@ -403,7 +403,6 @@ function ResultsPanel({
     result.costs.raw_material_usd2022 +
     result.costs.fabrication_usd2022 +
     result.costs.surface_treatment_usd2022
-
   const transportEmissions = transport?.transport?.chosen_emissions_kg ?? 0
   const combinedEmissions = result.emissions.total + transportEmissions
 
@@ -635,7 +634,6 @@ function Method1Page() {
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([])
   const [historyOpen, setHistoryOpen] = useState(false)
   const [selectedHistory, setSelectedHistory] = useState<HistoryItem | null>(null)
-  // Allow multiple line items per component
   const [rawItems, setRawItems] = useState<{ amount: string; naics: string }[]>([
     { amount: '', naics: '331110' },
   ])
@@ -645,7 +643,6 @@ function Method1Page() {
   const [surfaceItems, setSurfaceItems] = useState<{ amount: string; naics: string }[]>([
     { amount: '', naics: '332812' },
   ])
-  // Transportation UI state (only affects transport part)
   const [transportWeight, setTransportWeight] = useState<string>('')
   const [transportOrigin, setTransportOrigin] = useState<string>('China')
   const [transportMode, setTransportMode] = useState<'sea' | 'land' | 'air'>('sea')
@@ -670,10 +667,9 @@ function Method1Page() {
     () =>
       CATEGORIES.map((cat) => {
         let amount = 0
-        if (cat.id === 'raw') amount = rawItems.reduce((s, it) => s + parseAmount(it.amount), 0)
-        if (cat.id === 'fabrication') amount = fabItems.reduce((s, it) => s + parseAmount(it.amount), 0)
-        if (cat.id === 'surface') amount = surfaceItems.reduce((s, it) => s + parseAmount(it.amount), 0)
-        // Fallback to single-field form values if no items present
+        if (cat.id === 'raw') amount = rawItems.reduce((sum, item) => sum + parseAmount(item.amount), 0)
+        if (cat.id === 'fabrication') amount = fabItems.reduce((sum, item) => sum + parseAmount(item.amount), 0)
+        if (cat.id === 'surface') amount = surfaceItems.reduce((sum, item) => sum + parseAmount(item.amount), 0)
         if (amount === 0) amount = parseAmount(form[cat.amountKey])
         return { ...cat, amount }
       }),
@@ -707,67 +703,67 @@ function Method1Page() {
     ) as Record<CategoryId, number>
   }, [allocationSum, categoryAmounts, totalSgd])
 
-  // Helpers to mutate items
   function updateItem(category: CategoryId, index: number, fields: Partial<{ amount: string; naics: string }>) {
-    if (category === 'raw') setRawItems((prev) => prev.map((it, i) => (i === index ? { ...it, ...fields } : it)))
-    if (category === 'fabrication') setFabItems((prev) => prev.map((it, i) => (i === index ? { ...it, ...fields } : it)))
-    if (category === 'surface') setSurfaceItems((prev) => prev.map((it, i) => (i === index ? { ...it, ...fields } : it)))
+    if (category === 'raw') setRawItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...fields } : item)))
+    if (category === 'fabrication') setFabItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...fields } : item)))
+    if (category === 'surface') setSurfaceItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...fields } : item)))
   }
 
   function addItem(category: CategoryId) {
-    if (category === 'raw') setRawItems((p) => [...p, { amount: '', naics: CATEGORIES.find(c => c.id === 'raw')!.defaultNaics }])
-    if (category === 'fabrication') setFabItems((p) => [...p, { amount: '', naics: CATEGORIES.find(c => c.id === 'fabrication')!.defaultNaics }])
-    if (category === 'surface') setSurfaceItems((p) => [...p, { amount: '', naics: CATEGORIES.find(c => c.id === 'surface')!.defaultNaics }])
+    if (category === 'raw') setRawItems((prev) => [...prev, { amount: '', naics: '331110' }])
+    if (category === 'fabrication') setFabItems((prev) => [...prev, { amount: '', naics: '332710' }])
+    if (category === 'surface') setSurfaceItems((prev) => [...prev, { amount: '', naics: '332812' }])
   }
 
   function removeItem(category: CategoryId, index: number) {
-    if (category === 'raw') setRawItems((p) => p.filter((_, i) => i !== index))
-    if (category === 'fabrication') setFabItems((p) => p.filter((_, i) => i !== index))
-    if (category === 'surface') setSurfaceItems((p) => p.filter((_, i) => i !== index))
+    if (category === 'raw') setRawItems((prev) => prev.filter((_, i) => i !== index))
+    if (category === 'fabrication') setFabItems((prev) => prev.filter((_, i) => i !== index))
+    if (category === 'surface') setSurfaceItems((prev) => prev.filter((_, i) => i !== index))
   }
 
-  async function handleTransportCalculate(e?: React.SyntheticEvent) {
-    if (e) e.preventDefault()
+  async function handleTransportCalculate(event?: React.SyntheticEvent) {
+    if (event) event.preventDefault()
     setTransportError(null)
     setTransportResult(null)
-      const weight = Number(transportWeight)
-      if (!Number.isFinite(weight) || weight <= 0) {
-        setTransportError('Enter a valid shipment weight in kg')
-        return
-      }
-      if (!transportOrigin || transportOrigin.trim().length === 0) {
-        setTransportError('Enter origin country')
-        return
-      }
 
-      setTransportLoading(true)
-      try {
-        // Local client-side calculation using transport distances and emission factors
-        const origin = transportOrigin
-        const distance = TRANSPORT_DISTANCES_KM[origin] ?? 0
-        const tonnes = weight / 1000
-        const alternatives = {
-          sea: tonnes * distance * TRANSPORT_EMISSION_FACTORS.sea,
-          land: tonnes * distance * TRANSPORT_EMISSION_FACTORS.land,
-          air: tonnes * distance * TRANSPORT_EMISSION_FACTORS.air,
-        }
-        const chosen_emissions_kg = alternatives[transportMode]
+    const weight = Number(transportWeight)
+    if (!Number.isFinite(weight) || weight <= 0) {
+      setTransportError('Enter a valid shipment weight in kg')
+      return
+    }
 
-        setTransportResult({
-          transport: {
-            origin,
-            distance_km: distance,
-            weight_kg: weight,
-            chosen_mode: transportMode,
-            chosen_emissions_kg,
-            alternatives,
-          },
-        })
-      } catch (err) {
-        setTransportError(err instanceof Error ? err.message : String(err))
-      } finally {
-        setTransportLoading(false)
+    if (!transportOrigin || transportOrigin.trim().length === 0) {
+      setTransportError('Enter origin country')
+      return
+    }
+
+    setTransportLoading(true)
+    try {
+      const origin = transportOrigin
+      const distance = TRANSPORT_DISTANCES_KM[origin] ?? 0
+      const tonnes = weight / 1000
+      const alternatives = {
+        sea: tonnes * distance * TRANSPORT_EMISSION_FACTORS.sea,
+        land: tonnes * distance * TRANSPORT_EMISSION_FACTORS.land,
+        air: tonnes * distance * TRANSPORT_EMISSION_FACTORS.air,
       }
+      const chosen_emissions_kg = alternatives[transportMode]
+
+      setTransportResult({
+        transport: {
+          origin,
+          distance_km: distance,
+          weight_kg: weight,
+          chosen_mode: transportMode,
+          chosen_emissions_kg,
+          alternatives,
+        },
+      })
+    } catch (err) {
+      setTransportError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setTransportLoading(false)
+    }
   }
 
   function updateField(key: FormKey, value: string) {
@@ -817,10 +813,35 @@ function Method1Page() {
   }
 
   function loadDemo() {
+    const demoTransportWeight = '500'
+    const demoTransportOrigin = 'China'
+    const demoTransportMode: 'sea' | 'land' | 'air' = 'sea'
+    const demoDistance = TRANSPORT_DISTANCES_KM[demoTransportOrigin]
+    const demoTonnes = Number(demoTransportWeight) / 1000
+    const demoAlternatives = {
+      sea: demoTonnes * demoDistance * TRANSPORT_EMISSION_FACTORS.sea,
+      land: demoTonnes * demoDistance * TRANSPORT_EMISSION_FACTORS.land,
+      air: demoTonnes * demoDistance * TRANSPORT_EMISSION_FACTORS.air,
+    }
+
     setForm(demoForm)
     setRawItems([{ amount: demoForm.raw_material_sgd, naics: demoForm.naics_raw_material }])
     setFabItems([{ amount: demoForm.fabrication_sgd, naics: demoForm.naics_fabrication }])
     setSurfaceItems([{ amount: demoForm.surface_treatment_sgd, naics: demoForm.naics_surface_treatment }])
+    setTransportWeight(demoTransportWeight)
+    setTransportOrigin(demoTransportOrigin)
+    setTransportMode(demoTransportMode)
+    setTransportError(null)
+    setTransportResult({
+      transport: {
+        origin: demoTransportOrigin,
+        distance_km: demoDistance,
+        weight_kg: Number(demoTransportWeight),
+        chosen_mode: demoTransportMode,
+        chosen_emissions_kg: demoAlternatives[demoTransportMode],
+        alternatives: demoAlternatives,
+      },
+    })
     setActiveStep(1)
     setError(null)
     setResult(null)
@@ -876,10 +897,9 @@ function Method1Page() {
 
     setLoading(true)
     try {
-      // Aggregate line items per category to send canonical payload
-      const rawSum = rawItems.reduce((s, it) => s + parseAmount(it.amount), 0) || parseAmount(form.raw_material_sgd)
-      const fabSum = fabItems.reduce((s, it) => s + parseAmount(it.amount), 0) || parseAmount(form.fabrication_sgd)
-      const surfSum = surfaceItems.reduce((s, it) => s + parseAmount(it.amount), 0) || parseAmount(form.surface_treatment_sgd)
+      const rawSum = rawItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.raw_material_sgd)
+      const fabSum = fabItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.fabrication_sgd)
+      const surfSum = surfaceItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.surface_treatment_sgd)
 
       const response = await calculateEmissions({
         invoice_id: form.invoice_id.trim(),
@@ -927,8 +947,8 @@ function Method1Page() {
 
   return (
     <AppBackground>
-      <section className="relative z-10 mx-auto grid w-full max-w-lg sm:max-w-3xl lg:max-w-6xl xl:max-w-screen-xl gap-4 pb-8 lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[15rem_minmax(0,1fr)_23rem]">
-        <aside className="rounded-lg bg-zinc-950 p-5 text-white lg:sticky lg:top-4 lg:self-start">
+      <section className="relative z-10 mx-auto grid w-full max-w-[92rem] gap-4 pb-8 lg:grid-cols-[12rem_minmax(0,1fr)] 2xl:grid-cols-[12rem_minmax(0,1fr)_20rem]">
+        <aside className="rounded-lg bg-zinc-950 p-4 text-white lg:sticky lg:top-4 lg:self-start">
           <Button
             variant="ghost"
             className="-ml-2 mb-8 text-zinc-300 hover:bg-white/10 hover:text-white"
@@ -947,7 +967,7 @@ function Method1Page() {
               <div>
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-lime-300">USEEIO</p>
               <h1 className="mt-3 text-4xl font-semibold tracking-tight">
-                Method 1
+                USEEIO
               </h1>
               </div>
               <p className="text-sm leading-6 text-zinc-300">
@@ -992,7 +1012,7 @@ function Method1Page() {
               </div>
             </div>
 
-            <Card className="overflow-hidden border-zinc-900/12 bg-white shadow-sm">
+            <Card className="gap-0 overflow-hidden border-zinc-900/12 bg-white py-0 shadow-sm">
               <CardHeader className="border-b border-zinc-900/10 bg-zinc-950 px-5 py-4 text-white">
                 <div className="flex items-center gap-3">
                   <span className="flex size-9 items-center justify-center rounded-md bg-lime-300 text-sm font-semibold text-zinc-950">
@@ -1004,7 +1024,7 @@ function Method1Page() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="grid gap-4 sm:grid-cols-2">
+              <CardContent className="grid gap-4 py-6 sm:grid-cols-2">
                 <div className="space-y-2 sm:col-span-2">
                   <Label htmlFor="invoice_id">Invoice ID</Label>
                   <Input
@@ -1043,21 +1063,21 @@ function Method1Page() {
               </CardContent>
             </Card>
 
-            <Card className="overflow-hidden border-zinc-900/12 bg-white shadow-sm">
-              <CardHeader className="border-b border-zinc-900/10 bg-[#faf8f1] pb-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="flex items-center gap-3">
+            <Card className="gap-0 overflow-hidden border-zinc-900/12 bg-white py-0 shadow-sm">
+              <CardHeader className="border-b border-zinc-900/10 bg-[#faf8f1] px-5 py-4">
+                <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-center 2xl:justify-between">
+                  <div className="flex min-w-0 items-center gap-3">
                     <span className="flex size-9 items-center justify-center rounded-md bg-zinc-950 text-sm font-semibold text-lime-300">
                       2
                     </span>
-                    <div>
-                      <CardTitle>Cost allocation</CardTitle>
-                      <CardDescription>
+                    <div className="min-w-0">
+                      <CardTitle className="whitespace-nowrap">Cost allocation</CardTitle>
+                      <CardDescription className="text-sm 2xl:whitespace-nowrap">
                         Enter SGD amounts per component and assign a NAICS code for each line.
                       </CardDescription>
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex shrink-0 flex-wrap gap-2">
                     <Button
                       type="button"
                       variant="outline"
@@ -1079,7 +1099,7 @@ function Method1Page() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-5">
+              <CardContent className="space-y-5 py-5">
                 {!hasInvoiceTotal ? (
                   <div className="flex gap-3 rounded-lg border border-zinc-900/12 bg-white/70 px-3 py-2.5 text-sm text-muted-foreground">
                     <CircleDollarSign className="mt-0.5 size-4 shrink-0" />
@@ -1118,14 +1138,15 @@ function Method1Page() {
                 </div>
 
                 <div className="overflow-hidden rounded-lg border border-zinc-900/12">
-                  <div className="hidden bg-zinc-950/5 px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground sm:grid sm:grid-cols-[1.2fr_9rem_4rem_minmax(13rem,1.2fr)] sm:gap-3">
-                    <span>Component</span>
-                    <span>Amount (SGD)</span>
-                    <span className="text-right">Share</span>
-                    <span>NAICS sector</span>
-                  </div>
+                  <div className="w-full">
+                    <div className="hidden bg-zinc-950/5 px-3 py-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground md:grid md:grid-cols-[11rem_9.5rem_3rem_minmax(9.5rem,1fr)] md:gap-2">
+                      <span>Component</span>
+                      <span>Amount (SGD)</span>
+                      <span className="text-right">Share</span>
+                      <span>NAICS sector</span>
+                    </div>
 
-                  <div className="divide-y divide-zinc-900/12">
+                    <div className="divide-y divide-zinc-900/12">
                     {categoryAmounts.map((cat) => {
                       const pct = allocationPercentages[cat.id]
                       const selectedNaics = naicsByCode.get(form[cat.naicsKey])
@@ -1135,7 +1156,7 @@ function Method1Page() {
                         <div
                           key={cat.id}
                           className={cn(
-                            'grid gap-3 px-4 py-4 sm:grid-cols-[1.2fr_9rem_4rem_minmax(13rem,1.2fr)] sm:items-start sm:gap-3',
+                            'grid gap-3 px-3 py-4 md:grid-cols-[11rem_9.5rem_3rem_minmax(9.5rem,1fr)] md:items-start md:gap-2',
                             cat.rowClass,
                           )}
                         >
@@ -1149,7 +1170,7 @@ function Method1Page() {
                               <cat.icon className="size-4" />
                             </span>
                             <div className="min-w-0">
-                              <p className="font-medium">{cat.label}</p>
+                              <p className="whitespace-nowrap text-sm font-semibold">{cat.label}</p>
                               <p className="truncate text-xs text-muted-foreground">{cat.sector}</p>
                             </div>
                           </div>
@@ -1157,29 +1178,24 @@ function Method1Page() {
                           <div className="space-y-1">
                             <Label className="text-xs sm:sr-only">{cat.label} amounts</Label>
                             <div className="space-y-2">
-                              {(cat.id === 'raw' ? rawItems : cat.id === 'fabrication' ? fabItems : surfaceItems).map((it, idx) => (
-                                <div key={idx} className="flex items-center gap-2">
+                              {(cat.id === 'raw' ? rawItems : cat.id === 'fabrication' ? fabItems : surfaceItems).map((item, index) => (
+                                <div key={index} className="flex min-w-0 items-center gap-1.5">
                                   <Input
                                     type="number"
                                     min={0}
                                     step="0.01"
                                     placeholder="0.00"
                                     disabled={!hasInvoiceTotal}
-                                    value={it.amount}
-                                    onChange={(e) => updateItem(cat.id as CategoryId, idx, { amount: e.target.value })}
-                                    className="w-32 text-right font-mono tabular-nums"
+                                    value={item.amount}
+                                    onChange={(event) => updateItem(cat.id as CategoryId, index, { amount: event.target.value })}
+                                    className="h-9 min-w-0 flex-1 text-right font-mono tabular-nums"
                                   />
-                                  <span className={cn('ml-1 w-16 text-right font-mono text-sm', cat.textClass)}>
-                                    {totalSgd > 0 && parseAmount(it.amount) > 0
-                                      ? `${((parseAmount(it.amount) / totalSgd) * 100).toFixed(1)}%`
-                                      : '—'}
-                                  </span>
-                                  <Button type="button" variant="ghost" onClick={() => removeItem(cat.id as CategoryId, idx)}>
+                                  <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => removeItem(cat.id as CategoryId, index)}>
                                     <X />
                                   </Button>
                                 </div>
                               ))}
-                              <Button type="button" size="sm" onClick={() => addItem(cat.id as CategoryId)} disabled={!hasInvoiceTotal}>
+                              <Button type="button" size="sm" className="h-8" onClick={() => addItem(cat.id as CategoryId)} disabled={!hasInvoiceTotal}>
                                 Add
                               </Button>
                             </div>
@@ -1187,31 +1203,38 @@ function Method1Page() {
 
                           <p
                             className={cn(
-                              'text-right font-mono text-sm tabular-nums sm:pt-0',
+                              'text-right font-mono text-sm tabular-nums md:pt-2',
                               cat.textClass,
                             )}
                           >
                             {cat.amount > 0 ? `${pct.toFixed(1)}%` : '—'}
                           </p>
 
-                          <div className="space-y-1.5 sm:col-start-4">
-                            <Label className="text-xs sm:sr-only">{cat.label} NAICS codes</Label>
+                          <div className="min-w-0 space-y-1.5 md:col-start-4">
+                            <Label className="text-xs md:sr-only">{cat.label} NAICS codes</Label>
                             <div className="space-y-2">
-                              {(cat.id === 'raw' ? rawItems : cat.id === 'fabrication' ? fabItems : surfaceItems).map((it, idx) => (
+                              {(cat.id === 'raw' ? rawItems : cat.id === 'fabrication' ? fabItems : surfaceItems).map((item, index) => (
                                 <Select
-                                  key={idx}
-                                  value={it.naics}
-                                  onValueChange={(v) => updateItem(cat.id as CategoryId, idx, { naics: v })}
+                                  key={index}
+                                  value={item.naics}
+                                  onValueChange={(value) => updateItem(cat.id as CategoryId, index, { naics: value })}
                                 >
-                                  <SelectTrigger className="w-44 font-mono">
-                                    <SelectValue>{naicsByCode.get(it.naics)?.code ?? it.naics}</SelectValue>
+                                  <SelectTrigger className="w-full font-mono">
+                                    <SelectValue>{naicsByCode.get(item.naics)?.code ?? item.naics}</SelectValue>
                                   </SelectTrigger>
                                   <SelectContent position="popper" className="max-w-[min(24rem,calc(100vw-2rem))]">
                                     {sortNaicsOptions(naicsOptions, cat.defaultNaics).map((option) => (
-                                      <SelectItem key={option.code} value={option.code} textValue={`${option.code} ${option.description}`} className="items-start py-2.5">
+                                      <SelectItem
+                                        key={option.code}
+                                        value={option.code}
+                                        textValue={`${option.code} ${option.description}`}
+                                        className="items-start py-2.5"
+                                      >
                                         <div className="flex flex-col gap-0.5 pr-2">
                                           <span className="font-mono font-medium">{option.code}</span>
-                                          <span className="text-xs leading-snug text-muted-foreground">{option.description}</span>
+                                          <span className="text-xs leading-snug text-muted-foreground">
+                                            {option.description}
+                                          </span>
                                         </div>
                                       </SelectItem>
                                     ))}
@@ -1226,45 +1249,45 @@ function Method1Page() {
                         </div>
                       )
                     })}
+                    </div>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Transportation calculator (local calculation from calculation folder) */}
-            <Card className="overflow-hidden border-zinc-900/12 bg-white shadow-sm">
+            <Card className="gap-0 overflow-hidden border-zinc-900/12 bg-white py-0 shadow-sm">
               <CardHeader className="border-b border-zinc-900/10 bg-zinc-950 px-5 py-4 text-white">
                 <div className="flex items-center gap-3">
                   <span className="flex size-9 items-center justify-center rounded-md bg-lime-300 text-sm font-semibold text-zinc-950">
                     T
                   </span>
-                  <div>
-                    <CardTitle>Transportation</CardTitle>
-                    <CardDescription className="text-zinc-300">Estimate transport emissions (sea / land / air) from origin country.</CardDescription>
+                  <div className="min-w-0">
+                    <CardTitle className="whitespace-nowrap">Transportation</CardTitle>
+                    <CardDescription className="whitespace-nowrap text-zinc-300">Estimate transport emissions (sea / land / air) from origin country.</CardDescription>
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="grid gap-4 sm:grid-cols-3">
+              <CardContent className="grid gap-4 py-6 sm:grid-cols-3">
                 <div className="space-y-2 sm:col-span-1">
                   <Label htmlFor="transport_weight">Shipment weight (kg)</Label>
-                  <Input id="transport_weight" value={transportWeight} onChange={(e) => setTransportWeight(e.target.value)} />
+                  <Input id="transport_weight" value={transportWeight} onChange={(event) => setTransportWeight(event.target.value)} />
                 </div>
                 <div className="space-y-2 sm:col-span-1">
                   <Label htmlFor="transport_origin">Origin country</Label>
-                  <Select value={transportOrigin} onValueChange={(v) => setTransportOrigin(v)}>
+                  <Select value={transportOrigin} onValueChange={(value) => setTransportOrigin(value)}>
                     <SelectTrigger id="transport_origin" className="w-full font-mono">
                       <SelectValue placeholder="Select country">{transportOrigin}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      {TRANSPORT_COUNTRIES.map((c) => (
-                        <SelectItem key={c} value={c}>{c}</SelectItem>
+                      {TRANSPORT_COUNTRIES.map((country) => (
+                        <SelectItem key={country} value={country}>{country}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2 sm:col-span-1">
                   <Label htmlFor="transport_mode">Mode</Label>
-                  <Select onValueChange={(v) => setTransportMode(v as any)}>
+                  <Select onValueChange={(value) => setTransportMode(value as 'sea' | 'land' | 'air')}>
                     <SelectTrigger id="transport_mode" className="w-full">
                       <SelectValue placeholder="Select mode">{transportMode}</SelectValue>
                     </SelectTrigger>
@@ -1281,7 +1304,18 @@ function Method1Page() {
                     <Button type="button" size="sm" onClick={handleTransportCalculate} disabled={transportLoading}>
                       {transportLoading ? 'Calculating…' : 'Calculate transport'}
                     </Button>
-                    <Button type="button" variant="ghost" size="sm" onClick={() => { setTransportWeight(''); setTransportOrigin('China'); setTransportMode('sea'); setTransportResult(null); setTransportError(null); }}>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setTransportWeight('')
+                        setTransportOrigin('China')
+                        setTransportMode('sea')
+                        setTransportResult(null)
+                        setTransportError(null)
+                      }}
+                    >
                       Reset
                     </Button>
                   </div>
@@ -1316,17 +1350,16 @@ function Method1Page() {
                           const worstVal = sorted[sorted.length - 1][1]
                           const chosen = transportResult.transport.chosen_mode as string
 
-                          // If chosen mode is the worst and >10% worse than best, warn and suggest alternatives
                           if (chosen === sorted[sorted.length - 1][0] && worstVal > bestVal * 1.10) {
                             const suggestions = sorted
-                              .filter(([, v]) => v <= bestVal * 1.25)
-                              .map(([m]) => m)
-                              .filter((m) => m !== chosen)
+                              .filter(([, value]) => value <= bestVal * 1.25)
+                              .map(([mode]) => mode)
+                              .filter((mode) => mode !== chosen)
 
                             if (suggestions.length > 0) {
                               return (
                                 <div className="mt-2 text-amber-700">
-                                  ⚠️ The selected transport has significantly higher emissions. Suggest: {suggestions.map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(', ')}.
+                                  ⚠️ The selected transport has significantly higher emissions. Suggest: {suggestions.map((suggestion) => suggestion.charAt(0).toUpperCase() + suggestion.slice(1)).join(', ')}.
                                 </div>
                               )
                             }
@@ -1336,7 +1369,6 @@ function Method1Page() {
                             )
                           }
 
-                          // Otherwise show positive message when chosen is within reasonable range
                           if (chosen === bestMode || alternatives[chosen] <= bestVal * 1.25) {
                             return <div className="mt-2 text-lime-700">✓ Chosen mode is reasonable compared to alternatives.</div>
                           }
@@ -1564,37 +1596,37 @@ function Method1Page() {
           </div>
 
 
-          <aside className="space-y-4 lg:col-start-2 xl:sticky xl:top-4 xl:col-start-3 xl:self-start">
-            <Card className="overflow-hidden border-zinc-900/12 bg-white shadow-sm">
+          <aside className="space-y-4 lg:col-start-2 2xl:sticky 2xl:top-4 2xl:col-start-3 2xl:self-start">
+            <Card className="gap-0 overflow-hidden border-zinc-900/12 bg-white py-0 shadow-sm">
               <CardHeader className="border-b border-zinc-900/10 bg-zinc-950 px-5 py-4 text-white">
                 <div className="flex items-center gap-3">
                   <span className="flex size-9 items-center justify-center rounded-md bg-lime-300 text-sm font-semibold text-zinc-950">
                     <Calculator className="size-5" />
                   </span>
-                  <div>
-                    <CardTitle>Results</CardTitle>
-                    <CardDescription className="text-zinc-300">Live output from your calculation.</CardDescription>
+                  <div className="min-w-0">
+                    <CardTitle className="whitespace-nowrap">Results</CardTitle>
+                    <CardDescription className="whitespace-nowrap text-zinc-300">Live output from your calculation.</CardDescription>
                   </div>
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="py-6">
                 <ResultsPanel
                   totalSgd={totalSgd}
                   year={form.year}
                   result={result}
                   loading={loading}
                   error={error}
-                    transport={transportResult}
+                  transport={transportResult}
                 />
               </CardContent>
             </Card>
 
-            <Card className="overflow-hidden border-zinc-900/12 bg-white shadow-sm">
-              <CardHeader className="border-b border-zinc-900/10 bg-[#faf8f1]">
-                <CardTitle>Calculation Process</CardTitle>
-                <CardDescription>Step-by-step breakdown of the calculation.</CardDescription>
+            <Card className="gap-0 overflow-hidden border-zinc-900/12 bg-white py-0 shadow-sm">
+              <CardHeader className="border-b border-zinc-900/10 bg-[#faf8f1] px-5 py-4">
+                <CardTitle className="whitespace-nowrap">Calculation Process</CardTitle>
+                <CardDescription className="text-sm leading-5">Step-by-step breakdown of the calculation.</CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="px-5 py-6">
                 <CalculationProcessPanel
                   loading={loading}
                   result={result}

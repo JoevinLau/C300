@@ -8,12 +8,12 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'border border-lime-900 bg-lime-600 text-white shadow-[0_2px_0_#1f2a16] hover:-translate-y-0.5 hover:bg-lime-700 active:translate-y-0',
+        default: 'border border-lime-900 bg-lime-600 text-white hover:bg-lime-700',
         destructive:
-          'border border-red-900 bg-destructive text-white shadow-[0_2px_0_#3f1111] hover:-translate-y-0.5 hover:bg-destructive/90 focus-visible:ring-destructive/20',
+          'border border-red-900 bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20',
         outline:
-          'border border-zinc-900/20 bg-white text-zinc-950 shadow-[0_1px_0_rgba(24,24,27,0.18)] hover:-translate-y-0.5 hover:border-lime-700/60 hover:bg-lime-50',
-        secondary: 'border border-teal-900/20 bg-teal-100 text-teal-950 hover:-translate-y-0.5 hover:bg-teal-200',
+          'border border-zinc-900/20 bg-white text-zinc-950 hover:border-lime-700/60 hover:bg-lime-50',
+        secondary: 'border border-teal-900/20 bg-teal-100 text-teal-950 hover:bg-teal-200',
         ghost: 'text-zinc-700 hover:bg-zinc-900/6 hover:text-zinc-950',
         link: 'text-primary underline-offset-4 hover:underline',
       },
