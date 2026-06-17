@@ -192,7 +192,8 @@ type HistoryItem = {
 }
 
 function parseAmount(value: string): number {
-  const parsed = Number(value)
+  const normalized = String(value).trim().replace(/,/g, '')
+  const parsed = Number(normalized)
   return Number.isFinite(parsed) ? parsed : 0
 }
 
@@ -1154,7 +1155,7 @@ function Method1Page() {
                           </div>
 
                           <div className="space-y-1">
-                            <Label className="text-xs sm:sr-only">{cat.label} items</Label>
+                            <Label className="text-xs sm:sr-only">{cat.label} amounts</Label>
                             <div className="space-y-2">
                               {(cat.id === 'raw' ? rawItems : cat.id === 'fabrication' ? fabItems : surfaceItems).map((it, idx) => (
                                 <div key={idx} className="flex items-center gap-2">
@@ -1166,31 +1167,13 @@ function Method1Page() {
                                     disabled={!hasInvoiceTotal}
                                     value={it.amount}
                                     onChange={(e) => updateItem(cat.id as CategoryId, idx, { amount: e.target.value })}
-                                    className="w-28 font-mono tabular-nums"
+                                    className="w-32 text-right font-mono tabular-nums"
                                   />
                                   <span className={cn('ml-1 w-16 text-right font-mono text-sm', cat.textClass)}>
                                     {totalSgd > 0 && parseAmount(it.amount) > 0
                                       ? `${((parseAmount(it.amount) / totalSgd) * 100).toFixed(1)}%`
                                       : '—'}
                                   </span>
-                                  <Select
-                                    value={it.naics}
-                                    onValueChange={(v) => updateItem(cat.id as CategoryId, idx, { naics: v })}
-                                  >
-                                    <SelectTrigger className="w-44 font-mono">
-                                      <SelectValue>{naicsByCode.get(it.naics)?.code ?? it.naics}</SelectValue>
-                                    </SelectTrigger>
-                                    <SelectContent position="popper" className="max-w-[min(24rem,calc(100vw-2rem))]">
-                                      {sortNaicsOptions(naicsOptions, cat.defaultNaics).map((option) => (
-                                        <SelectItem key={option.code} value={option.code} textValue={`${option.code} ${option.description}`} className="items-start py-2.5">
-                                          <div className="flex flex-col gap-0.5 pr-2">
-                                            <span className="font-mono font-medium">{option.code}</span>
-                                            <span className="text-xs leading-snug text-muted-foreground">{option.description}</span>
-                                          </div>
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
                                   <Button type="button" variant="ghost" onClick={() => removeItem(cat.id as CategoryId, idx)}>
                                     <X />
                                   </Button>
@@ -1212,8 +1195,33 @@ function Method1Page() {
                           </p>
 
                           <div className="space-y-1.5 sm:col-start-4">
-                            <Label className="text-xs sm:sr-only">NAICS per line</Label>
-                            <p className="text-xs leading-snug text-muted-foreground">Select NAICS for each line item in the column to the left.</p>
+                            <Label className="text-xs sm:sr-only">{cat.label} NAICS codes</Label>
+                            <div className="space-y-2">
+                              {(cat.id === 'raw' ? rawItems : cat.id === 'fabrication' ? fabItems : surfaceItems).map((it, idx) => (
+                                <Select
+                                  key={idx}
+                                  value={it.naics}
+                                  onValueChange={(v) => updateItem(cat.id as CategoryId, idx, { naics: v })}
+                                >
+                                  <SelectTrigger className="w-44 font-mono">
+                                    <SelectValue>{naicsByCode.get(it.naics)?.code ?? it.naics}</SelectValue>
+                                  </SelectTrigger>
+                                  <SelectContent position="popper" className="max-w-[min(24rem,calc(100vw-2rem))]">
+                                    {sortNaicsOptions(naicsOptions, cat.defaultNaics).map((option) => (
+                                      <SelectItem key={option.code} value={option.code} textValue={`${option.code} ${option.description}`} className="items-start py-2.5">
+                                        <div className="flex flex-col gap-0.5 pr-2">
+                                          <span className="font-mono font-medium">{option.code}</span>
+                                          <span className="text-xs leading-snug text-muted-foreground">{option.description}</span>
+                                        </div>
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              ))}
+                            </div>
+                            <p className="text-xs leading-snug text-muted-foreground">
+                              Select NAICS for each line item in the column to the left.
+                            </p>
                           </div>
                         </div>
                       )
@@ -1558,9 +1566,16 @@ function Method1Page() {
 
           <aside className="space-y-4 lg:col-start-2 xl:sticky xl:top-4 xl:col-start-3 xl:self-start">
             <Card className="overflow-hidden border-zinc-900/12 bg-white shadow-sm">
-              <CardHeader className="border-b border-zinc-900/10 bg-zinc-950 text-white">
-                <CardTitle>Results</CardTitle>
-                <CardDescription className="text-zinc-300">Live output from your calculation.</CardDescription>
+              <CardHeader className="border-b border-zinc-900/10 bg-zinc-950 px-5 py-4 text-white">
+                <div className="flex items-center gap-3">
+                  <span className="flex size-9 items-center justify-center rounded-md bg-lime-300 text-sm font-semibold text-zinc-950">
+                    <Calculator className="size-5" />
+                  </span>
+                  <div>
+                    <CardTitle>Results</CardTitle>
+                    <CardDescription className="text-zinc-300">Live output from your calculation.</CardDescription>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
                 <ResultsPanel
