@@ -4,8 +4,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
 
-from service import list_naics_options
-from calculator import compute_emissions
+from service import (
+    list_naics_options, 
+    compute_emissions, 
+    fetch_naics_for_material, 
+    save_material_mapping
+)
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -173,8 +177,22 @@ class NaicsOption(BaseModel):
     category: str | None = None
     kgco2e_per_usd: float | None = None
 
+class MappingLearnRequest(BaseModel):
+    keyword: str
+    naics_code: str
+    description: str
+    category: str
+
 # ---------- ENDPOINTS ----------
 
+@app.get("/fetch-naics")
+def get_naics_by_material(name: str):
+    return fetch_naics_for_material(name)
+
+@app.post("/learn-mapping")
+def learn_mapping(data: MappingLearnRequest):
+    save_material_mapping(data.keyword, data.naics_code, data.description, data.category)
+    return {"status": "success"}
 
 @app.get("/naics", response_model=list[NaicsOption])
 def get_naics_options():

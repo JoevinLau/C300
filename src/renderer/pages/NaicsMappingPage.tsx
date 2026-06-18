@@ -19,7 +19,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
-type TargetField = 'naics_code' | 'description' | 'kgco2e' | 'category'
+type TargetField = 'material_name' | 'naics_code' | 'description' | 'kgco2e' | 'category'
 interface ColumnMapping {
   field: TargetField
   excelColumn: string | null
@@ -27,24 +27,31 @@ interface ColumnMapping {
 }
 
 interface MappedRow {
+  material_name: string
   naics_code: string
   description: string
   kgco2e: string
   category: string
+  source?: 'phase1' | 'phase2' | 'phase3'
+  confidence_level?: 'exact' | 'partial' | 'low'
 }
 
 interface ExcelData {
   headers: string[]
   rows: string[][]
   fileName: string
+  allSheets?: string[]
+  selectedSheet?: string
 }
 
 const DETECTION_KEYWORDS: Record<TargetField, string[]> = {
+  material_name: ['material', 'name', 'item', 'description', 'material name', 'part name'],
   naics_code: ['naics', 'code', 'industry code', 'sector code', 'naics code'],
-  description: ['description', 'desc', 'industry', 'sector name', 'activity', 'name', 'company'],
+  description: ['description', 'desc', 'industry', 'sector name', 'activity', 'company'],
   kgco2e: ['kgco2e', 'co2e', 'emission factor', 'ef', 'carbon', 'ghg', 'emissions'],
   category: ['category', ' industries', 'sector', 'industry classification', 'group'],
 }
+
 
 // Built-in NAICS category lookup (2-digit sector codes)
 const NAICS_SECTORS: Record<string, string> = {
@@ -157,19 +164,71 @@ function detectColumn(headers: string[], target: TargetField): { column: string 
 
 function NaicsMappingPage() {
   const [step, setStep] = useState<1 | 2 | 3>(1) // 1: upload, 2: mapping, 3: preview
+  const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null)
   const [excelData, setExcelData] = useState<ExcelData | null>(null)
   const [mappings, setMappings] = useState<ColumnMapping[]>([
+    { field: 'material_name', excelColumn: null, confidence: -1 },
     { field: 'naics_code', excelColumn: null, confidence: -1 },
     { field: 'description', excelColumn: null, confidence: -1 },
     { field: 'kgco2e', excelColumn: null, confidence: -1 },
     { field: 'category', excelColumn: null, confidence: -1 },
   ])
   const [categoryLoading, setCategoryLoading] = useState(false)
+  const [fetchNaicsLoading, setFetchNaicsLoading] = useState(false)
   const [categoryProgress, setCategoryProgress] = useState({ current: 0, total: 0 })
+  const [fetchNaicsProgress, setFetchNaicsProgress] = useState({ current: 0, total: 0 })
   const [filledCategories, setFilledCategories] = useState<Map<string, string>>(new Map())
   const [mappedData, setMappedData] = useState<MappedRow[]>([])
   const [confirmedData, setConfirmedData] = useState<MappedRow[] | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const processSheet = (wb: XLSX.WorkBook, sheetName: string) => {
+    const sheet = wb.Sheets[sheetName]
+    const json = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][]
+    
+    if (json.length === 0) return
+
+    // Find header row (the row with the most detected keywords)
+    let bestHeaderRowIndex = 0
+    let maxDetectedCount = -1
+
+    // Scan first 10 rows for headers
+    for (let i = 0; i < Math.min(json.length, 10); i++) {
+      const row = json[i]
+      if (!row || !Array.isArray(row)) continue
+      
+      let detectedCount = 0
+      const rowStrings = row.map(cell => String(cell ?? '').toLowerCase())
+      
+      Object.values(DETECTION_KEYWORDS).forEach(keywords => {
+        if (keywords.some(k => rowStrings.some(rs => rs.includes(k)))) {
+          detectedCount++
+        }
+      })
+      
+      if (detectedCount > maxDetectedCount) {
+        maxDetectedCount = detectedCount
+        bestHeaderRowIndex = i
+      }
+    }
+
+    const headers = json[bestHeaderRowIndex].map(h => String(h ?? ''))
+    const rows = json.slice(bestHeaderRowIndex + 1).filter(row => row.some(cell => cell !== null && cell !== ''))
+
+    setExcelData({ 
+      headers, 
+      rows: rows.map(r => r.map(c => String(c ?? ''))), 
+      fileName: (excelData?.fileName || ''),
+      allSheets: wb.SheetNames,
+      selectedSheet: sheetName
+    })
+
+    const newMappings = mappings.map(m => {
+      const detected = detectColumn(headers, m.field)
+      return { ...m, excelColumn: detected.column, confidence: detected.confidence }
+    })
+    setMappings(newMappings)
+  }
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -179,28 +238,12 @@ function NaicsMappingPage() {
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer)
-        const workbook = XLSX.read(data, { type: 'array' })
-        const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
-        const json = XLSX.utils.sheet_to_json(firstSheet, { header: 1 }) as string[][]
-        
-        if (json.length === 0) {
-          alert('Empty spreadsheet')
-          return
-        }
+        const wb = XLSX.read(data, { type: 'array' })
+        setWorkbook(wb)
+        setFetchNaicsProgress({ current: 0, total: 0 })
 
-        const headers = json[0].map(h => String(h ?? ''))
-        const rows = json.slice(1)
-
-        setExcelData({ headers, rows, fileName: file.name })
-        setFilledCategories(new Map())
-        setConfirmedData(null)
-        setMappedData([])
-
-        const newMappings = mappings.map(m => {
-          const detected = detectColumn(headers, m.field)
-          return { ...m, excelColumn: detected.column, confidence: detected.confidence }
-        })
-        setMappings(newMappings)
+        setExcelData(prev => ({ ...prev, fileName: file.name } as ExcelData))
+        processSheet(wb, wb.SheetNames[0])
         setStep(2)
       } catch (error) {
         console.error('Error parsing Excel:', error)
@@ -209,6 +252,7 @@ function NaicsMappingPage() {
     }
     reader.readAsArrayBuffer(file)
   }
+
 
   const handleMappingChange = (field: TargetField, column: string) => {
     setMappings(prev => prev.map(m => 
@@ -251,28 +295,143 @@ function NaicsMappingPage() {
     }
   }
 
+  const handleFetchNaics = async () => {
+    if (!excelData) return
+
+    const nameMapping = mappings.find(m => m.field === 'material_name')
+    if (!nameMapping?.excelColumn) {
+      alert('Please map the Material Name column first')
+      return
+    }
+
+    const nameColIndex = excelData.headers.indexOf(nameMapping.excelColumn)
+    if (nameColIndex === -1) return
+
+    const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() || 'http://127.0.0.1:8000'
+    const materialNames = excelData.rows
+      .map(row => row[nameColIndex]?.toString().trim())
+      .filter((name): name is string => !!name)
+
+    const uniqueNames = [...new Set(materialNames)]
+    if (uniqueNames.length === 0) {
+      alert('No valid material names found in selected column')
+      return
+    }
+
+    setFetchNaicsLoading(true)
+    setFetchNaicsProgress({ current: 0, total: uniqueNames.length })
+
+    try {
+      const concurrency = Math.min(6, uniqueNames.length)
+      const resultByName = new Map<string, MappedRow>()
+      let nextIndex = 0
+      let completed = 0
+
+      const worker = async () => {
+        while (true) {
+          const currentIndex = nextIndex
+          nextIndex += 1
+          if (currentIndex >= uniqueNames.length) return
+
+          const materialName = uniqueNames[currentIndex]
+
+          try {
+            const response = await fetch(`${apiBase}/fetch-naics?name=${encodeURIComponent(materialName)}`)
+            if (response.ok) {
+              const result = await response.json()
+              resultByName.set(materialName, {
+                material_name: materialName,
+                naics_code: result.code || '',
+                description: result.description || 'Not Found - Please manual entry',
+                category: result.category || '',
+                kgco2e: '',
+                source: result.source || 'phase3',
+                confidence_level: result.confidence || 'low',
+              })
+            } else {
+              resultByName.set(materialName, {
+                material_name: materialName,
+                naics_code: '',
+                description: 'Fetch failed - Please manual entry',
+                category: '',
+                kgco2e: '',
+                source: 'phase3',
+                confidence_level: 'low',
+              })
+            }
+          } catch (rowError) {
+            console.error(`Error fetching NAICS for ${materialName}:`, rowError)
+            resultByName.set(materialName, {
+              material_name: materialName,
+              naics_code: '',
+              description: 'Connection failed - Please manual entry',
+              category: '',
+              kgco2e: '',
+              source: 'phase3',
+              confidence_level: 'low',
+            })
+          } finally {
+            completed += 1
+            setFetchNaicsProgress({ current: completed, total: uniqueNames.length })
+          }
+        }
+      }
+
+      await Promise.all(Array.from({ length: concurrency }, () => worker()))
+
+      const newMappedData: MappedRow[] = materialNames.map(materialName => {
+        const hit = resultByName.get(materialName)
+        return hit ?? {
+          material_name: materialName,
+          naics_code: '',
+          description: 'Not Found - Please manual entry',
+          category: '',
+          kgco2e: '',
+          source: 'phase3',
+          confidence_level: 'low',
+        }
+      })
+
+      setMappedData(newMappedData)
+      setStep(3)
+    } catch (error) {
+      console.error('Error fetching NAICS:', error)
+      alert('Failed to fetch NAICS codes')
+    } finally {
+      setFetchNaicsLoading(false)
+    }
+  }
+
   const buildMappedData = (): MappedRow[] => {
     if (!excelData) return []
     
+    const nameCol = mappings.find(m => m.field === 'material_name')?.excelColumn
     const naicsCol = mappings.find(m => m.field === 'naics_code')?.excelColumn
     const descCol = mappings.find(m => m.field === 'description')?.excelColumn
     const kgco2eCol = mappings.find(m => m.field === 'kgco2e')?.excelColumn
     const catCol = mappings.find(m => m.field === 'category')?.excelColumn
     
+    const nameIdx = nameCol ? excelData.headers.indexOf(nameCol) : -1
     const naicsIdx = naicsCol ? excelData.headers.indexOf(naicsCol) : -1
     const descIdx = descCol ? excelData.headers.indexOf(descCol) : -1
     const kgco2eIdx = kgco2eCol ? excelData.headers.indexOf(kgco2eCol) : -1
     const catIdx = catCol ? excelData.headers.indexOf(catCol) : -1
     
-    return excelData.rows.map(row => ({
-      naics_code: naicsIdx >= 0 ? row[naicsIdx]?.toString() || '' : '',
-      description: descIdx >= 0 ? row[descIdx]?.toString() || '' : '',
-      kgco2e: kgco2eIdx >= 0 ? row[kgco2eIdx]?.toString() || '' : '',
-      category: catIdx >= 0 
-        ? row[catIdx]?.toString() || '' 
-        : (naicsIdx >= 0 ? filledCategories.get(row[naicsIdx]?.toString().trim() || '') || '' : ''),
-    }))
+    return excelData.rows.map(row => {
+      const naicsCode = naicsIdx >= 0 ? row[naicsIdx]?.toString() || '' : ''
+      return {
+        material_name: nameIdx >= 0 ? row[nameIdx]?.toString() || '' : '',
+        naics_code: naicsCode,
+        description: descIdx >= 0 ? row[descIdx]?.toString() || '' : '',
+        kgco2e: kgco2eIdx >= 0 ? row[kgco2eIdx]?.toString() || '' : '',
+        category: catIdx >= 0 
+          ? row[catIdx]?.toString() || '' 
+          : (naicsIdx >= 0 ? filledCategories.get(naicsCode.trim()) || '' : ''),
+        source: naicsCode ? 'phase1' : 'phase3'
+      }
+    })
   }
+
 
   const handleShowPreview = () => {
     const data = buildMappedData()
@@ -280,26 +439,73 @@ function NaicsMappingPage() {
     setStep(3)
   }
 
+  const handleConfirmMapping = async () => {
+    const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() || 'http://127.0.0.1:8000'
+
+    try {
+      // Learning: Save corrected mappings to dictionary
+      for (const row of mappedData) {
+        if (row.material_name && row.naics_code && row.source === 'phase3') {
+          // Basic cleaning for dictionary keyword
+          const keyword = row.material_name.split(' ')[0]
+          await fetch(`${apiBase}/learn-mapping`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              keyword,
+              naics_code: row.naics_code,
+              description: row.description,
+              category: row.category,
+            }),
+          })
+        }
+      }
+      setConfirmedData(mappedData)
+      alert(`Mapping confirmed! ${mappedData.length} rows saved and learned.`)
+    } catch (error) {
+      console.error('Learning failed:', error)
+      setConfirmedData(mappedData)
+    }
+  }
+
+  const handleRowEdit = (index: number, field: keyof MappedRow, value: string) => {
+    const newData = [...mappedData]
+    newData[index] = { ...newData[index], [field]: value, source: field === 'naics_code' ? 'phase3' : newData[index].source }
+    setMappedData(newData)
+  }
+
+  const getSourceBadge = (source?: string) => {
+    switch (source) {
+      case 'phase1': return <span className="rounded bg-green-100 px-2 py-0.5 text-[10px] font-bold text-green-700">Phase 1</span>
+      case 'phase2': return <span className="rounded bg-yellow-100 px-2 py-0.5 text-[10px] font-bold text-yellow-700">Phase 2</span>
+      case 'phase3': return <span className="rounded bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700">Phase 3</span>
+      default: return null
+    }
+  }
+
   const handleExportFull = () => {
-    const data = buildMappedData()
-    const ws = XLSX.utils.json_to_sheet(data)
+    // Export specific columns: material name, NAICS code, description, kgco2e, categories
+    const exportData = mappedData.map(row => ({
+      'Material Name': row.material_name,
+      'NAICS Code': row.naics_code,
+      'Description': row.description,
+      'kgCO2e per USD': row.kgco2e,
+      'Category': row.category
+    }))
+    const ws = XLSX.utils.json_to_sheet(exportData)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'NAICS Mapping')
     XLSX.writeFile(wb, 'naics_mapping_result.xlsx')
   }
 
-  const handleConfirmMapping = () => {
-    const data = buildMappedData()
-    setConfirmedData(data)
-    alert(`Mapping confirmed! ${data.length} rows saved locally.`)
-  }
-
   const fieldLabels: Record<TargetField, string> = {
+    material_name: 'Material Name',
     naics_code: 'NAICS Code',
     description: 'Description',
     kgco2e: 'kgCO₂e per USD',
     category: 'Category',
   }
+
 
   const getStatusColor = (confidence: number) => {
     if (confidence >= 70) return 'bg-teal-100 border-teal-500 text-teal-800'
@@ -382,21 +588,40 @@ function NaicsMappingPage() {
                     Review and adjust the auto-detected column mappings for {excelData.fileName}
                   </CardDescription>
                 </div>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setStep(1)
-                    setExcelData(null)
-                    setFilledCategories(new Map())
-                    setConfirmedData(null)
-                    setMappedData([])
-                  }}
-                >
-                  Upload Different File
-                </Button>
+                <div className="flex gap-2">
+                  {excelData.allSheets && excelData.allSheets.length > 1 && (
+                    <Select
+                      value={excelData.selectedSheet}
+                      onValueChange={(value) => workbook && processSheet(workbook, value)}
+                    >
+                      <SelectTrigger className="w-48">
+                        <SelectValue placeholder="Select sheet" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {excelData.allSheets.map(sheet => (
+                          <SelectItem key={sheet} value={sheet}>{sheet}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setStep(1)
+                      setExcelData(null)
+                      setFilledCategories(new Map())
+                      setConfirmedData(null)
+                      setMappedData([])
+                      setFetchNaicsProgress({ current: 0, total: 0 })
+                    }}
+                  >
+                    Upload Different File
+                  </Button>
+                </div>
               </div>
 
               <div className="overflow-x-auto">
+
                 <div className="min-w-[48rem]">
                   <div className="grid grid-cols-[1.5fr_2fr_1fr_0.8fr] bg-zinc-950 px-5 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-300">
                     <span>Target Field</span>
@@ -449,7 +674,36 @@ function NaicsMappingPage() {
                 </div>
               </div>
 
+              {/* Fetch NAICS Button */}
+              {mappings.find(m => m.field === 'material_name')?.excelColumn && (
+                <div className="border-t border-zinc-900/10 p-5">
+                  <Button
+                    onClick={handleFetchNaics}
+                    disabled={fetchNaicsLoading}
+                    className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700"
+                  >
+                    {fetchNaicsLoading ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" />
+                        Fetching {fetchNaicsProgress.current}/{fetchNaicsProgress.total}...
+                      </>
+                    ) : (
+                      <>
+                        <Globe className="size-4" />
+                        Fetch NAICS code
+                      </>
+                    )}
+                  </Button>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {fetchNaicsLoading
+                      ? `Batch matching in progress (${fetchNaicsProgress.current}/${fetchNaicsProgress.total})`
+                      : 'Automatically find NAICS codes based on your material names.'}
+                  </p>
+                </div>
+              )}
+
               {/* Fetch Categories Button */}
+
               {mappings.find(m => m.field === 'naics_code')?.excelColumn && 
                !mappings.find(m => m.field === 'category')?.excelColumn && (
                 <div className="border-t border-zinc-900/10 p-5">
@@ -494,15 +748,15 @@ function NaicsMappingPage() {
           {/* Step 3: Preview */}
           {step === 3 && mappedData.length > 0 && (
             <>
-              <section className="rounded-lg border border-zinc-900/12 bg-white shadow-sm">
-                <div className="border-b border-zinc-900/10 p-5 flex items-center justify-between">
+              <section className="rounded-lg border border-zinc-900/12 bg-white shadow-sm overflow-hidden flex flex-col max-h-[70vh]">
+                <div className="border-b border-zinc-900/10 p-5 flex items-center justify-between shrink-0">
                   <div>
                     <CardTitle className="text-2xl flex items-center gap-2">
                       <FileSpreadsheet className="size-5" />
                       Mapping Preview
                     </CardTitle>
                     <CardDescription className="mt-2">
-                      Showing first 5 rows of {mappedData.length} total mappings
+                      Showing {mappedData.length} total mappings. You can manually edit the NAICS codes below.
                     </CardDescription>
                   </div>
                   <Button
@@ -513,30 +767,42 @@ function NaicsMappingPage() {
                   </Button>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-zinc-950">
+                <div className="overflow-auto flex-1 border-b border-zinc-900/10">
+                  <table className="w-full text-sm border-collapse">
+                    <thead className="bg-zinc-950 sticky top-0 z-20">
                       <tr>
-                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.16em] text-zinc-300">NAICS Code</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.16em] text-zinc-300">Material Name</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.16em] text-zinc-300 w-32">NAICS Code</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.16em] text-zinc-300">Description</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.16em] text-zinc-300">kgCO₂e</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.16em] text-zinc-300">Category</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.16em] text-zinc-300">Source</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {mappedData.slice(0, 5).map((row, idx) => (
-                        <tr key={idx} className="border-t border-zinc-900/10">
-                          <td className="px-4 py-3 font-mono text-lime-700">{row.naics_code}</td>
+                    <tbody className="divide-y divide-zinc-900/10">
+                      {mappedData.map((row, idx) => (
+                        <tr key={idx} className="hover:bg-zinc-50">
+                          <td className="px-4 py-3 text-zinc-700 font-medium">{row.material_name}</td>
+                          <td className="px-4 py-3">
+                            <input 
+                              type="text"
+                              value={row.naics_code}
+                              onChange={(e) => handleRowEdit(idx, 'naics_code', e.target.value)}
+                              className="w-full rounded border border-zinc-200 px-2 py-1 font-mono text-lime-700 focus:outline-lime-500"
+                            />
+                          </td>
                           <td className="px-4 py-3 text-zinc-700">{row.description}</td>
                           <td className="px-4 py-3 text-zinc-700">{row.kgco2e}</td>
                           <td className="px-4 py-3 text-zinc-700">{row.category}</td>
+                          <td className="px-4 py-3">{getSourceBadge(row.source)}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
 
-                <div className="border-t border-zinc-900/10 p-5 flex gap-4">
+                <div className="p-5 flex gap-4 shrink-0 bg-white">
+
                   <Button onClick={handleExportFull} variant="outline" className="flex items-center gap-2">
                     <Download className="size-4" />
                     Export Full Result

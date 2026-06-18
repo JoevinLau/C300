@@ -14,5 +14,6 @@ def get_conn():
         password=os.getenv("DB_PASSWORD", ""),
         database=os.getenv("DB_NAME", "defaultdb"),
         ssl_ca=os.getenv("DB_SSL_CA", ""),
-        ssl_verify_cert=True
+        ssl_verify_cert=True,
+        connection_timeout=int(os.getenv("DB_TIMEOUT_SECONDS", "2")),
     )
