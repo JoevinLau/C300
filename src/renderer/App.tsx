@@ -12,6 +12,7 @@ import {
 
 import Method1Page from '@/pages/Method1Page'
 import Method2Page from '@/pages/Method2Page'
+import NaicsMappingPage from '@/pages/NaicsMappingPage'
 import { AppBackground } from '@/components/AppBackground'
 import { Button } from '@/components/ui/button'
 import {
@@ -55,27 +56,6 @@ const modules = [
     href: '#method-3',
     description:
       'Calculate spend-based emissions using purchase amounts and mapped sector emission factors.',
-  },
-]
-
-const sampleMappings = [
-  {
-    company: 'Precision Metal Works',
-    activity: 'Machined components',
-    code: '332710',
-    sector: 'Machine Shops',
-  },
-  {
-    company: 'Advanced Coatings Ltd',
-    activity: 'Surface treatment',
-    code: '332812',
-    sector: 'Metal Coating and Engraving',
-  },
-  {
-    company: 'Motion Systems Pte Ltd',
-    activity: 'Industrial automation',
-    code: '333249',
-    sector: 'Industrial Machinery Manufacturing',
   },
 ]
 
@@ -151,111 +131,6 @@ function HomePage() {
   )
 }
 
-function NaicsMappingPage() {
-  return (
-    <AppBackground>
-      <section className="relative z-10 mx-auto grid min-h-[calc(100vh-2rem)] w-full max-w-7xl gap-4 lg:grid-cols-[15rem_1fr]">
-        <aside className="rounded-lg bg-zinc-950 p-5 text-white">
-          <Button
-            variant="ghost"
-            className="-ml-2 mb-8 text-zinc-300 hover:bg-white/10 hover:text-white"
-            onClick={() => {
-              window.location.hash = ''
-            }}
-          >
-            <ArrowLeft />
-            Back to workflows
-          </Button>
-
-          <div className="space-y-4">
-            <div className="flex size-12 items-center justify-center rounded-md bg-lime-300 text-zinc-950">
-              <DatabaseZap className="size-6" />
-            </div>
-            <h1 className="text-4xl font-semibold tracking-tight">
-              NAICS Mapping
-            </h1>
-            <p className="text-sm leading-6 text-zinc-300">
-              Prepare company, supplier, or spend-category records by assigning NAICS codes before calculating
-              sector-based carbon factors.
-            </p>
-          </div>
-        </aside>
-
-        <div className="grid gap-4 lg:grid-cols-[1fr_19rem]">
-          <section className="rounded-lg border border-zinc-900/12 bg-white shadow-sm">
-            <div className="border-b border-zinc-900/10 p-5">
-              <CardTitle className="text-2xl">Mapping Workspace</CardTitle>
-              <CardDescription className="mt-2">
-                A starting point for uploading data, searching sectors, and reviewing suggested mappings.
-              </CardDescription>
-            </div>
-            <div className="grid gap-0 border-b border-zinc-900/10 sm:grid-cols-2">
-              <button className="flex items-center gap-4 border-b border-zinc-900/10 p-5 text-left transition-colors hover:bg-lime-50 sm:border-b-0 sm:border-r">
-                <span className="flex size-10 items-center justify-center rounded-md bg-lime-200 text-lime-950">
-                  <Upload className="size-5" />
-                </span>
-                <span>
-                  <span className="block font-medium">Upload spend file</span>
-                  <span className="text-sm text-muted-foreground">CSV or spreadsheet import placeholder</span>
-                </span>
-              </button>
-              <button className="flex items-center gap-4 p-5 text-left transition-colors hover:bg-teal-50">
-                <span className="flex size-10 items-center justify-center rounded-md bg-teal-100 text-teal-900">
-                  <Search className="size-5" />
-                </span>
-                <span>
-                  <span className="block font-medium">Search NAICS sectors</span>
-                  <span className="text-sm text-muted-foreground">Find matching industry classifications</span>
-                </span>
-              </button>
-            </div>
-
-            <div className="overflow-x-auto">
-              <div className="min-w-[42rem]">
-                <div className="grid grid-cols-[1.1fr_1fr_0.6fr_1fr] bg-zinc-950 px-5 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-300">
-                  <span>Company</span><span>Activity</span><span>NAICS</span><span>Sector</span>
-                </div>
-                {sampleMappings.map((mapping) => (
-                  <div
-                    key={mapping.company}
-                    className="grid grid-cols-[1.1fr_1fr_0.6fr_1fr] border-t border-zinc-900/10 px-5 py-4 text-sm"
-                  >
-                    <span>{mapping.company}</span>
-                    <span className="text-muted-foreground">{mapping.activity}</span>
-                    <span className="font-mono text-lime-700">{mapping.code}</span>
-                    <span className="text-muted-foreground">{mapping.sector}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          <Card className="border-zinc-900/12 bg-white">
-            <CardHeader className="border-b border-zinc-900/10 pb-5">
-              <CardTitle>Suggested Flow</CardTitle>
-              <CardDescription>How this page can evolve as you add the real calculation logic.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {[
-                'Import portfolio company or supplier spend data.',
-                'Match each record to a NAICS industry classification.',
-                'Review ambiguous mappings and confidence scores.',
-                'Pass mapped records into Method 1, Method 2, or Method 3.',
-              ].map((step, index) => (
-                <div key={step} className="flex gap-3 border-b border-zinc-900/10 pb-4 last:border-0 last:pb-0">
-                  <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-zinc-950 text-sm text-lime-300">
-                    {index + 1}
-                  </div>
-                  <p className="text-sm leading-6 text-muted-foreground">{step}</p>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </div>
-      </section>
-    </AppBackground>
-  )
-}
 
 function App() {
   const [route, setRoute] = useState(() => window.location.hash)
