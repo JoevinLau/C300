@@ -625,28 +625,28 @@ def get_kgco2e_per_usd(naics_code: str) -> float:
 
 def compute_emissions(payload: dict) -> dict:
     """
-    使用数据库中的汇率、通胀指数和 NAICS 系数计算排放量。
+        Calculate emissions using exchange rates, inflation indices, and NAICS coefficients from the database.
     """
     year = int(payload["year"])
     naics = payload["naics"]
     sgd_amounts = payload["sgd_amounts"]
 
-    # 1. 获取财务数据 (汇率和通胀)
+    # 1. Obtain Financial Data (Exchange Rates and Inflation)
     fx_rate, inflation_index = get_fx_and_inflation(year)
     try:
-        # 获取 2022 年的指数作为基准 (USEEIO 系数通常基于 2022 美元)
+        # Use the 2022 index as the baseline (USEEIO coefficients are typically based on 2022 dollars)
         _, index_2022 = get_fx_and_inflation(2022)
     except Exception:
-        index_2022 = 118.012  # 默认回退值
+        index_2022 = 118.012
 
     inflation_ratio = index_2022 / inflation_index
 
-    # 2. 获取排放系数 (kgCO2e per 2022 USD)
+    # 2. Obtain Emission Factors (kgCO2e per 2022 USD)
     raw_factor = get_kgco2e_per_usd(naics["raw_material"])
     fab_factor = get_kgco2e_per_usd(naics["fabrication"])
     surf_factor = get_kgco2e_per_usd(naics["surface_treatment"])
 
-    # 3. 计算各部分结果
+    # 3. Calculate Results for Each Component
     results = {}
     total_emission = 0.0
 
