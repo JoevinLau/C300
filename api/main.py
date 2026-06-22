@@ -3,13 +3,13 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
+from ecotransit_scraper import calculate_ecotransit
 
 from service import (
     list_naics_options, 
     compute_emissions, 
     fetch_naics_for_material, 
     save_material_mapping,
-    calculate_ecotransit_transport,
 )
 import os
 from pathlib import Path
@@ -210,9 +210,9 @@ class MappingLearnRequest(BaseModel):
 
 class EcoTransitRequest(BaseModel):
     port_of_loading: str = Field(..., min_length=1)
-    port_of_discharge: str = Field(..., min_length=1)
+    port_of_discharge: str = Field("Singapore", min_length=1)
     weight_kg: float = Field(..., gt=0)
-    transport_mode: str = Field("sea", pattern="^(sea|land|air|rail|truck|vessel)$")
+    transport_mode: str = Field("sea", pattern="^(sea|land|air|rail|truck|vessel|ship)$")
     origin_country: str | None = None
 
 
@@ -382,17 +382,39 @@ def home():
     return {"message": "API is running!"}
 
 
-@app.post("/ecotransit", response_model=EcoTransitResponse)
-def calculate_ecotransit(data: EcoTransitRequest):
-    return calculate_ecotransit_transport(
-        port_of_loading=data.port_of_loading,
-        port_of_discharge=data.port_of_discharge,
-        weight_kg=data.weight_kg,
-        transport_mode=data.transport_mode,
-        origin_country=data.origin_country,
-    )
+@app.post("/ecotransit")
+def ecotransit(data: EcoTransitRequest):
+    try:
+        result = calculate_ecotransit(
+            port_of_loading=data.port_of_loading,
+            port_of_discharge=data.port_of_discharge,
+            weight_kg=data.weight_kg,
+            transport_mode=data.transport_mode,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"EcoTransit scraper failed: {exc}") from exc
+
+    return {
+        "transport": {
+            "origin": data.origin_country or data.port_of_loading,
+            "port_of_loading": data.port_of_loading,
+            "port_of_discharge": data.port_of_discharge,
+            "weight_kg": data.weight_kg,
+            "chosen_mode": data.transport_mode,
+            "chosen_emissions_kg": result.get("co2e_kg"),
+            "distance_km": result.get("distance_km"),
+            "energy_mj": result.get("energy_mj"),
+            "source": "EcoTransit World",
+            "raw": result,
+        }
+    }
 
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)
+

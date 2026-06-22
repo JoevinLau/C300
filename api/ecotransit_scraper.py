@@ -1,0 +1,207 @@
+import re
+from typing import Any
+
+
+ECOTRANSIT_CALCULATOR_URL = "https://emissioncalculator.ecotransit.world/"
+
+AIRPORT_SEARCH_OVERRIDES = {
+    "port of shanghai": "Shanghai Pudong",
+    "shanghai": "Shanghai Pudong",
+    "singapore": "Singapore Changi",
+    "port of tuas": "Singapore Changi",
+    "port of tuas / singapore": "Singapore Changi",
+}
+
+
+def _to_float(value: str) -> float | None:
+    cleaned = (
+        value.replace("\u202f", "")
+        .replace("\xa0", "")
+        .replace(" ", "")
+        .replace(",", "")
+        .strip()
+    )
+    if not cleaned:
+        return None
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _first_number(patterns: list[str], text: str) -> float | None:
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE)
+        if match:
+            parsed = _to_float(match.group(1))
+            if parsed is not None:
+                return parsed
+    return None
+
+
+def _click_if_visible(page: Any, selector: str, timeout: int = 1500) -> None:
+    try:
+        page.locator(selector).first.click(timeout=timeout)
+    except Exception:
+        pass
+
+
+def _location_search_text(value: str, transport_mode: str = "sea") -> str:
+    cleaned = value.strip()
+    if transport_mode.lower().strip() == "air":
+        override = AIRPORT_SEARCH_OVERRIDES.get(cleaned.lower())
+        if override:
+            return override
+
+    cleaned = re.sub(r"^port\s+of\s+", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.split(r"\s*/\s*|\s*\(", cleaned, maxsplit=1)[0].strip()
+    return cleaned or value.strip()
+
+
+def _select_location(page: Any, input_index: int, text: str, transport_mode: str = "sea") -> None:
+    search_text = _location_search_text(text, transport_mode)
+
+    page.locator("input").nth(input_index).click(timeout=10000)
+    page.wait_for_timeout(800)
+    page.locator("input").nth(1).fill(search_text)
+    page.wait_for_timeout(3000)
+
+    cells = page.locator("vaadin-grid-cell-content")
+    try:
+        cells.first.wait_for(timeout=8000)
+    except Exception as exc:
+        raise RuntimeError(f"EcoTransit did not show location results for '{text}'.") from exc
+
+    rows: list[tuple[int, list[str]]] = []
+    cell_count = cells.count()
+    for row_start in range(0, cell_count, 5):
+        row = []
+        for offset in range(5):
+            index = row_start + offset
+            if index >= cell_count:
+                row.append("")
+            else:
+                row.append(cells.nth(index).inner_text(timeout=500).strip())
+        if any(row):
+            rows.append((row_start, row))
+
+    if transport_mode.lower().strip() == "air":
+        type_priority = ("IATACode", "City", "LoCode", "UICCode", "ZIP")
+    else:
+        type_priority = ("LoCode", "City", "IATACode", "UICCode", "ZIP")
+    for preferred_type in type_priority:
+        for row_start, row in rows:
+            if len(row) >= 4 and row[2] == preferred_type:
+                if search_text.lower() in row[1].lower() or row[1].lower() in search_text.lower():
+                    cells.nth(row_start + 1).click(timeout=5000)
+                    page.wait_for_timeout(800)
+                    return
+
+    for row_start, row in rows:
+        if len(row) >= 2 and row[1]:
+            cells.nth(row_start + 1).click(timeout=5000)
+            page.wait_for_timeout(800)
+            return
+
+    raise RuntimeError(f"Could not select EcoTransit location result for '{text}'.")
+
+
+def _choose_transport_mode(page: Any, transport_mode: str) -> None:
+    mode = transport_mode.lower().strip()
+    selectors = {
+        "sea": "#transport-type-button-ship-0",
+        "vessel": "#transport-type-button-ship-0",
+        "ship": "#transport-type-button-ship-0",
+        "air": "#transport-type-button-air-0",
+        "land": "#transport-type-button-road-0",
+        "truck": "#transport-type-button-road-0",
+        "rail": "#transport-type-button-train-0",
+    }
+    selector = selectors.get(mode)
+    if selector:
+        _click_if_visible(page, selector)
+
+
+def _parse_result_text(text: str) -> dict[str, float | None]:
+    distance_km = _first_number(
+        [
+            r"([\d\s.,]+)\s*km\s*[\r\n]+\s*[\d\s.,]+\s*tonne-km",
+            r"Distance\s*(?:\[[^\]]+\])?\s*([\d\s.,]+)",
+        ],
+        text,
+    )
+    co2e_kg = _first_number(
+        [
+            r"CO(?:2|₂)e\s*\[kg\]\s*([\d\s.,]+)",
+            r"CO(?:2|₂)\s*equivalent\s*\[kg\]\s*([\d\s.,]+)",
+            r"GHG\s*emissions\s*\[kg\]\s*([\d\s.,]+)",
+        ],
+        text,
+    )
+    energy_mj = _first_number(
+        [
+            r"Primary\s+Energy\s*\[MJ\]\s*([\d\s.,]+)",
+            r"Energy\s*\[MJ\]\s*([\d\s.,]+)",
+        ],
+        text,
+    )
+
+    return {
+        "distance_km": distance_km,
+        "co2e_kg": co2e_kg,
+        "energy_mj": energy_mj,
+    }
+
+
+def calculate_ecotransit(
+    port_of_loading: str,
+    weight_kg: float,
+    port_of_discharge: str = "Singapore",
+    transport_mode: str = "sea",
+) -> dict[str, float | None]:
+    if not port_of_loading.strip():
+        raise ValueError("port_of_loading is required")
+    if not port_of_discharge.strip():
+        raise ValueError("port_of_discharge is required")
+    if weight_kg <= 0:
+        raise ValueError("weight_kg must be greater than 0")
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise RuntimeError(
+            "Playwright is not installed. Install it with `python -m pip install playwright` "
+            "and then run `python -m playwright install chromium`."
+        ) from exc
+
+    weight_tonnes = weight_kg / 1000
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+
+        try:
+            page.goto(ECOTRANSIT_CALCULATOR_URL, wait_until="domcontentloaded", timeout=45000)
+
+            try:
+                page.get_by_text("Got it!").click(timeout=3000)
+            except Exception:
+                pass
+
+            page.locator("input").first.fill(str(weight_tonnes))
+
+            _select_location(page, 1, port_of_loading, transport_mode)
+
+            _choose_transport_mode(page, transport_mode)
+
+            _select_location(page, 2, port_of_discharge, transport_mode)
+
+            page.get_by_role("button", name=re.compile("calculate", re.IGNORECASE)).click(timeout=10000)
+            page.wait_for_timeout(10000)
+
+            result = _parse_result_text(page.locator("body").inner_text())
+            if all(value is None for value in result.values()):
+                raise RuntimeError("EcoTransit calculation completed but no result values were found.")
+            return result
+        finally:
+            browser.close()
