@@ -23,7 +23,6 @@ load_dotenv(API_DIR / ".env", override=True)
 
 AI_KEY_ENV_NAMES = ("AI_KEY", "OPENAI_API_KEY")
 
-
 def get_ai_key() -> str:
     for env_name in AI_KEY_ENV_NAMES:
         key = os.environ.get(env_name)
