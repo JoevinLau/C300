@@ -1,8 +1,9 @@
-import type { CalculateRequest, CalculateResponse, NaicsOption } from '../../shared/calculator-types'
+import type { CalculateRequest, CalculateResponse, EcoTransitRequest, EcoTransitResponse, NaicsOption } from '../../shared/calculator-types'
 
-export type { CalculateRequest, CalculateResponse, NaicsOption }
+export type { CalculateRequest, CalculateResponse, EcoTransitRequest, EcoTransitResponse, NaicsOption }
 
-const API_BASE = 'http://127.0.0.1:8000'
+const API_BASES = ['http://127.0.0.1:8000', 'http://localhost:8000']
+const API_BASE = API_BASES[0]
 
 function formatApiError(detail: unknown): string {
   if (typeof detail === 'string') return detail
@@ -43,6 +44,36 @@ async function fetchCalculate(payload: CalculateRequest): Promise<CalculateRespo
   return body as CalculateResponse
 }
 
+async function fetchJsonFromApi(path: string, init?: RequestInit): Promise<unknown> {
+  let lastError: unknown = null
+
+  for (const base of API_BASES) {
+    try {
+      const response = await fetch(`${base}${path}`, init)
+      const body: unknown = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        const detail =
+          body && typeof body === 'object' && 'detail' in body
+            ? (body as { detail: unknown }).detail
+            : `Request failed (${response.status})`
+        throw new Error(formatApiError(detail))
+      }
+
+      return body
+    } catch (error) {
+      lastError = error
+      if (error instanceof Error && error.message !== 'Failed to fetch') {
+        throw error
+      }
+    }
+  }
+
+  throw new Error(
+    'Cannot connect to the local API server on port 8000. Start the FastAPI backend, then try Calculate transport again.',
+  )
+}
+
 export async function calculateEmissions(
   payload: CalculateRequest,
 ): Promise<CalculateResponse> {
@@ -51,6 +82,18 @@ export async function calculateEmissions(
   }
 
   return fetchCalculate(payload)
+}
+
+export async function calculateEcoTransitTransport(
+  payload: EcoTransitRequest,
+): Promise<EcoTransitResponse> {
+  const body = await fetchJsonFromApi('/ecotransit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+  return body as EcoTransitResponse
 }
 
 export async function fetchNaicsOptions(): Promise<NaicsOption[]> {

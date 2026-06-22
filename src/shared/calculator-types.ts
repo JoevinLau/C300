@@ -67,3 +67,26 @@ export interface NaicsOption {
   category?: string
   kgco2e_per_usd?: number
 }
+
+export interface EcoTransitRequest {
+  port_of_loading: string
+  port_of_discharge: string
+  weight_kg: number
+  transport_mode: 'sea' | 'land' | 'air' | 'rail' | 'truck' | 'vessel'
+  origin_country?: string
+}
+
+export interface EcoTransitResponse {
+  transport: {
+    origin: string
+    port_of_loading: string
+    port_of_discharge: string
+    weight_kg: number
+    chosen_mode: string
+    chosen_emissions_kg: number | null
+    distance_km: number | null
+    energy_mj: number | null
+    source: string
+    raw: Record<string, unknown>
+  }
+}

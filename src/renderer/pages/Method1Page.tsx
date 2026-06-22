@@ -16,7 +16,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 
 import { AppBackground } from '@/components/AppBackground'
-import { calculateEmissions, fetchNaicsOptions, type CalculateResponse, type NaicsOption } from '@/lib/calculator-api'
+import { calculateEcoTransitTransport, calculateEmissions, fetchNaicsOptions, type CalculateResponse, type NaicsOption } from '@/lib/calculator-api'
 import { naicsCatalogByCode } from '../../shared/naics-catalog'
 import { Button } from '@/components/ui/button'
 import {
@@ -143,41 +143,68 @@ const demoForm: Record<FormKey, string> = {
   surface_treatment_sgd: '392.1',
 }
 
-const TRANSPORT_COUNTRIES = [
-  'China',
-  'Japan',
-  'South Korea',
-  'Vietnam',
-  'Thailand',
-  'Malaysia',
-  'Indonesia',
-  'Australia',
-  'United States',
-  'Germany',
-  'India',
-  'Brazil',
+const PORT_OF_DISCHARGE = 'Singapore'
+
+type TransportPort = {
+  country: string
+  loadingPort: string
+}
+
+const TRANSPORT_PORTS: TransportPort[] = [
+  { country: 'Singapore', loadingPort: 'Port of Tuas / Singapore' },
+  { country: 'China', loadingPort: 'Port of Shanghai' },
+  { country: 'South Korea', loadingPort: 'Port of Busan' },
+  { country: 'Japan', loadingPort: 'Port of Nagoya / Tokyo / Yokohama' },
+  { country: 'India', loadingPort: 'JNPT (Nhava Sheva) / Mundra' },
+  { country: 'United States', loadingPort: 'Port of Los Angeles / Long Beach' },
+  { country: 'Germany', loadingPort: 'Port of Hamburg' },
+  { country: 'Netherlands', loadingPort: 'Port of Rotterdam' },
+  { country: 'Australia', loadingPort: 'Port of Melbourne / Hedland' },
+  { country: 'Brazil', loadingPort: 'Port of Santos' },
+  { country: 'Canada', loadingPort: 'Port of Vancouver' },
+  { country: 'Malaysia (Peninsular)', loadingPort: 'Port Klang' },
+  { country: 'Vietnam', loadingPort: 'Port of Hai Phong' },
+  { country: 'Indonesia (Java-Bali)', loadingPort: 'Port of Tanjung Priok (Jakarta)' },
+  { country: 'Thailand', loadingPort: 'Port of Laem Chabang' },
+  { country: 'Philippines', loadingPort: 'Port of Manila' },
+  { country: 'Cambodia', loadingPort: 'Port of Sihanoukville' },
+  { country: 'Laos', loadingPort: 'Via Port of Laem Chabang (Thailand)' },
+  { country: 'Brunei', loadingPort: 'Muara Port' },
+  { country: 'Myanmar', loadingPort: 'Port of Yangon' },
+  { country: 'Hong Kong', loadingPort: 'Port of Hong Kong' },
+  { country: 'Taiwan', loadingPort: 'Port of Kaohsiung' },
+  { country: 'Mongolia', loadingPort: 'Via Port of Tianjin (China)' },
+  { country: 'Bangladesh', loadingPort: 'Port of Chittagong' },
+  { country: 'Pakistan', loadingPort: 'Port of Karachi' },
+  { country: 'Sri Lanka', loadingPort: 'Port of Colombo' },
+  { country: 'Nepal', loadingPort: 'Via Port of Kolkata (India)' },
+  { country: 'Bhutan', loadingPort: 'Via Port of Kolkata (India)' },
+  { country: 'Saudi Arabia', loadingPort: 'Jeddah Islamic Port' },
+  { country: 'UAE', loadingPort: 'Jebel Ali Port' },
+  { country: 'Qatar', loadingPort: 'Hamad Port' },
+  { country: 'Oman', loadingPort: 'Port of Sohar' },
+  { country: 'Israel', loadingPort: 'Port of Haifa' },
+  { country: 'Belgium', loadingPort: 'Port of Antwerp-Bruges' },
+  { country: 'United Kingdom', loadingPort: 'Port of Felixstowe' },
+  { country: 'France', loadingPort: 'Port of Le Havre' },
+  { country: 'Italy', loadingPort: 'Port of Genoa' },
+  { country: 'Spain', loadingPort: 'Port of Valencia' },
+  { country: 'Mexico', loadingPort: 'Port of Manzanillo' },
+  { country: 'Argentina', loadingPort: 'Port of Buenos Aires' },
+  { country: 'Chile', loadingPort: 'Port of San Antonio' },
+  { country: 'Colombia', loadingPort: 'Port of Cartagena' },
+  { country: 'Peru', loadingPort: 'Port of Callao' },
+  { country: 'South Africa', loadingPort: 'Port of Durban' },
+  { country: 'Egypt', loadingPort: 'Port of Alexandria' },
+  { country: 'Morocco', loadingPort: 'Port of Tanger Med' },
+  { country: 'Kenya', loadingPort: 'Port of Mombasa' },
+  { country: 'Nigeria', loadingPort: 'Port of Lagos (Apapa)' },
+  { country: 'New Zealand', loadingPort: 'Port of Auckland' },
+  { country: 'Norway', loadingPort: 'Port of Oslo' },
+  { country: 'Sweden', loadingPort: 'Port of Gothenburg' },
 ]
 
-const TRANSPORT_DISTANCES_KM: Record<string, number> = {
-  China: 3600,
-  Japan: 5300,
-  'South Korea': 3800,
-  Vietnam: 1700,
-  Thailand: 1400,
-  Malaysia: 400,
-  Indonesia: 1500,
-  Australia: 3800,
-  'United States': 15300,
-  Germany: 10400,
-  India: 4300,
-  Brazil: 17500,
-}
-
-const TRANSPORT_EMISSION_FACTORS: Record<string, number> = {
-  sea: 0.015,
-  land: 0.120,
-  air: 1.200,
-}
+const TRANSPORT_COUNTRIES = TRANSPORT_PORTS.map((item) => item.country)
 
 type HistoryItem = {
   invoiceId: string
@@ -645,10 +672,22 @@ function Method1Page() {
   ])
   const [transportWeight, setTransportWeight] = useState<string>('')
   const [transportOrigin, setTransportOrigin] = useState<string>('China')
+  const [transportPortOfLoading, setTransportPortOfLoading] = useState<string>('Port of Shanghai')
+  const [transportPortOfDischarge, setTransportPortOfDischarge] = useState<string>(PORT_OF_DISCHARGE)
   const [transportMode, setTransportMode] = useState<'sea' | 'land' | 'air'>('sea')
   const [transportLoading, setTransportLoading] = useState(false)
   const [transportError, setTransportError] = useState<string | null>(null)
   const [transportResult, setTransportResult] = useState<any | null>(null)
+  const selectedTransportPort = useMemo(
+    () => TRANSPORT_PORTS.find((item) => item.country.toLowerCase() === transportOrigin.trim().toLowerCase()),
+    [transportOrigin],
+  )
+
+  useEffect(() => {
+    if (selectedTransportPort) {
+      setTransportPortOfLoading(selectedTransportPort.loadingPort)
+    }
+  }, [selectedTransportPort])
 
   useEffect(() => {
 
@@ -737,28 +776,31 @@ function Method1Page() {
       return
     }
 
+    if (!transportPortOfLoading.trim()) {
+      setTransportError('Enter port of loading')
+      return
+    }
+
+    if (!transportPortOfDischarge.trim()) {
+      setTransportError('Enter port of discharge')
+      return
+    }
+
     setTransportLoading(true)
     try {
-      const origin = transportOrigin
-      const distance = TRANSPORT_DISTANCES_KM[origin] ?? 0
-      const tonnes = weight / 1000
-      const alternatives = {
-        sea: tonnes * distance * TRANSPORT_EMISSION_FACTORS.sea,
-        land: tonnes * distance * TRANSPORT_EMISSION_FACTORS.land,
-        air: tonnes * distance * TRANSPORT_EMISSION_FACTORS.air,
-      }
-      const chosen_emissions_kg = alternatives[transportMode]
-
-      setTransportResult({
-        transport: {
-          origin,
-          distance_km: distance,
-          weight_kg: weight,
-          chosen_mode: transportMode,
-          chosen_emissions_kg,
-          alternatives,
-        },
+      const matchedPort = TRANSPORT_PORTS.find(
+        (item) => item.country.toLowerCase() === transportOrigin.trim().toLowerCase(),
+      )
+      const origin = matchedPort?.country ?? transportOrigin.trim()
+      const response = await calculateEcoTransitTransport({
+        origin_country: origin,
+        port_of_loading: transportPortOfLoading.trim(),
+        port_of_discharge: transportPortOfDischarge.trim(),
+        weight_kg: weight,
+        transport_mode: transportMode,
       })
+
+      setTransportResult(response)
     } catch (err) {
       setTransportError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -816,13 +858,6 @@ function Method1Page() {
     const demoTransportWeight = '500'
     const demoTransportOrigin = 'China'
     const demoTransportMode: 'sea' | 'land' | 'air' = 'sea'
-    const demoDistance = TRANSPORT_DISTANCES_KM[demoTransportOrigin]
-    const demoTonnes = Number(demoTransportWeight) / 1000
-    const demoAlternatives = {
-      sea: demoTonnes * demoDistance * TRANSPORT_EMISSION_FACTORS.sea,
-      land: demoTonnes * demoDistance * TRANSPORT_EMISSION_FACTORS.land,
-      air: demoTonnes * demoDistance * TRANSPORT_EMISSION_FACTORS.air,
-    }
 
     setForm(demoForm)
     setRawItems([{ amount: demoForm.raw_material_sgd, naics: demoForm.naics_raw_material }])
@@ -830,16 +865,22 @@ function Method1Page() {
     setSurfaceItems([{ amount: demoForm.surface_treatment_sgd, naics: demoForm.naics_surface_treatment }])
     setTransportWeight(demoTransportWeight)
     setTransportOrigin(demoTransportOrigin)
+    setTransportPortOfLoading('Port of Shanghai')
+    setTransportPortOfDischarge(PORT_OF_DISCHARGE)
     setTransportMode(demoTransportMode)
     setTransportError(null)
     setTransportResult({
       transport: {
         origin: demoTransportOrigin,
-        distance_km: demoDistance,
+        port_of_loading: 'Port of Shanghai',
+        port_of_discharge: PORT_OF_DISCHARGE,
+        distance_km: null,
         weight_kg: Number(demoTransportWeight),
         chosen_mode: demoTransportMode,
-        chosen_emissions_kg: demoAlternatives[demoTransportMode],
-        alternatives: demoAlternatives,
+        chosen_emissions_kg: null,
+        energy_mj: null,
+        source: 'EcoTransit World',
+        raw: {},
       },
     })
     setActiveStep(1)
@@ -1274,16 +1315,40 @@ function Method1Page() {
                 </div>
                 <div className="space-y-2 sm:col-span-1">
                   <Label htmlFor="transport_origin">Origin country</Label>
-                  <Select value={transportOrigin} onValueChange={(value) => setTransportOrigin(value)}>
-                    <SelectTrigger id="transport_origin" className="w-full font-mono">
-                      <SelectValue placeholder="Select country">{transportOrigin}</SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {TRANSPORT_COUNTRIES.map((country) => (
-                        <SelectItem key={country} value={country}>{country}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Input
+                    id="transport_origin"
+                    list="transport_country_options"
+                    value={transportOrigin}
+                    onChange={(event) => setTransportOrigin(event.target.value)}
+                    className="font-mono"
+                    placeholder="Search country"
+                  />
+                  <datalist id="transport_country_options">
+                    {TRANSPORT_COUNTRIES.map((country) => (
+                      <option key={country} value={country} />
+                    ))}
+                  </datalist>
+                  <div className="grid gap-2 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3 text-xs">
+                    <div>
+                      <Label htmlFor="transport_port_loading" className="text-xs text-muted-foreground">Port of loading</Label>
+                      <Input
+                        id="transport_port_loading"
+                        value={transportPortOfLoading}
+                        onChange={(event) => setTransportPortOfLoading(event.target.value)}
+                        className="mt-1 h-9 bg-white text-xs"
+                        placeholder={selectedTransportPort?.loadingPort ?? 'Enter port of loading'}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="transport_port_discharge" className="text-xs text-muted-foreground">Port of discharge</Label>
+                      <Input
+                        id="transport_port_discharge"
+                        value={transportPortOfDischarge}
+                        onChange={(event) => setTransportPortOfDischarge(event.target.value)}
+                        className="mt-1 h-9 bg-white text-xs"
+                      />
+                    </div>
+                  </div>
                 </div>
                 <div className="space-y-2 sm:col-span-1">
                   <Label htmlFor="transport_mode">Mode</Label>
@@ -1311,6 +1376,8 @@ function Method1Page() {
                       onClick={() => {
                         setTransportWeight('')
                         setTransportOrigin('China')
+                        setTransportPortOfLoading('Port of Shanghai')
+                        setTransportPortOfDischarge(PORT_OF_DISCHARGE)
                         setTransportMode('sea')
                         setTransportResult(null)
                         setTransportError(null)
@@ -1329,52 +1396,17 @@ function Method1Page() {
                       <div className="font-medium">Transport results</div>
                       <div className="mt-2">
                         <div>Origin: {transportResult.transport.origin}</div>
-                        <div>Distance: {transportResult.transport.distance_km} km</div>
+                        <div>Port of loading: {transportResult.transport.port_of_loading}</div>
+                        <div>Port of discharge: {transportResult.transport.port_of_discharge}</div>
+                        <div>Distance: {transportResult.transport.distance_km != null ? `${transportResult.transport.distance_km} km` : 'Returned by EcoTransit when available'}</div>
                         <div>Weight: {transportResult.transport.weight_kg} kg</div>
-                        <div className="mt-2">Emissions:</div>
-                        <ul className="list-disc pl-5">
-                          <li>Sea: {Number(transportResult.transport.alternatives.sea).toFixed(2)} kg CO2</li>
-                          <li>Land: {Number(transportResult.transport.alternatives.land).toFixed(2)} kg CO2</li>
-                          <li>Air: {Number(transportResult.transport.alternatives.air).toFixed(2)} kg CO2</li>
-                        </ul>
                         <div className="mt-2">
-                          Chosen ({transportResult.transport.chosen_mode}): {Number(transportResult.transport.chosen_emissions_kg).toFixed(2)} kg CO2
+                          EcoTransit ({transportResult.transport.chosen_mode}):{' '}
+                          {transportResult.transport.chosen_emissions_kg != null
+                            ? `${Number(transportResult.transport.chosen_emissions_kg).toFixed(2)} kg CO2e`
+                            : 'No emissions value found in EcoTransit response'}
                         </div>
-                        {(() => {
-                          const alternatives = transportResult.transport.alternatives as Record<string, number>
-                          const entries = Object.entries(alternatives)
-                          if (entries.length === 0) return null
-                          const sorted = entries.sort((a, b) => a[1] - b[1])
-                          const bestMode = sorted[0][0]
-                          const bestVal = sorted[0][1]
-                          const worstVal = sorted[sorted.length - 1][1]
-                          const chosen = transportResult.transport.chosen_mode as string
-
-                          if (chosen === sorted[sorted.length - 1][0] && worstVal > bestVal * 1.10) {
-                            const suggestions = sorted
-                              .filter(([, value]) => value <= bestVal * 1.25)
-                              .map(([mode]) => mode)
-                              .filter((mode) => mode !== chosen)
-
-                            if (suggestions.length > 0) {
-                              return (
-                                <div className="mt-2 text-amber-700">
-                                  ⚠️ The selected transport has significantly higher emissions. Suggest: {suggestions.map((suggestion) => suggestion.charAt(0).toUpperCase() + suggestion.slice(1)).join(', ')}.
-                                </div>
-                              )
-                            }
-
-                            return (
-                              <div className="mt-2 text-amber-700">⚠️ The selected transport has significantly higher emissions. Consider reducing shipment weight or consolidating shipments.</div>
-                            )
-                          }
-
-                          if (chosen === bestMode || alternatives[chosen] <= bestVal * 1.25) {
-                            return <div className="mt-2 text-lime-700">✓ Chosen mode is reasonable compared to alternatives.</div>
-                          }
-
-                          return <div className="mt-2 text-amber-700">⚠️ Consider lower-emission alternatives.</div>
-                        })()}
+                        <div className="mt-2 text-xs text-muted-foreground">Source: {transportResult.transport.source}</div>
                       </div>
                     </div>
                   ) : null}

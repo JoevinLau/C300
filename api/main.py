@@ -8,7 +8,8 @@ from service import (
     list_naics_options, 
     compute_emissions, 
     fetch_naics_for_material, 
-    save_material_mapping
+    save_material_mapping,
+    calculate_ecotransit_transport,
 )
 import os
 from pathlib import Path
@@ -183,6 +184,31 @@ class MappingLearnRequest(BaseModel):
     description: str
     category: str
 
+
+class EcoTransitRequest(BaseModel):
+    port_of_loading: str = Field(..., min_length=1)
+    port_of_discharge: str = Field(..., min_length=1)
+    weight_kg: float = Field(..., gt=0)
+    transport_mode: str = Field("sea", pattern="^(sea|land|air|rail|truck|vessel)$")
+    origin_country: str | None = None
+
+
+class EcoTransitTransport(BaseModel):
+    origin: str
+    port_of_loading: str
+    port_of_discharge: str
+    weight_kg: float
+    chosen_mode: str
+    chosen_emissions_kg: float | None = None
+    distance_km: float | None = None
+    energy_mj: float | None = None
+    source: str
+    raw: dict
+
+
+class EcoTransitResponse(BaseModel):
+    transport: EcoTransitTransport
+
 # ---------- ENDPOINTS ----------
 
 @app.get("/fetch-naics")
@@ -341,6 +367,17 @@ def method2_chat_file(
 @app.get("/")
 def home():
     return {"message": "API is running!"}
+
+
+@app.post("/ecotransit", response_model=EcoTransitResponse)
+def calculate_ecotransit(data: EcoTransitRequest):
+    return calculate_ecotransit_transport(
+        port_of_loading=data.port_of_loading,
+        port_of_discharge=data.port_of_discharge,
+        weight_kg=data.weight_kg,
+        transport_mode=data.transport_mode,
+        origin_country=data.origin_country,
+    )
 
 
 if __name__ == "__main__":

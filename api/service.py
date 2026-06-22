@@ -692,3 +692,119 @@ def compute_emissions(payload: dict) -> dict:
         },
     }
 
+## transportation via EcoTransit Business Solutions API
+from datetime import datetime
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+
+def _find_first_number(value: object, key_fragments: tuple[str, ...]) -> float | None:
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            key_lower = str(key).lower()
+            if all(fragment in key_lower for fragment in key_fragments):
+                try:
+                    return float(nested)
+                except (TypeError, ValueError):
+                    pass
+            found = _find_first_number(nested, key_fragments)
+            if found is not None:
+                return found
+    elif isinstance(value, list):
+        for item in value:
+            found = _find_first_number(item, key_fragments)
+            if found is not None:
+                return found
+    return None
+
+
+def calculate_ecotransit_transport(
+    port_of_loading: str,
+    port_of_discharge: str,
+    weight_kg: float,
+    transport_mode: str,
+    origin_country: str | None = None,
+) -> dict:
+    api_url = os.getenv("ECOTRANSIT_API_URL", "").strip()
+    api_token = os.getenv("ECOTRANSIT_API_TOKEN", "").strip()
+
+    if not api_url or not api_token:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "EcoTransit API is not configured. Add ECOTRANSIT_API_URL and "
+                "ECOTRANSIT_API_TOKEN to api/.env. EcoTransit lists its REST API "
+                "as a Business Solutions interface, so a licensed endpoint/token is required."
+            ),
+        )
+
+    weight_tons = weight_kg / 1000.0
+    request_payload = {
+        "transportID": f"PE-{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}",
+        "cargo": {
+            "unit": "TONS",
+            "amount": weight_tons,
+        },
+        "transportChainElements": [
+            {
+                "mainCarriage": True,
+                "transportMode": transport_mode.upper(),
+                "from": {
+                    "locationType": "PORT",
+                    "name": port_of_loading,
+                    **({"country": origin_country} if origin_country else {}),
+                },
+                "to": {
+                    "locationType": "PORT",
+                    "name": port_of_discharge,
+                    "country": "Singapore" if port_of_discharge.lower() == "singapore" else "",
+                },
+            }
+        ],
+    }
+
+    request = Request(
+        api_url,
+        data=json.dumps(request_payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=30) as response:
+            raw_response = json.loads(response.read().decode("utf-8", errors="replace"))
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace") or exc.reason
+        raise HTTPException(status_code=502, detail=f"EcoTransit API error: {detail}") from exc
+    except URLError as exc:
+        raise HTTPException(status_code=502, detail=f"Could not reach EcoTransit API: {exc.reason}") from exc
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=502, detail="EcoTransit API returned invalid JSON") from exc
+
+    co2e_kg = (
+        _find_first_number(raw_response, ("co2e",))
+        or _find_first_number(raw_response, ("co2", "equivalent"))
+        or _find_first_number(raw_response, ("ghg",))
+        or _find_first_number(raw_response, ("emission",))
+    )
+    distance_km = _find_first_number(raw_response, ("distance",))
+    energy_mj = _find_first_number(raw_response, ("energy",))
+
+    return {
+        "transport": {
+            "origin": origin_country or port_of_loading,
+            "port_of_loading": port_of_loading,
+            "port_of_discharge": port_of_discharge,
+            "weight_kg": weight_kg,
+            "chosen_mode": transport_mode,
+            "chosen_emissions_kg": co2e_kg,
+            "distance_km": distance_km,
+            "energy_mj": energy_mj,
+            "source": "EcoTransit World",
+            "raw": raw_response,
+        }
+    }

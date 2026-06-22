@@ -1,11 +1,13 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 
 import { postCalculate } from './api-client'
 import type { CalculateRequest } from '../shared/calculator-types'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+let apiProcess: ChildProcessWithoutNullStreams | null = null
 
 function registerApiHandlers() {
   ipcMain.handle('calculator:calculate', async (_event, payload: CalculateRequest) => {
@@ -34,8 +36,24 @@ function createWindow() {
   void window.loadFile(path.join(__dirname, '../renderer/index.html'))
 }
 
+function startApiServer() {
+  const projectRoot = path.join(__dirname, '..', '..')
+  const apiScript = path.join(projectRoot, 'api', 'main.py')
+
+  apiProcess = spawn('python', [apiScript], {
+    cwd: projectRoot,
+    windowsHide: true,
+    stdio: 'pipe',
+  })
+
+  apiProcess.on('exit', () => {
+    apiProcess = null
+  })
+}
+
 app.whenReady().then(() => {
   registerApiHandlers()
+  startApiServer()
   createWindow()
 
   app.on('activate', () => {
@@ -46,6 +64,11 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  if (apiProcess) {
+    apiProcess.kill()
+    apiProcess = null
+  }
+
   if (process.platform !== 'darwin') {
     app.quit()
   }
