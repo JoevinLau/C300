@@ -15,7 +15,30 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).with_name('.env'))
+API_DIR = Path(__file__).resolve().parent
+ROOT_DIR = API_DIR.parent
+
+load_dotenv(ROOT_DIR / ".env")
+load_dotenv(API_DIR / ".env", override=True)
+
+AI_KEY_ENV_NAMES = ("AI_KEY", "OPENAI_API_KEY")
+
+
+def get_ai_key() -> str:
+    for env_name in AI_KEY_ENV_NAMES:
+        key = os.environ.get(env_name)
+        if key and key.strip():
+            return key.strip()
+
+    accepted_names = " or ".join(AI_KEY_ENV_NAMES)
+    raise HTTPException(
+        status_code=500,
+        detail=(
+            f"{accepted_names} environment variable not set. "
+            "Add AI_KEY=your_key_here or OPENAI_API_KEY=your_key_here "
+            "to .env in the project root or api/.env, then restart the API server."
+        ),
+    )
 
 app = FastAPI()
 
@@ -257,12 +280,7 @@ def method2_chat(
     message: str = Form(...),
     excel_file: UploadFile | None = File(None),
 ):
-    key = os.environ.get("AI_KEY")
-    if not key:
-        raise HTTPException(
-            status_code=500,
-            detail="AI_KEY environment variable not set. Place AI_KEY=your_new_key_here in .env.",
-        )
+    key = get_ai_key()
 
     try:
         from openai import OpenAI
@@ -306,12 +324,7 @@ def method2_chat_file(
     message: str = Form(...),
     excel_file: UploadFile | None = File(None),
 ):
-    key = os.environ.get("AI_KEY")
-    if not key:
-        raise HTTPException(
-            status_code=500,
-            detail="AI_KEY environment variable not set. Place AI_KEY=your_new_key_here in .env.",
-        )
+    key = get_ai_key()
 
     file_content_description = ""
     if excel_file is not None:

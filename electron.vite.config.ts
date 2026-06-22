@@ -25,7 +25,7 @@ export default defineConfig({
       },
     },
     build: {
-      outDir: '../../out/renderer',
+      outDir: path.resolve('out/renderer'),
     },
   },
 })

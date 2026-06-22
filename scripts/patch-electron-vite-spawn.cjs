@@ -27,35 +27,34 @@ function ensureElectronBinary() {
   execSync('node install.js', { cwd: electronDir, stdio: 'inherit' })
 }
 
-ensureElectronBinary()
-
-if (!fs.existsSync(chunksDir)) {
-  process.exit(0)
-}
-
-const oldSpawn =
-  "spawn(electronPath, [entry].concat(args), { stdio: 'inherit' })"
-const newSpawn =
-  "spawn(electronPath, [entry].concat(args), { stdio: 'inherit', ...(process.platform === 'win32' ? { shell: true } : {}) })"
-
-for (const name of fs.readdirSync(chunksDir)) {
-  if (!name.endsWith('.js')) continue
-
-  const file = path.join(chunksDir, name)
-  const content = fs.readFileSync(file, 'utf8')
-
-  if (!content.includes('function startElectron')) continue
-  if (content.includes(newSpawn)) {
-    process.exit(0)
+function revertBrokenWindowsSpawnPatch() {
+  if (!fs.existsSync(chunksDir)) {
+    return
   }
-  if (!content.includes(oldSpawn)) {
-    console.warn(
-      '[patch-electron-vite-spawn] startElectron spawn call changed; patch skipped.',
+
+  const patchedSpawn =
+    "spawn(electronPath, [entry].concat(args), { stdio: 'inherit', ...(process.platform === 'win32' ? { shell: true } : {}) })"
+  const originalSpawn =
+    "spawn(electronPath, [entry].concat(args), { stdio: 'inherit' })"
+
+  for (const name of fs.readdirSync(chunksDir)) {
+    if (!name.endsWith('.js')) continue
+
+    const file = path.join(chunksDir, name)
+    const content = fs.readFileSync(file, 'utf8')
+
+    if (!content.includes('function startElectron')) continue
+    if (!content.includes(patchedSpawn)) {
+      return
+    }
+
+    fs.writeFileSync(file, content.replace(patchedSpawn, originalSpawn))
+    console.log(
+      '[patch-electron-vite-spawn] Reverted shell:true spawn patch (breaks paths with spaces).',
     )
-    process.exit(0)
+    return
   }
-
-  fs.writeFileSync(file, content.replace(oldSpawn, newSpawn))
-  console.log('[patch-electron-vite-spawn] Applied Windows spawn fix.')
-  process.exit(0)
 }
+
+ensureElectronBinary()
+revertBrokenWindowsSpawnPatch()
