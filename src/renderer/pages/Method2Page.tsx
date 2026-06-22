@@ -48,6 +48,14 @@ type Method2Component = {
   details: { label: string; value: string }[]
 }
 
+const CHAT_PROMPT_OPTIONS = [
+  'what is carbon emission?',
+  'is there a way for me to reduce the carbon emission?',
+  'how do I use this calculator system?',
+  'how does Method 2 calculate emissions?',
+  'what documents are needed to improve the Method 2 result?',
+]
+
 const kg = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 2,
 })
@@ -354,14 +362,17 @@ export default function Method2Page() {
     ].join('\n')
   }, [])
 
-  async function sendMessage(e?: React.FormEvent) {
+  async function sendMessage(e?: React.FormEvent, promptOverride?: string) {
     if (e) e.preventDefault()
-    const message = input.trim()
+    const message = (promptOverride ?? input).trim()
     if (!message) return
 
     const userMsg: Message = { role: 'user', content: message }
     setMessages((m) => [...m, userMsg])
-    setInput('')
+    if (!promptOverride) {
+      setInput('')
+    }
+
     setLoading(true)
 
     try {
@@ -638,6 +649,24 @@ export default function Method2Page() {
                       Thinking
                     </div>
                   ) : null}
+                </div>
+
+                <div className="border-t border-zinc-900/10 bg-white px-4 py-3">
+                  <div className="flex flex-wrap gap-2">
+                    {CHAT_PROMPT_OPTIONS.map((prompt) => (
+                      <button
+                        key={prompt}
+                        type="button"
+                        onClick={() => {
+                          void sendMessage(undefined, prompt)
+                        }}
+                        disabled={loading}
+                        className="rounded-md border border-lime-300/70 bg-lime-50 px-2.5 py-1.5 text-left text-xs leading-5 text-lime-950 transition-colors hover:bg-lime-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {prompt}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <form onSubmit={sendMessage} className="border-t border-zinc-900/10 bg-[#faf8f1] p-4">
