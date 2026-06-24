@@ -1,33 +1,43 @@
-# main.py
+import logging
 import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, model_validator
 from ecotransit_scraper import calculate_ecotransit
 
+# Ensure repo root is on sys.path so imports work when running `python api/main.py`
 API_DIR = Path(__file__).resolve().parent
 ROOT_DIR = API_DIR.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from calculation.method2_calculations import compute_method2, list_machine_library
-
 from service import (
-    list_naics_options, 
-    compute_emissions, 
-    fetch_naics_for_material, 
+    calculate_batch_emissions,
+    confirm_naics_mapping,
+    compute_emissions,
+    fetch_naics_for_material,
+    get_naics_factor_by_code,
+    list_naics_options,
     save_material_mapping,
+    search_naics_mappings,
+    suggest_naics_with_llm,
 )
-from dotenv import load_dotenv
+
+# Models and request/response schemas
+from pydantic import BaseModel, Field, model_validator
+
+logger = logging.getLogger(__name__)
 
 load_dotenv(ROOT_DIR / ".env")
 load_dotenv(API_DIR / ".env", override=True)
 
 AI_KEY_ENV_NAMES = ("AI_KEY", "OPENAI_API_KEY")
+
 
 def get_ai_key() -> str:
     for env_name in AI_KEY_ENV_NAMES:
@@ -44,6 +54,7 @@ def get_ai_key() -> str:
             "to .env in the project root or api/.env, then restart the API server."
         ),
     )
+
 
 app = FastAPI()
 
@@ -66,10 +77,22 @@ async def http_exception_handler(_request: Request, exc: HTTPException) -> JSONR
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
-    return JSONResponse(
-        status_code=500,
-        content={"detail": f"Internal server error: {exc}"},
-    )
+    logger.exception("Unhandled API error: %s", exc)
+    print(f"Unhandled API error: {exc}", flush=True)
+    return JSONResponse(status_code=500, content={"detail": f"Internal server error: {exc}"})
+
+
+class BatchCalculationRow(BaseModel):
+    # Kept compatible with how calculate_batch endpoint uses model_dump()
+    invoice_id: str
+    year: int
+    total_amount_sgd: float
+    sgd_amounts: dict
+    naics: dict
+
+
+class ChatResponse(BaseModel):
+    reply: str | None = None
 
 
 class Allocation(BaseModel):
@@ -79,11 +102,7 @@ class Allocation(BaseModel):
 
     @model_validator(mode="after")
     def validate_allocation_total(self) -> "Allocation":
-        total = (
-            self.raw_material_pct
-            + self.fabrication_pct
-            + self.surface_treatment_pct
-        )
+        total = self.raw_material_pct + self.fabrication_pct + self.surface_treatment_pct
         if abs(total - 100) > 0.01:
             raise ValueError("Allocation percentages must add up to 100.")
         return self
@@ -120,11 +139,14 @@ class InputData(BaseModel):
         allocation = data.get("allocation")
 
         if sgd_amounts is None and allocation is not None and total is not None:
-            data = {**data, "sgd_amounts": {
-                "raw_material": total * allocation["raw_material_pct"] / 100.0,
-                "fabrication": total * allocation["fabrication_pct"] / 100.0,
-                "surface_treatment": total * allocation["surface_treatment_pct"] / 100.0,
-            }}
+            data = {
+                **data,
+                "sgd_amounts": {
+                    "raw_material": total * allocation["raw_material_pct"] / 100.0,
+                    "fabrication": total * allocation["fabrication_pct"] / 100.0,
+                    "surface_treatment": total * allocation["surface_treatment_pct"] / 100.0,
+                },
+            }
 
         return data
 
@@ -206,6 +228,7 @@ class NaicsOption(BaseModel):
     category: str | None = None
     kgco2e_per_usd: float | None = None
 
+
 class MappingLearnRequest(BaseModel):
     keyword: str
     naics_code: str
@@ -213,29 +236,20 @@ class MappingLearnRequest(BaseModel):
     category: str
 
 
+class NaicsConfirmRequest(BaseModel):
+    material_token: str
+    mapped_naics: str
+    user_id: str
+
+
 class EcoTransitRequest(BaseModel):
     port_of_loading: str = Field(..., min_length=1)
     port_of_discharge: str = Field("Singapore", min_length=1)
     weight_kg: float = Field(..., gt=0)
-    transport_mode: str = Field("sea", pattern="^(sea|land|air|rail|truck|vessel|ship)$")
+    transport_mode: str = Field(
+        "sea", pattern="^(sea|land|air|rail|truck|vessel|ship)$"
+    )
     origin_country: str | None = None
-
-
-class EcoTransitTransport(BaseModel):
-    origin: str
-    port_of_loading: str
-    port_of_discharge: str
-    weight_kg: float
-    chosen_mode: str
-    chosen_emissions_kg: float | None = None
-    distance_km: float | None = None
-    energy_mj: float | None = None
-    source: str
-    raw: dict
-
-
-class EcoTransitResponse(BaseModel):
-    transport: EcoTransitTransport
 
 
 class Method2Naics(BaseModel):
@@ -260,16 +274,49 @@ class Method2InputData(BaseModel):
     transport_source: str = "EcoTransit World"
     machining_entries: list[Method2MachiningEntry] = Field(default_factory=list)
 
+
 # ---------- ENDPOINTS ----------
+
 
 @app.get("/fetch-naics")
 def get_naics_by_material(name: str):
     return fetch_naics_for_material(name)
 
+
+@app.get("/api/naics/search")
+async def search_naics(q: str, user_id: str = "default"):
+    return search_naics_mappings(q, user_id=user_id)
+
+
+@app.get("/api/naics/llm-suggest")
+async def llm_suggest_naics(material: str):
+    return suggest_naics_with_llm(material)
+
+
+@app.get("/api/naics/factor/{naics_code}")
+async def get_naics_factor(naics_code: str):
+    return get_naics_factor_by_code(naics_code)
+
+
+@app.post("/api/naics/confirm")
+async def confirm_naics(data: NaicsConfirmRequest):
+    return confirm_naics_mapping(
+        material_token=data.material_token,
+        mapped_naics=data.mapped_naics,
+        user_id=data.user_id,
+    )
+
+
+@app.post("/api/calculate/batch")
+async def calculate_batch(rows: list[BatchCalculationRow]):
+    return calculate_batch_emissions([row.model_dump() for row in rows])
+
+
 @app.post("/learn-mapping")
 def learn_mapping(data: MappingLearnRequest):
     save_material_mapping(data.keyword, data.naics_code, data.description, data.category)
     return {"status": "success"}
+
 
 @app.get("/naics", response_model=list[NaicsOption])
 def get_naics_options():
@@ -289,6 +336,7 @@ def calculate_emissions(data: InputData):
     try:
         result = compute_emissions(payload)
     except ValueError as exc:
+        logger.exception("Calculation validation failed: %s", exc)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return OutputData(
@@ -297,10 +345,6 @@ def calculate_emissions(data: InputData):
         costs=CostBreakdown(**result["costs"]),
         emissions=EmissionBreakdown(**result["emissions"]),
     )
-
-
-class ChatResponse(BaseModel):
-    reply: str
 
 
 @app.post("/method2-chat", response_model=ChatResponse)
@@ -326,7 +370,9 @@ def method2_chat(
         if excel_file is not None:
             contents = excel_file.file.read()
             if contents:
-                file_description = f"Uploaded spreadsheet filename={excel_file.filename} size={len(contents)} bytes"
+                file_description = (
+                    f"Uploaded spreadsheet filename={excel_file.filename} size={len(contents)} bytes"
+                )
                 content = f"{file_description}\n\n{message}"
             excel_file.file.close()
 
@@ -337,11 +383,16 @@ def method2_chat(
         )
         choice = resp.choices[0] if resp.choices else None
         text = None
-        if choice and hasattr(choice, 'message') and choice.message is not None:
-            text = choice.message.get('content') if isinstance(choice.message, dict) else getattr(choice.message, 'content', None)
+        if choice and hasattr(choice, "message") and choice.message is not None:
+            text = (
+                choice.message.get("content")
+                if isinstance(choice.message, dict)
+                else getattr(choice.message, "content", None)
+            )
         if not isinstance(text, str):
             raise ValueError("OpenAI API response did not contain a valid text reply.")
     except Exception as exc:
+        logger.exception("Method 2 chat failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return ChatResponse(reply=text)
@@ -371,8 +422,11 @@ def method2_chat_file(
             for row in sheet.iter_rows(values_only=True):
                 rows.append([str(cell) if cell is not None else "" for cell in row])
             excel_file.file.close()
-            file_content_description = f"Extracted spreadsheet table with {len(rows)} rows and {len(rows[0]) if rows else 0} columns."
+            file_content_description = (
+                f"Extracted spreadsheet table with {len(rows)} rows and {len(rows[0]) if rows else 0} columns."
+            )
         except Exception as exc:
+            logger.exception("Failed to parse Method 2 uploaded Excel file: %s", exc)
             raise HTTPException(status_code=400, detail=f"Failed to parse uploaded Excel file: {exc}") from exc
 
     try:
@@ -396,14 +450,20 @@ def method2_chat_file(
         )
         choice = resp.choices[0] if resp.choices else None
         text = None
-        if choice and hasattr(choice, 'message') and choice.message is not None:
-            text = choice.message.get('content') if isinstance(choice.message, dict) else getattr(choice.message, 'content', None)
+        if choice and hasattr(choice, "message") and choice.message is not None:
+            text = (
+                choice.message.get("content")
+                if isinstance(choice.message, dict)
+                else getattr(choice.message, "content", None)
+            )
         if not isinstance(text, str):
             raise ValueError("OpenAI API response did not contain a valid text reply.")
     except Exception as exc:
+        logger.exception("Method 2 chat file failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return ChatResponse(reply=text)
+
 
 @app.get("/")
 def home():
@@ -424,6 +484,7 @@ def ecotransit(data: EcoTransitRequest):
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
+        logger.exception("EcoTransit scraper failed: %s", exc)
         raise HTTPException(status_code=502, detail=f"EcoTransit scraper failed: {exc}") from exc
 
     return {
@@ -475,5 +536,6 @@ def calculate_method2(data: Method2InputData):
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="127.0.0.1", port=8000)
 
