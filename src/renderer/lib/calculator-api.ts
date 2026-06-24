@@ -1,6 +1,24 @@
-import type { CalculateRequest, CalculateResponse, EcoTransitRequest, EcoTransitResponse, NaicsOption } from '../../shared/calculator-types'
+import type {
+  CalculateRequest,
+  CalculateResponse,
+  EcoTransitRequest,
+  EcoTransitResponse,
+  Method2CalculateRequest,
+  Method2CalculateResponse,
+  Method2MachineReference,
+  NaicsOption,
+} from '../../shared/calculator-types'
 
-export type { CalculateRequest, CalculateResponse, EcoTransitRequest, EcoTransitResponse, NaicsOption }
+export type {
+  CalculateRequest,
+  CalculateResponse,
+  EcoTransitRequest,
+  EcoTransitResponse,
+  Method2CalculateRequest,
+  Method2CalculateResponse,
+  Method2MachineReference,
+  NaicsOption,
+}
 
 const API_BASES = ['http://127.0.0.1:8000', 'http://localhost:8000']
 const API_BASE = API_BASES[0]
@@ -94,6 +112,31 @@ export async function calculateEcoTransitTransport(
   })
 
   return body as EcoTransitResponse
+}
+
+export async function fetchMethod2Machines(): Promise<Method2MachineReference[]> {
+  const body = await fetchJsonFromApi('/method2/machines')
+  const machines = body && typeof body === 'object' && 'machines' in body
+    ? (body as { machines: unknown }).machines
+    : null
+
+  if (!Array.isArray(machines)) {
+    throw new Error('Method 2 machine library was not returned by the API.')
+  }
+
+  return machines as Method2MachineReference[]
+}
+
+export async function calculateMethod2(
+  payload: Method2CalculateRequest,
+): Promise<Method2CalculateResponse> {
+  const body = await fetchJsonFromApi('/method2/calculate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+  return body as Method2CalculateResponse
 }
 
 export async function fetchNaicsOptions(): Promise<NaicsOption[]> {

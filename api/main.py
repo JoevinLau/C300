@@ -1,12 +1,18 @@
 # main.py
+<<<<<<< HEAD
 import logging
 import os
+=======
+import os
+import sys
+>>>>>>> 0f34464157bf6651e1c20eec236e56dd9b855298
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from ecotransit_scraper import calculate_ecotransit
+<<<<<<< HEAD
 from models import (
     BatchCalculationRow,
     CalculationDetails,
@@ -20,6 +26,16 @@ from models import (
     NaicsOption,
     OutputData,
 )
+=======
+
+API_DIR = Path(__file__).resolve().parent
+ROOT_DIR = API_DIR.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from calculation.method2_calculations import compute_method2, list_machine_library
+
+>>>>>>> 0f34464157bf6651e1c20eec236e56dd9b855298
 from service import (
     list_naics_options, 
     compute_emissions, 
@@ -33,11 +49,14 @@ from service import (
 )
 from dotenv import load_dotenv
 
+<<<<<<< HEAD
 logger = logging.getLogger(__name__)
 
 API_DIR = Path(__file__).resolve().parent
 ROOT_DIR = API_DIR.parent
 
+=======
+>>>>>>> 0f34464157bf6651e1c20eec236e56dd9b855298
 load_dotenv(ROOT_DIR / ".env")
 load_dotenv(API_DIR / ".env", override=True)
 
@@ -88,6 +107,197 @@ async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSON
     )
 
 
+<<<<<<< HEAD
+=======
+class Allocation(BaseModel):
+    raw_material_pct: float = Field(..., ge=0)
+    fabrication_pct: float = Field(..., ge=0)
+    surface_treatment_pct: float = Field(..., ge=0)
+
+    @model_validator(mode="after")
+    def validate_allocation_total(self) -> "Allocation":
+        total = (
+            self.raw_material_pct
+            + self.fabrication_pct
+            + self.surface_treatment_pct
+        )
+        if abs(total - 100) > 0.01:
+            raise ValueError("Allocation percentages must add up to 100.")
+        return self
+
+
+class Naics(BaseModel):
+    raw_material: str = Field(..., min_length=6, max_length=6)
+    fabrication: str = Field(..., min_length=6, max_length=6)
+    surface_treatment: str = Field(..., min_length=6, max_length=6)
+
+
+class SgdAmountsInput(BaseModel):
+    raw_material: float = Field(..., ge=0)
+    fabrication: float = Field(..., ge=0)
+    surface_treatment: float = Field(..., ge=0)
+
+
+class InputData(BaseModel):
+    invoice_id: str = Field(..., min_length=1)
+    year: int = Field(..., ge=2020, le=2030)
+    total_amount_sgd: float = Field(..., gt=0)
+    sgd_amounts: SgdAmountsInput | None = None
+    allocation: Allocation | None = None
+    naics: Naics
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_amounts(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+
+        total = data.get("total_amount_sgd")
+        sgd_amounts = data.get("sgd_amounts")
+        allocation = data.get("allocation")
+
+        if sgd_amounts is None and allocation is not None and total is not None:
+            data = {**data, "sgd_amounts": {
+                "raw_material": total * allocation["raw_material_pct"] / 100.0,
+                "fabrication": total * allocation["fabrication_pct"] / 100.0,
+                "surface_treatment": total * allocation["surface_treatment_pct"] / 100.0,
+            }}
+
+        return data
+
+    @model_validator(mode="after")
+    def validate_sgd_amounts_sum(self) -> "InputData":
+        if self.sgd_amounts is None:
+            raise ValueError("sgd_amounts or allocation is required")
+
+        component_sum = (
+            self.sgd_amounts.raw_material
+            + self.sgd_amounts.fabrication
+            + self.sgd_amounts.surface_treatment
+        )
+        if abs(component_sum - self.total_amount_sgd) > 0.01:
+            raise ValueError(
+                "sgd_amounts must sum to total_amount_sgd "
+                f"(got {component_sum:.2f} vs {self.total_amount_sgd:.2f})"
+            )
+        return self
+
+
+class SgdAmounts(BaseModel):
+    raw_material: float
+    fabrication: float
+    surface_treatment: float
+
+
+class UsdAmounts(BaseModel):
+    raw_material: float
+    fabrication: float
+    surface_treatment: float
+
+
+class Usd2022Amounts(BaseModel):
+    raw_material: float
+    fabrication: float
+    surface_treatment: float
+
+
+class EmissionFactors(BaseModel):
+    raw_material: float
+    fabrication: float
+    surface_treatment: float
+
+
+class CalculationDetails(BaseModel):
+    fx_rate: float
+    inflation_index: float
+    year: int
+    sgd_amounts: SgdAmounts
+    usd_amounts: UsdAmounts
+    usd2022_amounts: Usd2022Amounts
+    factors: EmissionFactors
+
+
+class CostBreakdown(BaseModel):
+    raw_material_usd2022: float
+    fabrication_usd2022: float
+    surface_treatment_usd2022: float
+
+
+class EmissionBreakdown(BaseModel):
+    raw_material: float
+    fabrication: float
+    surface_treatment: float
+    total: float
+
+
+class OutputData(BaseModel):
+    invoice_id: str
+    calculation: CalculationDetails
+    costs: CostBreakdown
+    emissions: EmissionBreakdown
+
+
+class NaicsOption(BaseModel):
+    code: str
+    description: str
+    category: str | None = None
+    kgco2e_per_usd: float | None = None
+
+class MappingLearnRequest(BaseModel):
+    keyword: str
+    naics_code: str
+    description: str
+    category: str
+
+
+class EcoTransitRequest(BaseModel):
+    port_of_loading: str = Field(..., min_length=1)
+    port_of_discharge: str = Field("Singapore", min_length=1)
+    weight_kg: float = Field(..., gt=0)
+    transport_mode: str = Field("sea", pattern="^(sea|land|air|rail|truck|vessel|ship)$")
+    origin_country: str | None = None
+
+
+class EcoTransitTransport(BaseModel):
+    origin: str
+    port_of_loading: str
+    port_of_discharge: str
+    weight_kg: float
+    chosen_mode: str
+    chosen_emissions_kg: float | None = None
+    distance_km: float | None = None
+    energy_mj: float | None = None
+    source: str
+    raw: dict
+
+
+class EcoTransitResponse(BaseModel):
+    transport: EcoTransitTransport
+
+
+class Method2Naics(BaseModel):
+    raw_material: str = Field(..., min_length=6, max_length=6)
+    surface_treatment: str = Field(..., min_length=6, max_length=6)
+    fabrication: str = Field("333517", min_length=6, max_length=6)
+
+
+class Method2MachiningEntry(BaseModel):
+    machine_type: str = Field(..., min_length=1)
+    duty_level: str = Field(..., min_length=1)
+    operating_hours: float = Field(..., ge=0)
+
+
+class Method2InputData(BaseModel):
+    part_id: str = Field(..., min_length=1)
+    year: int = Field(..., ge=2020, le=2030)
+    raw_material_sgd: float = Field(..., ge=0)
+    surface_treatment_sgd: float = Field(..., ge=0)
+    naics: Method2Naics
+    transport_emissions_kg: float = Field(0, ge=0)
+    transport_source: str = "EcoTransit World"
+    machining_entries: list[Method2MachiningEntry] = Field(default_factory=list)
+
+>>>>>>> 0f34464157bf6651e1c20eec236e56dd9b855298
 # ---------- ENDPOINTS ----------
 
 @app.get("/fetch-naics")
@@ -299,6 +509,37 @@ def ecotransit(data: EcoTransitRequest):
             "raw": result,
         }
     }
+
+
+@app.get("/method2/machines")
+def method2_machines():
+    return {"machines": list_machine_library()}
+
+
+@app.post("/method2/calculate")
+def calculate_method2(data: Method2InputData):
+    payload = {
+        "part_id": data.part_id,
+        "year": data.year,
+        "raw_material_sgd": data.raw_material_sgd,
+        "surface_treatment_sgd": data.surface_treatment_sgd,
+        "naics": data.naics.model_dump(),
+        "transport_emissions_kg": data.transport_emissions_kg,
+        "transport_source": data.transport_source,
+        "machining_entries": [
+            {
+                "machine_type": item.machine_type,
+                "duty_level": item.duty_level,
+                "operating_hours": item.operating_hours,
+            }
+            for item in data.machining_entries
+        ],
+    }
+
+    try:
+        return compute_method2(payload, spend_calculator=compute_emissions)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 if __name__ == "__main__":
