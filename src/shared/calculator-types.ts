@@ -90,3 +90,63 @@ export interface EcoTransitResponse {
     raw: Record<string, unknown>
   }
 }
+
+export interface Method2MachineReference {
+  machineType: string
+  dutyLevel: string
+  avgKW: number
+  hourlyEmission: number
+}
+
+export interface Method2MachiningEntryRequest {
+  machine_type: string
+  duty_level: string
+  operating_hours: number
+}
+
+export interface Method2CalculateRequest {
+  part_id: string
+  year: number
+  raw_material_sgd: number
+  surface_treatment_sgd: number
+  naics: {
+    raw_material: string
+    surface_treatment: string
+    fabrication?: string
+  }
+  transport_emissions_kg: number
+  transport_source?: string
+  machining_entries: Method2MachiningEntryRequest[]
+}
+
+export interface Method2CalculateResponse {
+  part_id: string
+  calculation: CalculationDetails
+  costs: {
+    raw_material_usd2022: number
+    surface_treatment_usd2022: number
+  }
+  machining: {
+    entries: Array<{
+      machineType: string
+      dutyLevel: string
+      avgKW: number
+      hourlyEmission: number
+      operatingHours: number
+      emissions: number
+    }>
+    total: number
+  }
+  transport: {
+    emissions: number
+    source: string
+  }
+  emissions: {
+    raw_material: number
+    transportation: number
+    surface_treatment: number
+    machining: number
+    total: number
+  }
+  notes: Record<string, string>
+}

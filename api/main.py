@@ -1,9 +1,20 @@
 # main.py
+import os
+import sys
+from pathlib import Path
+
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
 from ecotransit_scraper import calculate_ecotransit
+
+API_DIR = Path(__file__).resolve().parent
+ROOT_DIR = API_DIR.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from calculation.method2_calculations import compute_method2, list_machine_library
 
 from service import (
     list_naics_options, 
@@ -11,12 +22,7 @@ from service import (
     fetch_naics_for_material, 
     save_material_mapping,
 )
-import os
-from pathlib import Path
 from dotenv import load_dotenv
-
-API_DIR = Path(__file__).resolve().parent
-ROOT_DIR = API_DIR.parent
 
 load_dotenv(ROOT_DIR / ".env")
 load_dotenv(API_DIR / ".env", override=True)
@@ -231,6 +237,29 @@ class EcoTransitTransport(BaseModel):
 class EcoTransitResponse(BaseModel):
     transport: EcoTransitTransport
 
+
+class Method2Naics(BaseModel):
+    raw_material: str = Field(..., min_length=6, max_length=6)
+    surface_treatment: str = Field(..., min_length=6, max_length=6)
+    fabrication: str = Field("333517", min_length=6, max_length=6)
+
+
+class Method2MachiningEntry(BaseModel):
+    machine_type: str = Field(..., min_length=1)
+    duty_level: str = Field(..., min_length=1)
+    operating_hours: float = Field(..., ge=0)
+
+
+class Method2InputData(BaseModel):
+    part_id: str = Field(..., min_length=1)
+    year: int = Field(..., ge=2020, le=2030)
+    raw_material_sgd: float = Field(..., ge=0)
+    surface_treatment_sgd: float = Field(..., ge=0)
+    naics: Method2Naics
+    transport_emissions_kg: float = Field(0, ge=0)
+    transport_source: str = "EcoTransit World"
+    machining_entries: list[Method2MachiningEntry] = Field(default_factory=list)
+
 # ---------- ENDPOINTS ----------
 
 @app.get("/fetch-naics")
@@ -411,6 +440,37 @@ def ecotransit(data: EcoTransitRequest):
             "raw": result,
         }
     }
+
+
+@app.get("/method2/machines")
+def method2_machines():
+    return {"machines": list_machine_library()}
+
+
+@app.post("/method2/calculate")
+def calculate_method2(data: Method2InputData):
+    payload = {
+        "part_id": data.part_id,
+        "year": data.year,
+        "raw_material_sgd": data.raw_material_sgd,
+        "surface_treatment_sgd": data.surface_treatment_sgd,
+        "naics": data.naics.model_dump(),
+        "transport_emissions_kg": data.transport_emissions_kg,
+        "transport_source": data.transport_source,
+        "machining_entries": [
+            {
+                "machine_type": item.machine_type,
+                "duty_level": item.duty_level,
+                "operating_hours": item.operating_hours,
+            }
+            for item in data.machining_entries
+        ],
+    }
+
+    try:
+        return compute_method2(payload, spend_calculator=compute_emissions)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 if __name__ == "__main__":
