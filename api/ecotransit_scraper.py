@@ -60,10 +60,12 @@ def _location_search_text(value: str, transport_mode: str = "sea") -> str:
 
 def _select_location(page: Any, input_index: int, text: str, transport_mode: str = "sea") -> None:
     search_text = _location_search_text(text, transport_mode)
+    location_index = 0 if input_index <= 1 else 1
 
-    page.locator("input").nth(input_index).click(timeout=10000)
-    page.wait_for_timeout(800)
-    page.locator("input").nth(1).fill(search_text)
+    location_input = page.locator("input[placeholder='Location']").nth(location_index)
+    location_input.click(timeout=10000)
+    page.keyboard.press("Control+A")
+    page.keyboard.type(search_text, delay=20)
     page.wait_for_timeout(3000)
 
     cells = page.locator("vaadin-grid-cell-content")
@@ -120,6 +122,17 @@ def _choose_transport_mode(page: Any, transport_mode: str) -> None:
     selector = selectors.get(mode)
     if selector:
         _click_if_visible(page, selector)
+
+
+def _click_calculate(page: Any) -> None:
+    for selector in ("#calculation-button", "vaadin-button:has-text('Calculate')", "text=Calculate"):
+        try:
+            page.locator(selector).first.click(timeout=10000)
+            return
+        except Exception:
+            pass
+
+    page.get_by_role("button", name=re.compile("calculate", re.IGNORECASE)).click(timeout=10000)
 
 
 def _parse_result_text(text: str) -> dict[str, float | None]:
@@ -182,6 +195,7 @@ def calculate_ecotransit(
 
         try:
             page.goto(ECOTRANSIT_CALCULATOR_URL, wait_until="domcontentloaded", timeout=45000)
+            page.locator("input").first.wait_for(timeout=30000)
 
             try:
                 page.get_by_text("Got it!").click(timeout=3000)
@@ -196,7 +210,7 @@ def calculate_ecotransit(
 
             _select_location(page, 2, port_of_discharge, transport_mode)
 
-            page.get_by_role("button", name=re.compile("calculate", re.IGNORECASE)).click(timeout=10000)
+            _click_calculate(page)
             page.wait_for_timeout(10000)
 
             result = _parse_result_text(page.locator("body").inner_text())
