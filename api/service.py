@@ -1,652 +1,623 @@
-#service.py
-from typing import Tuple, Optional
-from pathlib import Path
-from functools import lru_cache
-from difflib import SequenceMatcher
+# service.py
+from __future__ import annotations
 
+from datetime import datetime
+import json
+import logging
+import os
+import re
+from typing import Optional, Tuple
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
-import mysql.connector
 from fastapi import HTTPException
 from mysql.connector import Error as MySQLError
 
 from db import get_conn
-from dev_data import DEV_NAICS_OPTIONS, DEV_FX_INFLATION
+from dev_data import DEV_FX_INFLATION
 
+logger = logging.getLogger(__name__)
+
+DEFAULT_USER_ID = os.getenv("DEFAULT_USER_ID", "default")
+OPENAI_MODEL = os.getenv("OPENAI_NAICS_MODEL", "gpt-4o-mini")
+
+
+def _log_db_error(message: str, exc: BaseException, **context: object) -> None:
+    logger.exception("%s context=%s error=%s", message, context, exc)
+    print(f"{message}: {exc} context={context}", flush=True)
 
 
 def get_fx_and_inflation(year: int) -> Tuple[float, float]:
     """
-    Read SGD->USD rate and US inflation index from database for a given year.
-    Falls back to dev_data when cloud database is unavailable.
-    Returns (fx_rate, inflation_index)
+    Read SGD->USD and inflation/CPI values from the unified schema.
+    Falls back to local dev data only when the database is unavailable.
     """
     try:
         conn = get_conn()
-    except MySQLError:
-        # Fallback to dev data
+    except MySQLError as exc:
+        _log_db_error("Database unavailable while loading FX/inflation", exc, year=year)
         values = DEV_FX_INFLATION.get(year)
         if values:
             return values
-        raise HTTPException(status_code=400, detail=f"No exchange rate for year {year}")
+        raise HTTPException(status_code=400, detail=f"No exchange rate for year {year}") from exc
 
     try:
         cur = conn.cursor(dictionary=True)
-        
-        # Get exchange rate (SGD to USD)
         cur.execute(
-            """SELECT rate_to_usd FROM exchange_rates WHERE year = %s AND currency_code = %s""",
-            (year, 'SGD'),
+            """
+            SELECT rate_to_usd
+            FROM exchange_rates
+            WHERE year = %s
+                AND currency_code = %s
+            LIMIT 1
+            """,
+            (year, "SGD"),
         )
         fx_row = cur.fetchone()
         if not fx_row:
             raise HTTPException(status_code=400, detail=f"No exchange rate for year {year}")
-        
-        # Get inflation index
+
         cur.execute(
-            """SELECT index_value FROM inflation_indices WHERE year = %s""",
+            """
+            SELECT index_value
+            FROM inflation_indices
+            WHERE year = %s
+            ORDER BY
+                CASE WHEN region_code = 'US' THEN 0 ELSE 1 END,
+                CASE WHEN index_name = 'CPI' THEN 0 ELSE 1 END
+            LIMIT 1
+            """,
             (year,),
         )
         inflation_row = cur.fetchone()
         if not inflation_row:
             raise HTTPException(status_code=400, detail=f"No inflation index for year {year}")
-        
+
         return float(fx_row["rate_to_usd"]), float(inflation_row["index_value"])
+    except HTTPException:
+        raise
+    except MySQLError as exc:
+        _log_db_error("Failed to query FX/inflation tables", exc, year=year)
+        raise HTTPException(status_code=503, detail=f"Database lookup failed for FX/inflation: {exc}") from exc
     finally:
+        if "cur" in locals() and cur:
+            cur.close()
         conn.close()
 
 
+def clean_material_token(raw_name: str) -> str:
+    if not raw_name:
+        return ""
 
-import re
-import json
-import os
-from urllib.parse import quote_plus
-from urllib.request import urlopen
-
-BASE_DIR = Path(__file__).resolve().parent
-LOCAL_SHORTFORM_PATH = BASE_DIR / "material_shortforms.local.json"
-USE_DB_FOR_NAICS = os.getenv("USE_DB_FOR_NAICS", "0") == "1"
-
-
-
-def _normalize_keyword(keyword: str) -> str:
-    return clean_material_name(keyword).lower().strip()
-
-
-def _load_local_shortforms() -> dict[str, dict]:
-    if not LOCAL_SHORTFORM_PATH.exists():
-        return {}
-
-    try:
-        payload = json.loads(LOCAL_SHORTFORM_PATH.read_text(encoding="utf-8"))
-    except Exception as e:
-        print(f"Failed to read local shortforms JSON: {e}")
-        return {}
-
-    mappings = payload.get("mappings", []) if isinstance(payload, dict) else []
-    result: dict[str, dict] = {}
-    for item in mappings:
-        if not isinstance(item, dict):
-            continue
-        keyword = _normalize_keyword(str(item.get("keyword", "")))
-        if not keyword:
-            continue
-        result[keyword] = {
-            "keyword": keyword,
-            "code": str(item.get("naics_code", "") or "").strip(),
-            "description": str(item.get("description", "") or "").strip(),
-            "category": str(item.get("category", "") or "").strip(),
-        }
-    return result
-
-
-def _save_local_shortforms(data: dict[str, dict]) -> None:
-    payload = {
-        "mappings": [
-            {
-                "keyword": k,
-                "naics_code": v.get("code", ""),
-                "description": v.get("description", ""),
-                "category": v.get("category", ""),
-            }
-            for k, v in sorted(data.items())
-        ]
-    }
-    LOCAL_SHORTFORM_PATH.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-
-def _upsert_local_mapping(keyword: str, naics_code: str, description: str, category: str) -> None:
-    normalized = _normalize_keyword(keyword)
-    if not normalized:
-        return
-
-    current = _load_local_shortforms()
-    current[normalized] = {
-        "keyword": normalized,
-        "code": str(naics_code or "").strip(),
-        "description": str(description or "").strip(),
-        "category": str(category or "").strip(),
-    }
-    try:
-        _save_local_shortforms(current)
-    except Exception as e:
-        print(f"Failed to write local shortforms JSON: {e}")
-
-
-def _find_in_local_dictionary(keyword: str) -> Optional[dict]:
-    normalized = _normalize_keyword(keyword)
-    if not normalized:
-        return None
-
-    mappings = _load_local_shortforms()
-
-    row = mappings.get(normalized)
-    if not row:
-        for k, v in mappings.items():
-            if normalized in k or k in normalized:
-                row = v
-                break
-
-    if not row:
-        return None
-
-    return {
-        "code": row.get("code", ""),
-        "description": row.get("description", ""),
-        "category": row.get("category", ""),
-        "source": "phase1",
-        "confidence": "exact",
-    }
+    text = str(raw_name).upper().strip()
+    text = re.sub(r"\([^)]*\)", " ", text)
+    text = re.sub(r"(\d+(\.\d+)?\s*[X\*]\s*\d+).*", "", text)
+    text = re.sub(r"\b\d+(\.\d+)?\s*(MM|CM|M|INCH|L|KG|G)\b.*", "", text)
+    noise_words = r"\b(PLATE|SHEET|BAR|ROD|SCRAP|ROLL|TUBE|PIPE|BLOCK|STRIP|COIL|BOXES|WIRE)\b"
+    text = re.sub(noise_words, "", text)
+    text = re.sub(r"[^A-Z0-9\-]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 
 def clean_material_name(name: str) -> str:
-
-    """
-    Remove dimensions and extra details from material name to isolate the core keyword.
-    Example: 'S50C 4.7 x 142 x 303' -> 'S50C'
-    """
-    if not name:
-        return ""
-    # Remove dimension patterns like 4.7 x 142 x 303 or 50 x 300 x 300
-    cleaned = re.sub(r'\d+(\.\d+)?\s*[xX*]\s*\d+(\.\d+)?\s*[xX*]\s*\d+(\.\d+)?', '', name)
-    # Remove single dimensions like 35 x 180
-    cleaned = re.sub(r'\d+(\.\d+)?\s*[xX*]\s*\d+(\.\d+)?', '', cleaned)
-    # Remove trailing units like mm, cm
-    cleaned = re.sub(r'\d+(\.\d+)?\s*(mm|cm|m|inch|in)\b', '', cleaned, flags=re.IGNORECASE)
-    # Strip extra whitespace
-    cleaned = cleaned.strip()
-    # Take first word or first part if comma/semicolon separated
-    cleaned = re.split(r'[,;]', cleaned)[0].strip()
-    return cleaned
-
-def find_in_dictionary(keyword: str) -> Optional[dict]:
-    """
-    Phase 1: Search in local JSON dictionary first, then MySQL material_shortforms.
-    """
-    local_hit = _find_in_local_dictionary(keyword)
-    if local_hit:
-        return local_hit
-
-    try:
-        conn = get_conn()
-        cur = conn.cursor(dictionary=True)
-        cur.execute(
-            "SELECT naics_code as code, description, category FROM material_shortforms WHERE keyword = %s",
-            (keyword,),
-        )
-        row = cur.fetchone()
-        if not row:
-            # Try fuzzy match if exact fails
-            cur.execute(
-                "SELECT naics_code as code, description, category FROM material_shortforms WHERE %s LIKE CONCAT('%', keyword, '%')",
-                (keyword,),
-            )
-            row = cur.fetchone()
-
-        if row:
-            _upsert_local_mapping(
-                keyword=keyword,
-                naics_code=str(row.get("code", "") or ""),
-                description=str(row.get("description", "") or ""),
-                category=str(row.get("category", "") or ""),
-            )
-            row["source"] = "phase1"
-            row["confidence"] = "exact"
-            return row
-    except Exception as e:
-        print(f"Dictionary search failed: {e}")
-    finally:
-        if "conn" in locals() and conn:
-            conn.close()
-    return None
+    return clean_material_token(name)
 
 
-PHASE1_RULES: dict[str, list[str]] = {
-    # steel
-    "331110": [
-        "DF2",
-        "S STAR",
-        "S-STAR",
-        "SSTAR",
-        "2316",
-        "S50C",
-        "SKD11",
-        "SKD61",
-        "P20",
-        "H13",
-        "MILD STEEL",
-        "CARBON STEEL",
-        "STEEL",
-    ],
-    # stainless steel
-    "331221": ["SUS", "SS", "STS", "STAINLESS", "STAINLESS STEEL"],
-    # aluminum
-    "331318": ["ALU", "AL", "6061", "5052", "7075", "ALUMINUM", "ALUMINIUM"],
-    # plastics
-    "326199": ["PLASTIC", "PLASTICS", "POLYMER", "POM", "ABS", "PVC", "NYLON", "PP", "PE", "PTFE"],
-    # brass/copper
-    "331421": ["BRASS", "COPPER", "CU", "C260", "C360"],
-}
+def _normalize_material_token(material: str) -> str:
+    return clean_material_token(material)
 
 
-@lru_cache(maxsize=1)
-def _load_naics_candidates() -> list[dict]:
-    """
-    Load NAICS candidates once and reuse in-memory for fast matching.
-    """
-    if USE_DB_FOR_NAICS:
-        try:
-            conn = get_conn()
-            cur = conn.cursor(dictionary=True)
-            cur.execute(
-                """
-                SELECT naics_code, naics_description, category
-                FROM naics_factors
-                ORDER BY naics_code
-                """
-            )
-            rows = cur.fetchall() or []
-            candidates = [
-                {
-                    "code": str(r.get("naics_code", "") or "").strip(),
-                    "description": str(r.get("naics_description", "") or "").strip(),
-                    "category": str(r.get("category", "") or "").strip(),
-                }
-                for r in rows
-                if str(r.get("naics_code", "") or "").strip()
-            ]
-            if candidates:
-                return candidates
-        except Exception as e:
-            print(f"Load NAICS candidates from DB failed: {e}")
-        finally:
-            if "conn" in locals() and conn:
-                conn.close()
-
-    return [
-        {
-            "code": item["code"],
-            "description": item["description"],
-            "category": item.get("category", ""),
-        }
-        for item in DEV_NAICS_OPTIONS
-    ]
-
-
-def _candidate_by_code(code: str) -> Optional[dict]:
-    for item in _load_naics_candidates():
-        if item["code"] == code:
-            return item
-    return None
-
-
-def _tokenize_upper(text: str) -> set[str]:
-    return {t for t in re.findall(r"[A-Z0-9]+", text.upper()) if t}
-
-
-def _classify_by_keywords(text: str) -> Optional[dict]:
-    upper = text.upper()
-    tokens = _tokenize_upper(text)
-
-    # Ensure stainless takes priority over generic steel
-    ordered_codes = ["331221", "331318", "331421", "326199", "331110"]
-    for code in ordered_codes:
-        keywords = PHASE1_RULES.get(code, [])
-        for kw in keywords:
-            kw_upper = kw.upper()
-            if " " in kw_upper or "-" in kw_upper:
-                if kw_upper in upper:
-                    return {"code": code, "matched_keyword": kw}
-            else:
-                if kw_upper in tokens:
-                    return {"code": code, "matched_keyword": kw}
-    return None
-
-
-def _format_match_result(code: str, source: str, confidence: str = "exact") -> dict:
-    hit = _candidate_by_code(code)
+def _official_factor_to_option(row: dict, source: str, confidence: str) -> dict:
     return {
-        "code": code,
-        "description": (hit or {}).get("description", f"NAICS {code}"),
-        "category": (hit or {}).get("category", ""),
+        "code": str(row.get("naics_code", "") or "").strip(),
+        "description": str(row.get("description", "") or "").strip(),
+        "kgco2e_per_usd": float(row["kgco2e_per_usd"]) if row.get("kgco2e_per_usd") is not None else None,
+        "category": row.get("category"),
+        "data_source": row.get("data_source"),
         "source": source,
         "confidence": confidence,
     }
 
 
-def find_via_phase1_keywords(material_name: str) -> Optional[dict]:
-    """
-    Phase 1: keyword scanning (fast deterministic mapping).
-    """
-    text = clean_material_name(material_name).strip()
-    if not text:
-        return None
-
-    result = _classify_by_keywords(text)
-    if not result:
-        return None
-
-    return _format_match_result(result["code"], source="phase1", confidence="exact")
-
-
-def _fetch_online_context(material_name: str) -> str:
-    snippets: list[str] = []
-    timeout = 2
-
-    # DuckDuckGo Instant Answer
-    try:
-        ddg_url = (
-            "https://api.duckduckgo.com/?q="
-            + quote_plus(f"{material_name} material type")
-            + "&format=json&no_redirect=1&no_html=1"
-        )
-        with urlopen(ddg_url, timeout=timeout) as resp:
-            payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
-            if payload.get("AbstractText"):
-                snippets.append(str(payload.get("AbstractText")))
-            for topic in payload.get("RelatedTopics", [])[:5]:
-                if isinstance(topic, dict) and topic.get("Text"):
-                    snippets.append(str(topic.get("Text")))
-    except Exception:
-        pass
-
-    # Wikipedia OpenSearch fallback
-    try:
-        wiki_url = (
-            "https://en.wikipedia.org/w/api.php?action=opensearch&limit=5&namespace=0&format=json&search="
-            + quote_plus(material_name)
-        )
-        with urlopen(wiki_url, timeout=timeout) as resp:
-            payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
-            if isinstance(payload, list) and len(payload) >= 3 and isinstance(payload[2], list):
-                snippets.extend(str(x) for x in payload[2] if x)
-    except Exception:
-        pass
-
-    return " ".join(snippets)
-
-
-def find_via_phase2_online_lookup(material_name: str) -> Optional[dict]:
-    """
-    Phase 2: online lookup + keyword classification into broad material families.
-    """
-    base_text = clean_material_name(material_name).strip()
-    if not base_text:
-        return None
-
-    context = _fetch_online_context(base_text)
-    combined = f"{base_text} {context}".strip()
-
-    # First classify using known keyword families
-    result = _classify_by_keywords(combined)
-    if result:
-        return _format_match_result(result["code"], source="phase2", confidence="partial")
-
-    # Then fallback to NAICS description match/fuzzy
-    text = combined.lower()
-    candidates = _load_naics_candidates()
-    for item in candidates:
-        desc = item["description"].lower()
-        if text and (text in desc or any(token and token in desc for token in text.split())):
-            return {
-                "code": item["code"],
-                "description": item["description"],
-                "category": item.get("category", ""),
-                "source": "phase2",
-                "confidence": "partial",
-            }
-
-    best: Optional[dict] = None
-    best_score = 0.0
-    for item in candidates:
-        score = SequenceMatcher(None, text, item["description"].lower()).ratio()
-        if score > best_score:
-            best_score = score
-            best = item
-
-    if best and best_score >= 0.45:
-        return {
-            "code": best["code"],
-            "description": best["description"],
-            "category": best.get("category", ""),
-            "source": "phase2",
-            "confidence": "partial",
-        }
-
-    return None
-
-
-
-def fetch_naics_for_material(name: str) -> dict:
-    """
-    Three-phase NAICS lookup.
-    Phase 1: keyword scan + local dictionary
-    Phase 2: online lookup + classification
-    Phase 3: blank for manual entry
-    """
-    keyword = clean_material_name(name)
-
-    # Phase 1a: keyword scan
-    result = find_via_phase1_keywords(name)
-
-    # Phase 1b: local shortform dictionary
-    if not result:
-        result = find_in_dictionary(keyword)
-
-    # Phase 2: online lookup + classification
-    if not result:
-        result = find_via_phase2_online_lookup(name)
-
-    # Phase 3: final fallback
-    if not result:
-        result = {
-            "code": "",
-            "description": "Not Found - Please manual entry",
-            "category": "",
-            "source": "phase3",
-            "confidence": "low",
-        }
-
-    
-    # Enrichment: optional DB enrich (disabled by default for speed)
-    if USE_DB_FOR_NAICS and result.get('code'):
-        try:
-            conn = get_conn()
-            cur = conn.cursor(dictionary=True)
-            cur.execute(
-                "SELECT naics_description as description, category, kgco2e_per_usd FROM naics_factors WHERE naics_code = %s",
-                (result['code'],)
-            )
-            row = cur.fetchone()
-            if row:
-                # Update with database values if found
-                result['description'] = row.get('description') or result.get('description')
-                result['category'] = row.get('category') or result.get('category')
-                result['kgco2e'] = row.get('kgco2e_per_usd')
-        except Exception as e:
-            print(f"Enrichment failed: {e}")
-        finally:
-            if 'conn' in locals() and conn:
-                conn.close()
-
-                
-    return result
-
-
-def save_material_mapping(keyword: str, naics_code: str, description: str, category: str):
-    """
-    Save or update a material mapping in local JSON dictionary and MySQL.
-    """
-    _upsert_local_mapping(keyword, naics_code, description, category)
-
-    if not USE_DB_FOR_NAICS:
-        return
+def search_naics_mappings(keyword: str, user_id: str = DEFAULT_USER_ID) -> dict:
+    token = _normalize_material_token(keyword)
+    if not token:
+        raise HTTPException(status_code=400, detail="Search keyword is required.")
 
     try:
         conn = get_conn()
-        cur = conn.cursor()
+        cur = conn.cursor(dictionary=True)
+
+        # Tier 1: user's confirmed material dictionary.
         cur.execute(
             """
-            INSERT INTO material_shortforms (keyword, naics_code, description, category)
-            VALUES (%s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE
-            naics_code = VALUES(naics_code),
-            description = VALUES(description),
-            category = VALUES(category)
+            SELECT mapped_naics
+            FROM user_custom_dictionary
+            WHERE material_token = %s
+                AND user_id = %s
+            LIMIT 1
             """,
-            (keyword, naics_code, description, category),
+            (token, user_id),
+        )
+        dictionary_hit = cur.fetchone()
+        if dictionary_hit:
+            cur.execute(
+                """
+                SELECT naics_code, description, category, kgco2e_per_usd, data_source
+                FROM official_naics_factors
+                WHERE naics_code = %s
+                LIMIT 1
+                """,
+                (dictionary_hit["mapped_naics"],),
+            )
+            official_hit = cur.fetchone()
+            if not official_hit:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Custom dictionary points to a missing official NAICS factor: "
+                        f"{dictionary_hit['mapped_naics']}"
+                    ),
+                )
+
+            return {
+                "query": keyword,
+                "material_token": token,
+                "tier": 1,
+                "matches": [_official_factor_to_option(official_hit, "user_custom_dictionary", "exact")],
+            }
+
+        # Fast exact lookup for direct NAICS-code inputs or exact descriptions.
+        cur.execute(
+            """
+            SELECT naics_code, description, category, kgco2e_per_usd, data_source
+            FROM official_naics_factors
+            WHERE naics_code = %s
+                OR UPPER(description) = %s
+            LIMIT 1
+            """,
+            (token, token),
+        )
+        official_exact = cur.fetchone()
+        if official_exact:
+            return {
+                "query": keyword,
+                "material_token": token,
+                "tier": 2,
+                "matches": [_official_factor_to_option(official_exact, "official_exact", "exact")],
+            }
+
+        # Tier 2: official NAICS factor search. TiDB may reject MySQL MATCH/AGAINST,
+        # so use LIKE fallback instead of failing the whole request.
+        try:
+            cur.execute(
+                """
+                SELECT
+                    naics_code,
+                    description,
+                    category,
+                    kgco2e_per_usd,
+                    data_source,
+                    MATCH(description) AGAINST (%s IN NATURAL LANGUAGE MODE) AS score
+                FROM official_naics_factors
+                WHERE MATCH(description) AGAINST (%s IN NATURAL LANGUAGE MODE)
+                ORDER BY score DESC, naics_code
+                LIMIT 10
+                """,
+                (token, token),
+            )
+        except MySQLError as exc:
+            _log_db_error("Official NAICS fulltext search failed; falling back to LIKE search", exc, token=token)
+            search_terms = [part for part in re.split(r"\s+", token) if len(part) >= 2] or [token]
+            where_clause = " OR ".join(["UPPER(description) LIKE %s"] * len(search_terms))
+            cur.execute(
+                f"""
+                SELECT naics_code, description, category, kgco2e_per_usd, data_source
+                FROM official_naics_factors
+                WHERE {where_clause}
+                ORDER BY naics_code
+                LIMIT 10
+                """,
+                tuple(f"%{term}%" for term in search_terms),
+            )
+        rows = cur.fetchall() or []
+        if rows:
+            return {
+                "query": keyword,
+                "material_token": token,
+                "tier": 2,
+                "matches": [_official_factor_to_option(row, "official_fulltext", "partial") for row in rows],
+            }
+
+        return {
+            "query": keyword,
+            "material_token": token,
+            "tier": 3,
+            "matches": [],
+        }
+    except HTTPException:
+        raise
+    except MySQLError as exc:
+        _log_db_error(
+            "NAICS tier search database failure",
+            exc,
+            keyword=keyword,
+            token=token,
+            user_id=user_id,
+        )
+        return {
+            "query": keyword,
+            "material_token": token,
+            "tier": 3,
+            "matches": [],
+            "error": f"Database search failed: {exc}",
+        }
+    finally:
+        if "cur" in locals() and cur:
+            cur.close()
+        if "conn" in locals() and conn:
+            conn.close()
+
+
+def suggest_naics_with_llm(material: str) -> dict:
+    token = _normalize_material_token(material)
+    if not token:
+        raise HTTPException(status_code=400, detail="Material token is required.")
+
+    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("AI_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY or AI_KEY is not configured.")
+
+    try:
+        from openai import OpenAI
+    except ImportError as exc:
+        raise HTTPException(status_code=500, detail=f"OpenAI dependency missing: {exc}") from exc
+
+    prompt = (
+        "What is the most likely 6-digit NAICS code for the raw material "
+        f"'{token}' in precision engineering? Return ONLY the 6-digit code."
+    )
+
+    try:
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=12,
+        )
+        content = response.choices[0].message.content if response.choices else ""
+        suggested_code = re.search(r"\b\d{6}\b", content or "")
+        if not suggested_code:
+            raise ValueError("OpenAI did not return a 6-digit NAICS code.")
+
+        return {
+            "material_token": token,
+            "suggested_naics": suggested_code.group(0),
+            "source": "openai",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("OpenAI NAICS suggestion failed for material=%r token=%r: %s", material, token, exc)
+        raise HTTPException(status_code=502, detail=f"OpenAI NAICS suggestion failed: {exc}") from exc
+
+
+def confirm_naics_mapping(
+    material_token: str,
+    mapped_naics: str,
+    user_id: str = DEFAULT_USER_ID,
+) -> dict:
+    token = _normalize_material_token(material_token)
+    code = str(mapped_naics or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="material_token is required.")
+    if token.isdigit():
+        raise HTTPException(status_code=400, detail="material_token cannot be only digits.")
+    if not re.fullmatch(r"\d{6}", code):
+        raise HTTPException(status_code=400, detail="Invalid NAICS Code")
+
+    try:
+        conn = get_conn()
+        cur = conn.cursor(dictionary=True)
+
+        cur.execute(
+            """
+            SELECT naics_code, description, category, kgco2e_per_usd, data_source
+            FROM official_naics_factors
+            WHERE naics_code = %s
+            LIMIT 1
+            """,
+            (code,),
+        )
+        official = cur.fetchone()
+        if not official:
+            raise HTTPException(status_code=400, detail="Invalid NAICS Code")
+
+        cur.execute(
+            """
+            INSERT INTO user_custom_dictionary
+                (user_id, material_token, mapped_naics)
+            VALUES
+                (%s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                mapped_naics = VALUES(mapped_naics)
+            """,
+            (user_id, token, code),
         )
         conn.commit()
-    except Exception as e:
-        print(f"Save to MySQL failed, local JSON already updated: {e}")
+
+        return {
+            "status": "success",
+            "material_token": token,
+            "mapping": _official_factor_to_option(official, "user_custom_dictionary", "confirmed"),
+        }
+    except HTTPException:
+        if "conn" in locals() and conn:
+            conn.rollback()
+        raise
+    except MySQLError as exc:
+        _log_db_error(
+            "Failed to save NAICS mapping",
+            exc,
+            material_token=token,
+            mapped_naics=code,
+            user_id=user_id,
+        )
+        if "conn" in locals() and conn:
+            conn.rollback()
+        raise HTTPException(status_code=503, detail=f"Failed to save NAICS mapping: {exc}") from exc
     finally:
+        if "cur" in locals() and cur:
+            cur.close()
         if "conn" in locals() and conn:
             conn.close()
 
 
 
-def list_naics_options(category: Optional[str] = None) -> list[dict]:
+def get_naics_factor_by_code(naics_code: str) -> dict:
+    code = str(naics_code or "").strip()
+    if not re.fullmatch(r"\d{6}", code):
+        raise HTTPException(status_code=400, detail="Invalid NAICS Code")
 
+    try:
+        conn = get_conn()
+        cur = conn.cursor(dictionary=True)
+        cur.execute(
+            """
+            SELECT naics_code, description, category, kgco2e_per_usd, data_source
+            FROM official_naics_factors
+            WHERE naics_code = %s
+            LIMIT 1
+            """,
+            (code,),
+        )
+        official = cur.fetchone()
+        if not official:
+            raise HTTPException(status_code=404, detail="NAICS Code not found")
+
+        return _official_factor_to_option(official, "official_exact", "exact")
+    except HTTPException:
+        raise
+    except MySQLError as exc:
+        _log_db_error("Failed to fetch NAICS factor by code", exc, naics_code=code)
+        raise HTTPException(status_code=503, detail=f"Failed to fetch NAICS factor: {exc}") from exc
+    finally:
+        if "cur" in locals() and cur:
+            cur.close()
+        if "conn" in locals() and conn:
+            conn.close()
+
+
+def fetch_naics_for_material(name: str) -> dict:
+    result = search_naics_mappings(name)
+    if result["matches"]:
+        return result["matches"][0]
+
+    return {
+        "code": "",
+        "description": "Not Found - Please manual entry",
+        "source": "phase3",
+        "confidence": "low",
+    }
+
+
+def save_material_mapping(keyword: str, naics_code: str, description: str = "", category: str = ""):
+    return confirm_naics_mapping(keyword, naics_code)
+
+
+def list_naics_options(category: Optional[str] = None) -> list[dict]:
     """
-    List available NAICS codes with descriptions from database.
-    Falls back to dev_data when cloud database is unavailable.
-    Optionally filter by category (raw_material, fabrication, surface_treatment).
+    List available NAICS codes with descriptions from official_naics_factors.
     """
     try:
         conn = get_conn()
-    except MySQLError:
-        # Fallback to dev data
-        if category:
-            return [n for n in DEV_NAICS_OPTIONS if n["category"] == category]
-        return DEV_NAICS_OPTIONS
+    except MySQLError as exc:
+        _log_db_error("Database unavailable while listing NAICS options", exc)
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}") from exc
 
     try:
         cur = conn.cursor(dictionary=True)
-        
+        params: tuple[object, ...] = ()
+        category_filter = ""
         if category:
-            cur.execute(
-                """
-                SELECT naics_code, naics_description, category, kgco2e_per_usd
-                FROM naics_factors
-                WHERE category = %s
-                ORDER BY naics_code
-                """,
-                (category,),
-            )
-        else:
-            cur.execute(
-                """
-                SELECT naics_code, naics_description, category, kgco2e_per_usd
-                FROM naics_factors
-                ORDER BY category, naics_code
-                """
-            )
-        
-        rows = cur.fetchall()
-        if not rows:
-            return DEV_NAICS_OPTIONS if not category else [n for n in DEV_NAICS_OPTIONS if n["category"] == category]
+            category_filter = "WHERE category = %s"
+            params = (category,)
+
+        cur.execute(
+            f"""
+            SELECT naics_code, description, category, kgco2e_per_usd, data_source
+            FROM official_naics_factors
+            {category_filter}
+            ORDER BY naics_code
+            """,
+            params,
+        )
 
         options: list[dict] = []
-        for row in rows:
+        for row in cur.fetchall() or []:
             code = str(row.get("naics_code", "")).strip()
             if not code:
                 continue
-            
+
             option: dict = {
                 "code": code,
-                "description": row.get("naics_description", f"NAICS {code}"),
-                "category": row.get("category", ""),
+                "description": row.get("description", f"NAICS {code}"),
+                "category": row.get("category"),
+                "data_source": row.get("data_source"),
             }
             if row.get("kgco2e_per_usd") is not None:
                 option["kgco2e_per_usd"] = float(row["kgco2e_per_usd"])
             options.append(option)
 
-        return options if options else (DEV_NAICS_OPTIONS if not category else [n for n in DEV_NAICS_OPTIONS if n["category"] == category])
+        return options
+    except MySQLError as exc:
+        _log_db_error("Failed to list NAICS options from official_naics_factors", exc, category=category)
+        raise HTTPException(status_code=503, detail=f"Failed to list NAICS options: {exc}") from exc
     finally:
+        if "cur" in locals() and cur:
+            cur.close()
         conn.close()
 
 
 def get_kgco2e_per_usd(naics_code: str) -> float:
     """
-    Read kgCO2e per USD from naics_factors for a given NAICS code.
-    Falls back to dev_data when cloud database is unavailable.
+    Read kgCO2e per USD from official_naics_factors for a given NAICS code.
     """
+    code = str(naics_code or "").strip()
     try:
         conn = get_conn()
-    except MySQLError:
-        # Fallback to dev data
-        for item in DEV_NAICS_OPTIONS:
-            if item["code"] == naics_code:
-                return item["kgco2e_per_usd"]
-        raise HTTPException(status_code=400, detail=f"No emission factor for NAICS code " + naics_code)
+    except MySQLError as exc:
+        _log_db_error("Database unavailable while loading NAICS factor", exc, naics_code=code)
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}") from exc
 
     try:
         cur = conn.cursor(dictionary=True)
         cur.execute(
             """
             SELECT kgco2e_per_usd
-            FROM naics_factors
+            FROM official_naics_factors
             WHERE naics_code = %s
+            LIMIT 1
             """,
-            (naics_code,),
+            (code,),
         )
         row = cur.fetchone()
         if not row:
-            raise HTTPException(
-                status_code=400,
-                detail=f"No emission factor for NAICS code " + naics_code,
-            )
+            raise HTTPException(status_code=400, detail=f"No emission factor for NAICS code {code}")
         return float(row["kgco2e_per_usd"])
+    except HTTPException:
+        raise
+    except MySQLError as exc:
+        _log_db_error("Failed to load kgCO2e factor", exc, naics_code=code)
+        raise HTTPException(status_code=503, detail=f"Failed to load NAICS factor: {exc}") from exc
     finally:
+        if "cur" in locals() and cur:
+            cur.close()
+        conn.close()
+
+
+def calculate_batch_emissions(rows: list[dict]) -> list[dict]:
+    if not rows:
+        return []
+
+    naics_codes = sorted({
+        str(row.get("mapped_naics") or row.get("naics_code") or "").strip()
+        for row in rows
+        if str(row.get("mapped_naics") or row.get("naics_code") or "").strip()
+    })
+    if not naics_codes:
+        raise HTTPException(status_code=400, detail="At least one mapped_naics value is required.")
+
+    try:
+        conn = get_conn()
+    except MySQLError as exc:
+        _log_db_error("Database unavailable during batch calculation", exc, naics_codes=naics_codes)
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}") from exc
+
+    try:
+        cur = conn.cursor(dictionary=True)
+        placeholders = ", ".join(["%s"] * len(naics_codes))
+        cur.execute(
+            f"""
+            SELECT naics_code, description, category, kgco2e_per_usd, data_source
+            FROM official_naics_factors
+            WHERE naics_code IN ({placeholders})
+            """,
+            tuple(naics_codes),
+        )
+        factors = {
+            str(row["naics_code"]): {
+                "description": row.get("description"),
+                "kgco2e_per_usd": float(row["kgco2e_per_usd"]),
+                "data_source": row.get("data_source"),
+            }
+            for row in cur.fetchall() or []
+        }
+
+        missing = [code for code in naics_codes if code not in factors]
+        if missing:
+            raise HTTPException(status_code=400, detail=f"Invalid NAICS Code: {', '.join(missing)}")
+
+        results: list[dict] = []
+        for index, row in enumerate(rows):
+            code = str(row.get("mapped_naics") or row.get("naics_code") or "").strip()
+            if not code:
+                raise HTTPException(status_code=400, detail=f"Row {index + 1} is missing mapped_naics.")
+
+            try:
+                amount = float(row.get("total_amount_sgd") or 0)
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Row {index + 1} has an invalid total_amount_sgd.",
+                ) from exc
+
+            factor = factors[code]
+            kgco2e_per_usd = factor["kgco2e_per_usd"]
+            results.append({
+                **row,
+                "mapped_naics": code,
+                "naics_description": factor["description"],
+                "kgco2e_per_usd": kgco2e_per_usd,
+                "data_source": factor["data_source"],
+                "total_kgco2e": amount * kgco2e_per_usd,
+            })
+
+        return results
+    except HTTPException:
+        raise
+    except MySQLError as exc:
+        _log_db_error("Batch calculation database failure", exc, naics_codes=naics_codes)
+        raise HTTPException(status_code=503, detail=f"Batch calculation database failed: {exc}") from exc
+    finally:
+        if "cur" in locals() and cur:
+            cur.close()
         conn.close()
 
 
 def compute_emissions(payload: dict) -> dict:
     """
-        Calculate emissions using exchange rates, inflation indices, and NAICS coefficients from the database.
+    Calculate emissions using exchange rates, inflation indices, and official NAICS factors.
     """
     year = int(payload["year"])
     naics = payload["naics"]
     sgd_amounts = payload["sgd_amounts"]
 
-    # 1. Obtain Financial Data (Exchange Rates and Inflation)
     fx_rate, inflation_index = get_fx_and_inflation(year)
     try:
-        # Use the 2022 index as the baseline (USEEIO coefficients are typically based on 2022 dollars)
         _, index_2022 = get_fx_and_inflation(2022)
-    except Exception:
+    except Exception as exc:
+        logger.exception("Failed to load 2022 inflation baseline; using default 118.012: %s", exc)
         index_2022 = 118.012
 
     inflation_ratio = index_2022 / inflation_index
 
-    # 2. Obtain Emission Factors (kgCO2e per 2022 USD)
     raw_factor = get_kgco2e_per_usd(naics["raw_material"])
     fab_factor = get_kgco2e_per_usd(naics["fabrication"])
     surf_factor = get_kgco2e_per_usd(naics["surface_treatment"])
 
-    # 3. Calculate Results for Each Component
     results = {}
     total_emission = 0.0
 
@@ -691,11 +662,6 @@ def compute_emissions(payload: dict) -> dict:
             "total": total_emission,
         },
     }
-
-## transportation via EcoTransit Business Solutions API
-from datetime import datetime
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
 
 def _find_first_number(value: object, key_fragments: tuple[str, ...]) -> float | None:

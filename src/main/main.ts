@@ -1,8 +1,8 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
-import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import fs from 'node:fs'
 
 import { postCalculate } from './api-client'
 import type { CalculateRequest } from '../shared/calculator-types'
@@ -41,11 +41,14 @@ function startApiServer() {
   const projectRoot = path.join(__dirname, '..', '..')
   const apiScript = path.join(projectRoot, 'api', 'main.py')
   const ragDataDir = path.join(app.getPath('userData'), 'rag-data')
-  const venvPython =
-    process.platform === 'win32'
-      ? path.join(projectRoot, 'api', 'venv', 'Scripts', 'python.exe')
-      : path.join(projectRoot, 'api', 'venv', 'bin', 'python')
-  const pythonExecutable = existsSync(venvPython)
+  const venvPython = path.join(
+    projectRoot,
+    'api',
+    'venv',
+    process.platform === 'win32' ? 'Scripts' : 'bin',
+    process.platform === 'win32' ? 'python.exe' : 'python',
+  )
+  const pythonExecutable = fs.existsSync(venvPython)
     ? venvPython
     : process.platform === 'win32'
       ? 'python'
