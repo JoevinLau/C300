@@ -7,6 +7,9 @@ out/
 dist/
 release/
 graphify-out/
+rag-data/
+__pycache__/
+*.pyc
 
 # Vite / tooling caches
 .vite/

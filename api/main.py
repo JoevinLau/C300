@@ -1,5 +1,9 @@
 # main.py
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from dataclasses import asdict
+import json
+from typing import Any, Literal
+
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
@@ -14,6 +18,13 @@ from service import (
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+from rag_service import (
+    EmptyDocumentError,
+    RagError,
+    RagService,
+    SearchResult,
+    UnsupportedDocumentError,
+)
 
 API_DIR = Path(__file__).resolve().parent
 ROOT_DIR = API_DIR.parent
@@ -22,6 +33,8 @@ load_dotenv(ROOT_DIR / ".env")
 load_dotenv(API_DIR / ".env", override=True)
 
 AI_KEY_ENV_NAMES = ("AI_KEY", "OPENAI_API_KEY")
+RAG_CHAT_MODEL = os.getenv("RAG_CHAT_MODEL", "gpt-4.1-mini")
+rag_service = RagService()
 
 def get_ai_key() -> str:
     for env_name in AI_KEY_ENV_NAMES:
@@ -270,111 +283,191 @@ def calculate_emissions(data: InputData):
     )
 
 
+class RagDocument(BaseModel):
+    document_id: str
+    filename: str
+    file_type: str
+    content_hash: str
+    chunk_count: int
+    status: str
+    error: str | None = None
+
+
+class RagUploadResult(BaseModel):
+    documents: list[RagDocument]
+
+
+class ChatHistoryMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1, max_length=8000)
+
+
+class Method2ChatRequest(BaseModel):
+    workspace_id: str = Field(..., min_length=1, max_length=100)
+    message: str = Field(..., min_length=1, max_length=8000)
+    calculation_context: dict[str, Any] = Field(default_factory=dict)
+    messages: list[ChatHistoryMessage] = Field(default_factory=list, max_length=12)
+
+
+class ChatCitation(BaseModel):
+    document_id: str
+    filename: str
+    location: str
+    excerpt: str
+    score: float
+
+
 class ChatResponse(BaseModel):
     reply: str
+    citations: list[ChatCitation]
+    grounded: bool
+
+
+def _rag_http_error(exc: RagError) -> HTTPException:
+    status_code = (
+        400
+        if isinstance(exc, (UnsupportedDocumentError, EmptyDocumentError))
+        else 503
+    )
+    return HTTPException(status_code=status_code, detail=str(exc))
+
+
+@app.post("/rag/documents", response_model=RagUploadResult)
+async def upload_rag_documents(
+    workspace_id: str = Form(...),
+    files: list[UploadFile] = File(...),
+):
+    if not files:
+        raise HTTPException(status_code=400, detail="Select at least one file.")
+
+    results: list[RagDocument] = []
+    for upload in files:
+        filename = upload.filename or "unnamed"
+        try:
+            contents = await upload.read()
+            record = rag_service.ingest(workspace_id, filename, contents)
+            results.append(RagDocument(**asdict(record)))
+        except RagError as exc:
+            results.append(
+                RagDocument(
+                    document_id="",
+                    filename=filename,
+                    file_type=Path(filename).suffix.lower().lstrip("."),
+                    content_hash="",
+                    chunk_count=0,
+                    status="error",
+                    error=str(exc),
+                )
+            )
+        finally:
+            await upload.close()
+    return RagUploadResult(documents=results)
+
+
+@app.get("/rag/documents", response_model=list[RagDocument])
+def list_rag_documents(
+    workspace_id: str = Query(..., min_length=1, max_length=100),
+):
+    try:
+        return [
+            RagDocument(**asdict(document))
+            for document in rag_service.list_documents(workspace_id)
+        ]
+    except RagError as exc:
+        raise _rag_http_error(exc) from exc
+
+
+@app.delete("/rag/documents/{document_id}", status_code=204)
+def delete_rag_document(
+    document_id: str,
+    workspace_id: str = Query(..., min_length=1, max_length=100),
+):
+    try:
+        deleted = rag_service.delete_document(workspace_id, document_id)
+    except RagError as exc:
+        raise _rag_http_error(exc) from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+
+def _format_retrieved_context(matches: list[SearchResult]) -> str:
+    return "\n\n".join(
+        (
+            f"[Source {index}] {match.filename}, {match.location}\n"
+            f"{match.excerpt}"
+        )
+        for index, match in enumerate(matches, start=1)
+    )
 
 
 @app.post("/method2-chat", response_model=ChatResponse)
-def method2_chat(
-    message: str = Form(...),
-    excel_file: UploadFile | None = File(None),
-):
-    key = get_ai_key()
+def method2_chat(request: Method2ChatRequest):
+    try:
+        matches = rag_service.search(request.workspace_id, request.message)
+    except RagError as exc:
+        raise _rag_http_error(exc) from exc
+
+    if not matches:
+        return ChatResponse(
+            reply=(
+                "I could not find supporting information in the indexed supplier "
+                "documents. Upload a relevant PDF or XLSX file, or ask about content "
+                "that appears in the current document set."
+            ),
+            citations=[],
+            grounded=False,
+        )
 
     try:
         from openai import OpenAI
     except ImportError as exc:
         raise HTTPException(
             status_code=500,
-            detail=f"OpenAI dependency missing: {exc}. Install requirements with `pip install -r requirements.txt`.",
+            detail=(
+                f"OpenAI dependency missing: {exc}. Install requirements with "
+                "`pip install -r requirements.txt`."
+            ),
         ) from exc
 
+    system_prompt = """
+You are the Method 2 supplier-document assistant for a carbon emissions app.
+Answer using only the supplied calculation context and retrieved evidence.
+Do not invent emission factors, supplier claims, measurements, or document facts.
+When evidence is incomplete, state what is missing. Cite evidence inline as
+[Source 1], [Source 2], and so on. Keep the answer concise and practical.
+""".strip()
+    input_payload = {
+        "question": request.message,
+        "calculation_context": request.calculation_context,
+        "recent_conversation": [
+            message.model_dump() for message in request.messages[-6:]
+        ],
+        "retrieved_evidence": _format_retrieved_context(matches),
+    }
+
     try:
-        client = OpenAI(api_key=key)
-        content = message
-        file_description = None
-
-        if excel_file is not None:
-            contents = excel_file.file.read()
-            if contents:
-                file_description = f"Uploaded spreadsheet filename={excel_file.filename} size={len(contents)} bytes"
-                content = f"{file_description}\n\n{message}"
-            excel_file.file.close()
-
-        resp = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": content}],
-            max_tokens=500,
+        client = OpenAI(api_key=get_ai_key())
+        response = client.responses.create(
+            model=RAG_CHAT_MODEL,
+            instructions=system_prompt,
+            input=json.dumps(input_payload, ensure_ascii=True),
+            max_output_tokens=600,
         )
-        choice = resp.choices[0] if resp.choices else None
-        text = None
-        if choice and hasattr(choice, 'message') and choice.message is not None:
-            text = choice.message.get('content') if isinstance(choice.message, dict) else getattr(choice.message, 'content', None)
-        if not isinstance(text, str):
-            raise ValueError("OpenAI API response did not contain a valid text reply.")
+        reply = response.output_text.strip()
+        if not reply:
+            raise ValueError("OpenAI API response did not contain a text reply.")
+    except HTTPException:
+        raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    return ChatResponse(reply=text)
-
-
-@app.post("/method2-chat-file", response_model=ChatResponse)
-def method2_chat_file(
-    message: str = Form(...),
-    excel_file: UploadFile | None = File(None),
-):
-    key = get_ai_key()
-
-    file_content_description = ""
-    if excel_file is not None:
-        try:
-            from openpyxl import load_workbook
-        except ImportError as exc:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Python dependency openpyxl is missing: {exc}. Install requirements with `pip install -r requirements.txt`.",
-            ) from exc
-
-        try:
-            workbook = load_workbook(filename=excel_file.file, data_only=True)
-            sheet = workbook.active
-            rows = []
-            for row in sheet.iter_rows(values_only=True):
-                rows.append([str(cell) if cell is not None else "" for cell in row])
-            excel_file.file.close()
-            file_content_description = f"Extracted spreadsheet table with {len(rows)} rows and {len(rows[0]) if rows else 0} columns."
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail=f"Failed to parse uploaded Excel file: {exc}") from exc
-
-    try:
-        from openai import OpenAI
-    except ImportError as exc:
         raise HTTPException(
-            status_code=500,
-            detail=f"OpenAI dependency missing: {exc}. Install requirements with `pip install -r requirements.txt`.",
+            status_code=502, detail=f"Answer generation failed: {exc}"
         ) from exc
 
-    try:
-        client = OpenAI(api_key=key)
-        content = message
-        if file_content_description:
-            content = f"{file_content_description}\n\n{message}"
-
-        resp = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": content}],
-            max_tokens=500,
-        )
-        choice = resp.choices[0] if resp.choices else None
-        text = None
-        if choice and hasattr(choice, 'message') and choice.message is not None:
-            text = choice.message.get('content') if isinstance(choice.message, dict) else getattr(choice.message, 'content', None)
-        if not isinstance(text, str):
-            raise ValueError("OpenAI API response did not contain a valid text reply.")
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    return ChatResponse(reply=text)
+    return ChatResponse(
+        reply=reply,
+        citations=[ChatCitation(**asdict(match)) for match in matches],
+        grounded=True,
+    )
 
 @app.get("/")
 def home():
@@ -416,4 +509,3 @@ def ecotransit(data: EcoTransitRequest):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)
-

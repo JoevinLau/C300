@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
@@ -39,9 +40,23 @@ function createWindow() {
 function startApiServer() {
   const projectRoot = path.join(__dirname, '..', '..')
   const apiScript = path.join(projectRoot, 'api', 'main.py')
+  const ragDataDir = path.join(app.getPath('userData'), 'rag-data')
+  const venvPython =
+    process.platform === 'win32'
+      ? path.join(projectRoot, 'api', 'venv', 'Scripts', 'python.exe')
+      : path.join(projectRoot, 'api', 'venv', 'bin', 'python')
+  const pythonExecutable = existsSync(venvPython)
+    ? venvPython
+    : process.platform === 'win32'
+      ? 'python'
+      : 'python3'
 
-  apiProcess = spawn('python', [apiScript], {
+  apiProcess = spawn(pythonExecutable, [apiScript], {
     cwd: projectRoot,
+    env: {
+      ...process.env,
+      RAG_DATA_DIR: ragDataDir,
+    },
     windowsHide: true,
     stdio: 'pipe',
   })
