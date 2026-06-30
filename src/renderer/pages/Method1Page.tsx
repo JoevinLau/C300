@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   CircleDollarSign,
   Cog,
+  Download,
   FileSpreadsheet,
   Layers,
   Loader2,
@@ -13,12 +14,14 @@ import {
   Sparkles,
   X,
 } from 'lucide-react'
+import { PDFDownloadLink } from '@react-pdf/renderer'
 import type { LucideIcon } from 'lucide-react'
 
 import { AppBackground } from '@/components/AppBackground'
-import { calculateEcoTransitTransport, calculateEmissions, fetchNaicsOptions, type CalculateResponse, type NaicsOption } from '@/lib/calculator-api'
+import { UseeioResultsPdf } from '@/components/UseeioResultsPdf'
+import { calculateEcoTransitTransport, calculateEmissions, fetchNaicsOptions, type CalculateResponse, type EcoTransitResponse, type NaicsOption } from '@/lib/calculator-api'
 import { naicsCatalogByCode } from '../../shared/naics-catalog'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import {
   Card,
   CardContent,
@@ -387,7 +390,7 @@ function ResultsPanel({
   error: string | null
   totalSgd: number
   year: string
-  transport?: any | null
+  transport?: EcoTransitResponse | null
 }) {
   if (loading) {
     return (
@@ -517,6 +520,25 @@ function ResultsPanel({
           </div>
         </div>
       ) : null}
+
+      <PDFDownloadLink
+        className={buttonVariants({ className: 'w-full' })}
+        document={
+          <UseeioResultsPdf
+            result={result}
+            totalSgd={totalSgd}
+            transport={transport}
+          />
+        }
+        fileName={`useeio-${result.invoice_id.replace(/[^a-z0-9_-]+/gi, '-')}.pdf`}
+      >
+        {({ loading: preparingPdf }) => (
+          <>
+            {preparingPdf ? <Loader2 className="animate-spin" /> : <Download />}
+            {preparingPdf ? 'Preparing PDF…' : 'Download PDF'}
+          </>
+        )}
+      </PDFDownloadLink>
     </div>
   )
 }
@@ -677,7 +699,7 @@ function Method1Page() {
   const [transportMode, setTransportMode] = useState<'sea' | 'land' | 'air'>('sea')
   const [transportLoading, setTransportLoading] = useState(false)
   const [transportError, setTransportError] = useState<string | null>(null)
-  const [transportResult, setTransportResult] = useState<any | null>(null)
+  const [transportResult, setTransportResult] = useState<EcoTransitResponse | null>(null)
   const selectedTransportPort = useMemo(
     () => TRANSPORT_PORTS.find((item) => item.country.toLowerCase() === transportOrigin.trim().toLowerCase()),
     [transportOrigin],
