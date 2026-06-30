@@ -40,6 +40,7 @@ function createWindow() {
 function startApiServer() {
   const projectRoot = path.join(__dirname, '..', '..')
   const apiScript = path.join(projectRoot, 'api', 'main.py')
+  const ragDataDir = path.join(app.getPath('userData'), 'rag-data')
   const venvPython = path.join(
     projectRoot,
     'api',
@@ -47,10 +48,18 @@ function startApiServer() {
     process.platform === 'win32' ? 'Scripts' : 'bin',
     process.platform === 'win32' ? 'python.exe' : 'python',
   )
-  const pythonExecutable = fs.existsSync(venvPython) ? venvPython : 'python'
+  const pythonExecutable = fs.existsSync(venvPython)
+    ? venvPython
+    : process.platform === 'win32'
+      ? 'python'
+      : 'python3'
 
   apiProcess = spawn(pythonExecutable, [apiScript], {
     cwd: projectRoot,
+    env: {
+      ...process.env,
+      RAG_DATA_DIR: ragDataDir,
+    },
     windowsHide: true,
     stdio: 'pipe',
   })

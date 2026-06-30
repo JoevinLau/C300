@@ -1,17 +1,23 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type React from 'react'
 import {
+  AlertCircle,
   ArrowLeft,
   Bot,
   Calculator,
+  CloudUpload,
+  Database,
   Factory,
+  FileText,
   Layers,
   Loader2,
   MessageCircle,
   Paintbrush,
   Plus,
+  RotateCw,
   Route,
   Send,
+  ShieldCheck,
   Sparkles,
   Trash2,
   X,
@@ -63,7 +69,30 @@ import {
 import { cn } from '@/lib/utils'
 import { naicsCatalogByCode } from '../../shared/naics-catalog'
 
-type Message = { role: 'user' | 'assistant'; content: string }
+type Citation = {
+  document_id: string
+  filename: string
+  location: string
+  excerpt: string
+  score: number
+}
+
+type Message = {
+  role: 'user' | 'assistant'
+  content: string
+  citations?: Citation[]
+  grounded?: boolean
+}
+
+type RagDocument = {
+  document_id: string
+  filename: string
+  file_type: string
+  content_hash: string
+  chunk_count: number
+  status: string
+  error: string | null
+}
 
 type MachiningRow = {
   id: string
@@ -88,6 +117,8 @@ type ComponentView = {
 }
 
 const kg = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 })
+const API_BASE = 'http://127.0.0.1:8000'
+const WORKSPACE_ID = 'method2-demo'
 const demoPart = {
   partId: 'M2-DEMO-001',
   partName: 'Precision aluminium bracket',
@@ -298,6 +329,13 @@ export default function Method2Page() {
   const [calculateLoading, setCalculateLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<Method2CalculateResponse | null>(null)
+  const [documents, setDocuments] = useState<RagDocument[]>([])
+  const [documentsLoading, setDocumentsLoading] = useState(true)
+  const [uploading, setUploading] = useState(false)
+  const [documentError, setDocumentError] = useState('')
+  const [retryFiles, setRetryFiles] = useState<File[]>([])
+  const [expandedCitation, setExpandedCitation] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     void fetchMethod2Machines()
@@ -376,19 +414,115 @@ export default function Method2Page() {
   const components = useMemo(() => buildComponents(result, transportSummary), [result, transportSummary])
 
   const fixedContext = useMemo(() => {
-    const lines = components.map(
-      (item) =>
-        `${item.label}: ${item.valueKg} kg CO2e (${item.confidence}; ${item.source}; ${item.formula})`,
-    )
-    return [
-      `Method 2 part: ${demoPart.partName} (${demoPart.partId})`,
-      `Supplier: ${demoPart.supplier}`,
-      `Material: ${demoPart.material}, weight ${demoPart.weightKg} kg`,
-      `Total emissions: ${(result?.emissions.total ?? 0).toFixed(2)} kg CO2e`,
-      ...lines,
-      `Missing source documents: ${requiredDocuments.join('; ')}`,
-    ].join('\n')
-  }, [components, result])
+    return {
+      method: 'Method 2 hybrid calculation',
+      part: {
+        id: form.invoice_id.trim() || demoPart.partId,
+        name: demoPart.partName,
+        supplier: demoPart.supplier,
+        material: demoPart.material,
+        weight_kg: Number(transportWeight) || demoPart.weightKg,
+        year: Number(form.year),
+      },
+      total_emissions_kg_co2e: result?.emissions.total ?? 0,
+      components: components.map((item) => ({
+        label: item.label,
+        emissions_kg_co2e: item.valueKg,
+        confidence: item.confidence,
+        source: item.source,
+        formula: item.formula,
+      })),
+      transport: transportResult?.transport ?? null,
+      missing_source_documents: requiredDocuments,
+    }
+  }, [components, form.invoice_id, form.year, result, transportResult, transportWeight])
+
+  async function loadDocuments() {
+    setDocumentsLoading(true)
+    setDocumentError('')
+    try {
+      const response = await fetch(
+        `${API_BASE}/rag/documents?workspace_id=${encodeURIComponent(WORKSPACE_ID)}`,
+      )
+      const data = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error(
+          data && typeof data.detail === 'string' ? data.detail : 'Unable to load documents.',
+        )
+      }
+      setDocuments(Array.isArray(data) ? data : [])
+    } catch (loadError) {
+      setDocumentError(loadError instanceof Error ? loadError.message : String(loadError))
+    } finally {
+      setDocumentsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadDocuments()
+  }, [])
+
+  async function uploadDocuments(files: File[]) {
+    if (files.length === 0) return
+    setUploading(true)
+    setDocumentError('')
+    const formData = new FormData()
+    formData.append('workspace_id', WORKSPACE_ID)
+    files.forEach((file) => formData.append('files', file))
+
+    try {
+      const response = await fetch(`${API_BASE}/rag/documents`, {
+        method: 'POST',
+        body: formData,
+      })
+      const data = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error(
+          data && typeof data.detail === 'string' ? data.detail : 'Document indexing failed.',
+        )
+      }
+      const results = Array.isArray(data?.documents) ? (data.documents as RagDocument[]) : []
+      const failures = results.filter((document) => document.status === 'error')
+      if (failures.length > 0) {
+        setRetryFiles(
+          files.filter((file) => failures.some((failure) => failure.filename === file.name)),
+        )
+        setDocumentError(
+          failures.map((failure) => `${failure.filename}: ${failure.error}`).join(' '),
+        )
+      } else {
+        setRetryFiles([])
+      }
+      await loadDocuments()
+    } catch (uploadError) {
+      setRetryFiles(files)
+      setDocumentError(uploadError instanceof Error ? uploadError.message : String(uploadError))
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  async function deleteDocument(documentId: string) {
+    setDocumentError('')
+    try {
+      const response = await fetch(
+        `${API_BASE}/rag/documents/${encodeURIComponent(documentId)}?workspace_id=${encodeURIComponent(WORKSPACE_ID)}`,
+        { method: 'DELETE' },
+      )
+      if (!response.ok) {
+        const data = await response.json().catch(() => null)
+        throw new Error(
+          data && typeof data.detail === 'string' ? data.detail : 'Unable to delete document.',
+        )
+      }
+      setDocuments((current) =>
+        current.filter((document) => document.document_id !== documentId),
+      )
+    } catch (deleteError) {
+      setDocumentError(deleteError instanceof Error ? deleteError.message : String(deleteError))
+    }
+  }
 
   function updateField(key: Method1FormKey, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -547,12 +681,27 @@ export default function Method2Page() {
     setChatLoading(true)
 
     try {
-      const formData = new FormData()
-      formData.append('message', `${fixedContext}\n\nUser question: ${message}`)
-      const res = await fetch('http://127.0.0.1:8000/method2-chat', { method: 'POST', body: formData })
+      const res = await fetch(`${API_BASE}/method2-chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspace_id: WORKSPACE_ID,
+          message,
+          calculation_context: fixedContext,
+          messages: messages.slice(-6).map(({ role, content }) => ({ role, content })),
+        }),
+      })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.detail ? String(data.detail) : res.statusText)
-      setMessages((m) => [...m, { role: 'assistant', content: typeof data.reply === 'string' ? data.reply : 'No reply returned.' }])
+      setMessages((m) => [
+        ...m,
+        {
+          role: 'assistant',
+          content: typeof data.reply === 'string' ? data.reply : 'No reply returned.',
+          citations: Array.isArray(data.citations) ? data.citations : [],
+          grounded: data.grounded === true,
+        },
+      ])
     } catch (err) {
       setMessages((m) => [...m, { role: 'assistant', content: `Error: ${err instanceof Error ? err.message : String(err)}` }])
     } finally {
@@ -821,15 +970,154 @@ export default function Method2Page() {
                 </div>
               </CardHeader>
               <CardContent className="flex h-[min(32rem,calc(100vh-13rem))] flex-col p-0">
+                <div className="border-b border-zinc-900/10 bg-[#faf8f1] p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-start gap-2">
+                      <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-lime-200 text-lime-950">
+                        <Database className="size-4" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-zinc-950">Supplier documents</p>
+                        <p className="text-[11px] leading-4 text-muted-foreground">
+                          Indexed locally; retrieved excerpts are sent to OpenAI.
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploading}
+                    >
+                      {uploading ? <Loader2 className="animate-spin" /> : <CloudUpload />}
+                      Upload
+                    </Button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pdf,.xlsx,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                      multiple
+                      className="hidden"
+                      onChange={(event) => {
+                        void uploadDocuments(Array.from(event.target.files ?? []))
+                      }}
+                    />
+                  </div>
+
+                  <div className="mt-2 max-h-24 space-y-1 overflow-y-auto">
+                    {documentsLoading ? (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Loader2 className="size-3.5 animate-spin" />
+                        Loading document index
+                      </div>
+                    ) : documents.length === 0 ? (
+                      <div className="rounded-md border border-dashed border-zinc-900/15 px-2.5 py-1.5 text-xs text-muted-foreground">
+                        No supplier documents indexed.
+                      </div>
+                    ) : (
+                      documents.map((document) => (
+                        <div
+                          key={document.document_id}
+                          className="flex items-center gap-2 rounded-md border border-zinc-900/10 bg-white px-2 py-1.5"
+                        >
+                          <FileText className="size-3.5 shrink-0 text-lime-700" />
+                          <span className="min-w-0 flex-1 truncate text-xs font-medium">
+                            {document.filename}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {document.chunk_count}
+                          </span>
+                          <ShieldCheck className="size-3.5 shrink-0 text-teal-600" />
+                          <button
+                            type="button"
+                            title={`Delete ${document.filename}`}
+                            className="rounded p-1 text-zinc-400 hover:bg-rose-50 hover:text-rose-700"
+                            onClick={() => void deleteDocument(document.document_id)}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {documentError ? (
+                    <div className="mt-2 flex items-start gap-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1.5 text-xs text-rose-800">
+                      <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+                      <span className="min-w-0 flex-1">{documentError}</span>
+                      {retryFiles.length > 0 ? (
+                        <button
+                          type="button"
+                          className="inline-flex shrink-0 items-center gap-1 font-medium hover:underline"
+                          onClick={() => void uploadDocuments(retryFiles)}
+                          disabled={uploading}
+                        >
+                          <RotateCw className="size-3" />
+                          Retry
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+
                 <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
                   {messages.length === 0 ? (
                     <div className="mx-auto mt-8 max-w-sm rounded-lg border border-dashed border-lime-300/35 bg-lime-300/[0.03] p-5 text-center text-sm leading-6 text-muted-foreground">
-                      Ask the assistant to explain the current Method 2 calculation.
+                      Upload supplier evidence, then ask a question. Answers show the excerpts used.
                     </div>
                   ) : (
                     messages.map((m, i) => (
                       <div key={i} className={`max-w-[88%] rounded-lg px-3 py-2 ${m.role === 'user' ? 'ml-auto bg-lime-100 text-zinc-950' : 'mr-auto bg-zinc-950 text-white'}`}>
                         <div className="whitespace-pre-wrap text-sm leading-6">{m.content}</div>
+                        {m.role === 'assistant' && m.grounded === false ? (
+                          <div className="mt-2 flex items-center gap-1.5 border-t border-white/10 pt-2 text-xs text-amber-200">
+                            <AlertCircle className="size-3.5" />
+                            No supporting document found
+                          </div>
+                        ) : null}
+                        {m.citations && m.citations.length > 0 ? (
+                          <div className="mt-3 space-y-2 border-t border-white/10 pt-2">
+                            <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-400">
+                              Sources
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {m.citations.map((citation, citationIndex) => {
+                                const citationKey = `${i}:${citationIndex}`
+                                return (
+                                  <button
+                                    key={citationKey}
+                                    type="button"
+                                    onClick={() =>
+                                      setExpandedCitation((current) =>
+                                        current === citationKey ? null : citationKey,
+                                      )
+                                    }
+                                    className="rounded-md border border-white/15 bg-white/10 px-2 py-1 text-left text-[11px] text-zinc-100 hover:bg-white/15"
+                                  >
+                                    {citationIndex + 1}. {citation.filename} · {citation.location}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                            {m.citations.map((citation, citationIndex) => {
+                              const citationKey = `${i}:${citationIndex}`
+                              return expandedCitation === citationKey ? (
+                                <div
+                                  key={citationKey}
+                                  className="rounded-md border border-white/10 bg-white/[0.06] p-2.5 text-xs leading-5 text-zinc-200"
+                                >
+                                  <p className="mb-1 font-medium text-white">
+                                    {citation.filename} · {citation.location}
+                                  </p>
+                                  <p>{citation.excerpt}</p>
+                                  <p className="mt-1 font-mono text-[10px] text-zinc-400">
+                                    Relevance {(citation.score * 100).toFixed(0)}%
+                                  </p>
+                                </div>
+                              ) : null
+                            })}
+                          </div>
+                        ) : null}
                       </div>
                     ))
                   )}
