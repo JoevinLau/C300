@@ -1,12 +1,19 @@
 # Dependencies
 node_modules/
 .pnpm-store/
+api/venv/
+venv/
+__pycache__/
+*.py[cod]
 
 # Build output
 out/
 dist/
 release/
 graphify-out/
+rag-data/
+__pycache__/
+*.pyc
 
 # Vite / tooling caches
 .vite/

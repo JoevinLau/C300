@@ -7,7 +7,8 @@ Desktop app for **carbon emissions estimation** from supplier and portfolio spen
 - **Home hub** — Workflow selection dashboard for NAICS mapping, USEEIO / Method 1, Method 2, and Method 3.
 - **NAICS mapping** (`#naics-mapping`) — UI workflow for preparing company, supplier, or spend-category records with NAICS codes before running emissions calculations.
 - **USEEIO / Method 1** (`#method-1`) — Workbench for invoice-level spend allocation. Split spend across raw material, fabrication, and surface treatment; convert SGD → 2022 USD using FX and inflation; apply USEEIO kgCO₂e/USD factors per NAICS code.
-- **Method 2 & 3** — Listed on the home screen; not implemented yet.
+- **Method 2** (`#method-2`) — Hybrid emissions prototype with a supplier-document RAG assistant. Upload PDF or XLSX evidence, ask grounded questions, and inspect the retrieved source excerpts behind each answer.
+- **Method 3** — Listed on the home screen; not implemented yet.
 
 Method 1 calls `POST /calculate` on the API. In Electron, requests go through the main process (`calculator:calculate` IPC) to avoid renderer CORS issues; the renderer can also call the API directly when running outside Electron.
 
@@ -19,6 +20,7 @@ The renderer is organized as a workflow dashboard:
 - **NAICS mapping card** includes a short preview of the mapping workflow: upload or review spend records, search NAICS sectors, and prepare mapped records for calculation methods.
 - **NAICS mapping page** has a dark context rail, upload/search actions, a sample mapping table, and a suggested flow panel.
 - **Method 1 page** uses a workbench layout with a left workflow rail, central invoice/allocation form, and right-side results/process panels.
+- **Method 2 page** combines fixed prototype calculation data with a persistent supplier-document index, document upload/status controls, grounded chat answers, and expandable citations.
 - **History modal** stores the latest five Method 1 calculations in renderer state for quick review during the current session.
 
 ## Architecture
@@ -32,22 +34,42 @@ The renderer is organized as a workflow dashboard:
          └─────────────────┬───────────────────────┘
                            │ HTTP :8000
                            ▼
-                  ┌─────────────────┐
-                  │  FastAPI (api/) │
-                  │  calculator.py  │
-                  └────────┬────────┘
+                  ┌───────────────────┐
+                  │  FastAPI (api/)   │
+                  │ calculator + RAG  │
+                  └─────────┬─────────┘
                            │
-              ┌────────────┴────────────┐
-              ▼                         ▼
-     MySQL (carbon_emission_db)   api/dev_data.py
-     USEEIO + FX tables           (fallback catalog)
+          ┌────────────────┼─────────────────┐
+          ▼                ▼                 ▼
+ MySQL + dev_data     Local Chroma       OpenAI API
+ calculation data    vector index        embeddings + answer
 ```
+
+### Method 2 RAG flow
+
+```text
+PDF / XLSX upload
+        │
+        ▼
+extract text and rows → chunk with source metadata → OpenAI embeddings
+        │
+        ▼
+workspace-scoped Chroma index in Electron userData
+        │
+        ▼
+user question → top matching chunks → grounded answer + citations
+```
+
+Each indexed chunk keeps its document ID, filename, file type, page or sheet/row location, content hash, and chunk index. Re-uploading identical content is deduplicated; re-uploading a changed file with the same name replaces its previous index entries.
+
+The vector database is local, but document text is sent to OpenAI to create embeddings, and retrieved excerpts are sent to OpenAI when generating an answer.
 
 ## Requirements
 
 - **Node.js** and **pnpm** (`pnpm@10.33.2` via `packageManager` in `package.json`)
 - **Python 3.10+** for the API
 - **MySQL** (optional) — `Exchange_Inflation_Table` and `USEEIO_Factors_Table` in `carbon_emission_db`. If MySQL is down or misconfigured, the API uses `api/dev_data.py`.
+- **OpenAI API key** for Method 2 document indexing and grounded answers.
 
 Enable pnpm with Corepack if needed:
 
@@ -77,11 +99,31 @@ pip install -r requirements.txt
 
 Configure MySQL in `api/db.py` (`host`, `user`, `password`, `database`). The app expects database name `carbon_emission_db` with tables used by `api/service.py`.
 
+Create `.env` in the project root:
+
+```dotenv
+AI_KEY=your_openai_api_key_here
+# OPENAI_API_KEY can be used instead of AI_KEY.
+
+RAG_EMBEDDING_MODEL=text-embedding-3-small
+RAG_CHAT_MODEL=gpt-4.1-mini
+RAG_TOP_K=6
+RAG_SCORE_THRESHOLD=0.25
+```
+
+The model and retrieval settings are optional and use the values shown above by default.
+
 ## Development
 
-Run the API and the Electron app in **two terminals**.
+Run the desktop app:
 
-**Terminal 1 — API** (listens on `http://127.0.0.1:8000`):
+```sh
+pnpm dev
+```
+
+Electron starts the FastAPI process on `http://127.0.0.1:8000` and stores RAG data under its platform-specific `userData/rag-data` directory. It uses the project virtual environment when present (`api/venv/Scripts/python.exe` on Windows or `api/venv/bin/python` on macOS/Linux), then falls back to the system Python executable.
+
+To run the API manually for backend development:
 
 ```sh
 cd api
@@ -89,13 +131,7 @@ source venv/bin/activate          # Windows: venv\Scripts\activate
 python main.py
 ```
 
-**Terminal 2 — desktop UI**:
-
-```sh
-pnpm dev
-```
-
-Open **USEEIO** from the home screen (or navigate to `#method-1`). Open **NAICS mapping** from the home screen (or navigate to `#naics-mapping`) to review the mapping workflow UI. Health check: `GET http://127.0.0.1:8000/` → `{"message":"API is running!"}`.
+Open **Method 2** from the home screen, upload one or more PDF/XLSX supplier documents, wait for indexing to finish, and then ask questions in the assistant. Health check: `GET http://127.0.0.1:8000/` → `{"message":"API is running!"}`.
 
 ### API endpoints
 
@@ -104,8 +140,27 @@ Open **USEEIO** from the home screen (or navigate to `#method-1`). Open **NAICS 
 | `GET` | `/` | Health check |
 | `GET` | `/naics` | NAICS codes, descriptions, optional kgCO₂e/USD |
 | `POST` | `/calculate` | Run Method 1 emissions calculation |
+| `POST` | `/rag/documents` | Index PDF/XLSX files for a `workspace_id` |
+| `GET` | `/rag/documents?workspace_id=...` | List indexed workspace documents |
+| `DELETE` | `/rag/documents/{document_id}?workspace_id=...` | Delete a document and its vectors |
+| `POST` | `/method2-chat` | Retrieve supplier evidence and return a grounded answer with citations |
 
 `POST /calculate` body (summary): `invoice_id`, `year` (2020–2030), `total_amount_sgd`, `allocation` (three percentages summing to 100), `naics` (three 6-digit codes for raw material, fabrication, surface treatment). Shared TypeScript types live in `src/shared/calculator-types.ts`.
+
+`POST /rag/documents` is multipart form data with `workspace_id` and one or more `files` fields. Supported file types are PDF and XLSX.
+
+`POST /method2-chat` accepts JSON:
+
+```json
+{
+  "workspace_id": "method2-demo",
+  "message": "What product carbon footprint does the supplier report?",
+  "calculation_context": {},
+  "messages": []
+}
+```
+
+The response contains `reply`, `grounded`, and `citations`. Each citation includes its document ID, filename, page or spreadsheet row location, excerpt, and relevance score. When retrieval finds no sufficiently relevant evidence, the endpoint returns `grounded: false` without calling the answer model.
 
 ## Scripts
 
@@ -116,6 +171,12 @@ Open **USEEIO** from the home screen (or navigate to `#method-1`). Open **NAICS 
 | `pnpm preview` | Preview the built app |
 | `pnpm typecheck` | TypeScript check (`tsc --noEmit`) |
 
+Backend RAG tests:
+
+```sh
+python3 -m unittest api.test_rag -v
+```
+
 ## Project structure
 
 ```text
@@ -123,8 +184,10 @@ api/
   main.py           FastAPI app and routes
   service.py        MySQL access + dev_data fallback
   calculator.py     SGD → USD 2022 and emissions math
+  rag_service.py    Extraction, chunking, embeddings, Chroma persistence, retrieval
   db.py             MySQL connection settings
   dev_data.py       Fallback NAICS / FX when DB is unavailable
+  test_rag.py       RAG service and API tests
   requirements.txt
 
 src/
@@ -143,7 +206,15 @@ UI stack: React 19, Tailwind CSS 4, Lucide icons, and Radix UI primitives under 
 
 ### API errors / “port 8000”
 
-Ensure the FastAPI process is running before using Method 1. The renderer and main process both target `http://127.0.0.1:8000`.
+Ensure the FastAPI process is running before using Method 1 or Method 2. `pnpm dev` normally starts it automatically. If it does not start, confirm the Python environment from Setup has all packages in `api/requirements.txt`.
+
+### Method 2 indexing or chat errors
+
+- Confirm `.env` contains `AI_KEY` or `OPENAI_API_KEY`, then restart the API.
+- Only PDF and XLSX files are supported.
+- Scanned PDFs without extractable text require OCR before upload.
+- Adjust `RAG_SCORE_THRESHOLD` if relevant content is consistently rejected or weak content is being retrieved.
+- Removing a document in the UI deletes its vectors from the current workspace.
 
 ### MySQL connection
 
