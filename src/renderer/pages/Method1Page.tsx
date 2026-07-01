@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Calculator,
   CheckCircle2,
+  ChevronDown,
   CircleDollarSign,
   Cog,
   Download,
@@ -18,8 +19,9 @@ import { PDFDownloadLink } from '@react-pdf/renderer'
 import type { LucideIcon } from 'lucide-react'
 
 import { AppBackground } from '@/components/AppBackground'
+import { SearchableNaicsSelect } from '@/components/Method1SharedInputs'
 import { UseeioResultsPdf } from '@/components/UseeioResultsPdf'
-import { calculateEcoTransitTransport, calculateEmissions, fetchNaicsOptions, type CalculateResponse, type EcoTransitResponse, type NaicsOption } from '@/lib/calculator-api'
+import { calculateEcoTransitTransport, calculateEmissions, fetchNaicsOptions, type CalculateResponse, type EcoTransitResponse, type NaicsOption, type CalculationLineItemResult } from '@/lib/calculator-api'
 import { naicsCatalogByCode } from '../../shared/naics-catalog'
 import { Button, buttonVariants } from '@/components/ui/button'
 import {
@@ -221,6 +223,18 @@ type HistoryItem = {
   }
 }
 
+const categoryMetaByKey = {
+  raw_material: { label: 'Raw material', icon: Layers, textClass: 'text-lime-700' },
+  fabrication: { label: 'Fabrication', icon: Cog, textClass: 'text-teal-700' },
+  surface_treatment: { label: 'Surface treatment', icon: Paintbrush, textClass: 'text-rose-700' },
+} as const
+
+function getLineItemLabel(item: CalculationLineItemResult, index: number, naicsByCode: Map<string, NaicsOption>) {
+  const meta = categoryMetaByKey[item.category]
+  const description = naicsByCode.get(item.naics_code)?.description
+  return `${meta.label} ${index + 1} - ${item.naics_code}${description ? ` ${description}` : ''}`
+}
+
 function parseAmount(value: string): number {
   const normalized = String(value).trim().replace(/,/g, '')
   const parsed = Number(normalized)
@@ -231,14 +245,6 @@ function parseAmount(value: string): number {
 function pctFromAmount(amount: number, total: number): number {
   if (total <= 0) return 0
   return (amount / total) * 100
-}
-
-function sortNaicsOptions(options: NaicsOption[], preferredCode: string): NaicsOption[] {
-  return [...options].sort((a, b) => {
-    if (a.code === preferredCode) return -1
-    if (b.code === preferredCode) return 1
-    return a.code.localeCompare(b.code)
-  })
 }
 
 function StepIndicator({ activeStep }: { activeStep: number }) {
@@ -384,6 +390,7 @@ function ResultsPanel({
   totalSgd,
   year,
   transport,
+  naicsByCode,
 }: {
   result: CalculateResponse | null
   loading: boolean
@@ -391,7 +398,10 @@ function ResultsPanel({
   totalSgd: number
   year: string
   transport?: EcoTransitResponse | null
+  naicsByCode: Map<string, NaicsOption>
 }) {
+  const [lineItemsOpen, setLineItemsOpen] = useState(false)
+
   if (loading) {
     return (
       <div className="flex min-h-[280px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-zinc-900/15 bg-white/70 p-8 text-center">
@@ -478,11 +488,6 @@ function ResultsPanel({
         </div>
       </div>
 
-      <div>
-        <p className="mb-3 text-sm font-medium text-muted-foreground">Emissions by component</p>
-        <EmissionsBreakdownChart result={result} />
-      </div>
-
       <div className="space-y-2 border-t border-zinc-900/12 pt-4">
         <p className="text-sm font-medium text-muted-foreground">2022 USD cost breakdown</p>
         {CATEGORIES.map((cat) => {
@@ -507,6 +512,46 @@ function ResultsPanel({
           )
         })}
       </div>
+
+      <div className="border-t border-zinc-900/12 pt-4">
+        <p className="mb-3 text-sm font-medium text-muted-foreground">Emissions by component</p>
+        <EmissionsBreakdownChart result={result} />
+      </div>
+
+      {result.calculation.line_items?.length ? (
+        <div className="space-y-2 border-t border-zinc-900/12 pt-4">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-3 rounded-md px-0 py-1 text-left text-sm font-medium text-muted-foreground hover:text-foreground"
+            onClick={() => setLineItemsOpen((open) => !open)}
+            aria-expanded={lineItemsOpen}
+          >
+            <span>Line item emission calculations</span>
+            <ChevronDown className={cn('size-4 transition-transform', lineItemsOpen && 'rotate-180')} />
+          </button>
+          {lineItemsOpen ? (
+            <div className="space-y-2">
+              {result.calculation.line_items.map((item, index) => {
+                const meta = categoryMetaByKey[item.category]
+                const Icon = meta.icon
+                return (
+                  <div key={`${item.category}-${item.naics_code}-${index}`} className="rounded-lg border border-zinc-900/12 bg-white/70 px-3 py-2.5 text-sm">
+                    <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1">
+                      <Icon className={cn('mt-0.5 size-4 shrink-0', meta.textClass)} />
+                      <span className="min-w-0 font-medium">{getLineItemLabel(item, index, naicsByCode)}</span>
+                      <span className={cn('shrink-0 font-mono tabular-nums', meta.textClass)}>{kg.format(item.emission)} kg</span>
+                      <span />
+                      <p className="col-start-2 font-mono text-xs text-muted-foreground">
+                        {usd.format(item.amount_usd2022)} * {item.factor.toFixed(4)} kgCO2e/USD
+                      </p>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {transportEmissions > 0 ? (
         <div className="mt-4">
@@ -546,9 +591,11 @@ function ResultsPanel({
 function CalculationProcessPanel({
   result,
   loading,
+  naicsByCode,
 }: {
   result: CalculateResponse | null
   loading: boolean
+  naicsByCode: Map<string, NaicsOption>
 }) {
   if (loading || !result) {
     return null
@@ -634,36 +681,59 @@ function CalculationProcessPanel({
       <div className="rounded-lg border border-lime-400/25 bg-lime-400/5 p-4">
         <p className="mb-3 font-medium text-lime-800">Step 3: Calculate Emissions</p>
         <p className="mb-3 text-xs text-muted-foreground">
-          Emission factor (kg CO2e per USD)
+          Each line item uses its own NAICS factor (kg CO2e per USD), then totals are grouped by component.
         </p>
         <div className="space-y-3 text-sm">
-          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
-            <p className="flex items-center gap-2 text-muted-foreground">
-              <Layers className="text-lime-400" />
-              Raw material
-            </p>
-            <p className="font-mono tabular-nums text-lime-700">
-              {usd.format(calc.usd2022_amounts.raw_material)} * {calc.factors.raw_material.toFixed(4)} = {kg.format(result.emissions.raw_material)} kg
-            </p>
-          </div>
-          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
-            <p className="flex items-center gap-2 text-muted-foreground">
-              <Cog className="text-teal-400" />
-              Fabrication
-            </p>
-            <p className="font-mono tabular-nums text-lime-700">
-              {usd.format(calc.usd2022_amounts.fabrication)} * {calc.factors.fabrication.toFixed(4)} = {kg.format(result.emissions.fabrication)} kg
-            </p>
-          </div>
-          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
-            <p className="flex items-center gap-2 text-muted-foreground">
-              <Paintbrush className="text-rose-400" />
-              Surface treatment
-            </p>
-            <p className="font-mono tabular-nums text-lime-700">
-              {usd.format(calc.usd2022_amounts.surface_treatment)} * {calc.factors.surface_treatment.toFixed(4)} = {kg.format(result.emissions.surface_treatment)} kg
-            </p>
-          </div>
+          {calc.line_items?.length ? (
+            calc.line_items.map((item, index) => {
+              const meta = categoryMetaByKey[item.category]
+              const Icon = meta.icon
+              return (
+                <div key={`${item.category}-${item.naics_code}-${index}`} className="rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
+                  <div className="grid grid-cols-[1.25rem_minmax(0,1fr)] items-start gap-x-2 gap-y-1">
+                    <Icon className={cn('mt-0.5 size-4 shrink-0', meta.textClass)} />
+                    <p className="text-muted-foreground">
+                      {getLineItemLabel(item, index, naicsByCode)}
+                    </p>
+                    <span />
+                    <p className="col-start-2 font-mono tabular-nums text-lime-700">
+                    {usd.format(item.amount_usd2022)} * {item.factor.toFixed(4)} = {kg.format(item.emission)} kg
+                    </p>
+                  </div>
+                </div>
+              )
+            })
+          ) : (
+            <>
+              <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
+                <p className="flex items-center gap-2 text-muted-foreground">
+                  <Layers className="text-lime-400" />
+                  Raw material
+                </p>
+                <p className="font-mono tabular-nums text-lime-700">
+                  {usd.format(calc.usd2022_amounts.raw_material)} * {calc.factors.raw_material.toFixed(4)} = {kg.format(result.emissions.raw_material)} kg
+                </p>
+              </div>
+              <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
+                <p className="flex items-center gap-2 text-muted-foreground">
+                  <Cog className="text-teal-400" />
+                  Fabrication
+                </p>
+                <p className="font-mono tabular-nums text-lime-700">
+                  {usd.format(calc.usd2022_amounts.fabrication)} * {calc.factors.fabrication.toFixed(4)} = {kg.format(result.emissions.fabrication)} kg
+                </p>
+              </div>
+              <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
+                <p className="flex items-center gap-2 text-muted-foreground">
+                  <Paintbrush className="text-rose-400" />
+                  Surface treatment
+                </p>
+                <p className="font-mono tabular-nums text-lime-700">
+                  {usd.format(calc.usd2022_amounts.surface_treatment)} * {calc.factors.surface_treatment.toFixed(4)} = {kg.format(result.emissions.surface_treatment)} kg
+                </p>
+              </div>
+            </>
+          )}
           <div className="flex items-center justify-between rounded-lg border border-lime-400/30 bg-lime-500/10 px-3 py-2.5 text-sm font-medium">
             <span className="text-lime-800">Total Emissions</span>
             <span className="font-mono text-lime-700 tabular-nums">{kg.format(result.emissions.total)} kg CO2e</span>
@@ -960,6 +1030,11 @@ function Method1Page() {
 
     setLoading(true)
     try {
+      const lineItems = [
+        ...rawItems.map((item) => ({ category: 'raw_material' as const, amount_sgd: parseAmount(item.amount), naics_code: item.naics.trim() })),
+        ...fabItems.map((item) => ({ category: 'fabrication' as const, amount_sgd: parseAmount(item.amount), naics_code: item.naics.trim() })),
+        ...surfaceItems.map((item) => ({ category: 'surface_treatment' as const, amount_sgd: parseAmount(item.amount), naics_code: item.naics.trim() })),
+      ].filter((item) => item.amount_sgd > 0)
       const rawSum = rawItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.raw_material_sgd)
       const fabSum = fabItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.fabrication_sgd)
       const surfSum = surfaceItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.surface_treatment_sgd)
@@ -983,6 +1058,7 @@ function Method1Page() {
           fabrication: (fabItems[0]?.naics ?? form.naics_fabrication).trim(),
           surface_treatment: (surfaceItems[0]?.naics ?? form.naics_surface_treatment).trim(),
         },
+        line_items: lineItems,
       })
       setResult(response)
       setActiveStep(2)
@@ -993,9 +1069,9 @@ function Method1Page() {
         totalKgCo2e: response.emissions.total + (transportResult?.transport?.chosen_emissions_kg ?? 0),
         calc: response.calculation,
         naics: {
-          raw: form.naics_raw_material.trim() || undefined,
-          fabrication: form.naics_fabrication.trim() || undefined,
-          surface: form.naics_surface_treatment.trim() || undefined,
+          raw: rawItems[0]?.naics.trim() || undefined,
+          fabrication: fabItems[0]?.naics.trim() || undefined,
+          surface: surfaceItems[0]?.naics.trim() || undefined,
         },
       }
 
@@ -1212,8 +1288,6 @@ function Method1Page() {
                     <div className="divide-y divide-zinc-900/12">
                     {categoryAmounts.map((cat) => {
                       const pct = allocationPercentages[cat.id]
-                      const selectedNaics = naicsByCode.get(form[cat.naicsKey])
-                      const categoryNaicsOptions = sortNaicsOptions(naicsOptions, cat.defaultNaics)
 
                       return (
                         <div
@@ -1277,36 +1351,18 @@ function Method1Page() {
                             <Label className="text-xs md:sr-only">{cat.label} NAICS codes</Label>
                             <div className="space-y-2">
                               {(cat.id === 'raw' ? rawItems : cat.id === 'fabrication' ? fabItems : surfaceItems).map((item, index) => (
-                                <Select
+                                <SearchableNaicsSelect
                                   key={index}
                                   value={item.naics}
-                                  onValueChange={(value) => updateItem(cat.id as CategoryId, index, { naics: value })}
-                                >
-                                  <SelectTrigger className="w-full font-mono">
-                                    <SelectValue>{naicsByCode.get(item.naics)?.code ?? item.naics}</SelectValue>
-                                  </SelectTrigger>
-                                  <SelectContent position="popper" className="max-w-[min(24rem,calc(100vw-2rem))]">
-                                    {sortNaicsOptions(naicsOptions, cat.defaultNaics).map((option) => (
-                                      <SelectItem
-                                        key={option.code}
-                                        value={option.code}
-                                        textValue={`${option.code} ${option.description}`}
-                                        className="items-start py-2.5"
-                                      >
-                                        <div className="flex flex-col gap-0.5 pr-2">
-                                          <span className="font-mono font-medium">{option.code}</span>
-                                          <span className="text-xs leading-snug text-muted-foreground">
-                                            {option.description}
-                                          </span>
-                                        </div>
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                                  options={naicsOptions}
+                                  preferredCode={cat.defaultNaics}
+                                  naicsByCode={naicsByCode}
+                                  onChange={(value) => updateItem(cat.id as CategoryId, index, { naics: value })}
+                                />
                               ))}
                             </div>
                             <p className="text-xs leading-snug text-muted-foreground">
-                              Select NAICS for each line item in the column to the left.
+                              Type a code or keyword to filter NAICS options.
                             </p>
                           </div>
                         </div>
@@ -1600,7 +1656,25 @@ function Method1Page() {
                     <div className="rounded-lg border border-zinc-900/12 bg-white/70 p-4">
                       <p className="mb-3 text-sm font-medium text-muted-foreground">NAICS & kg CO₂e</p>
                       <div className="space-y-2 text-sm">
-                        {selectedHistory.naics.raw && selectedHistory.calc.sgd_amounts.raw_material > 0 ? (
+                        {selectedHistory.calc.line_items?.map((item, index) => {
+                          const meta = categoryMetaByKey[item.category]
+                          return (
+                            <div key={`${item.category}-${item.naics_code}-${index}`} className="space-y-1 rounded-lg border border-zinc-900/10 bg-zinc-950/5 p-2.5">
+                              <div className="flex items-start justify-between gap-3">
+                                <span className="text-muted-foreground">
+                                  {getLineItemLabel(item, index, naicsByCode)}
+                                </span>
+                                <span className={cn('font-mono tabular-nums', meta.textClass)}>
+                                  {kg.format(item.emission)} kg CO2e
+                                </span>
+                              </div>
+                              <p className="font-mono text-xs text-muted-foreground">
+                                {usd.format(item.amount_usd2022)} * {item.factor.toFixed(4)}
+                              </p>
+                            </div>
+                          )
+                        })}
+                        {!selectedHistory.calc.line_items?.length && selectedHistory.naics.raw && selectedHistory.calc.sgd_amounts.raw_material > 0 ? (
                           <div className="flex items-center justify-between gap-3">
                             <span className="text-muted-foreground">
                               Raw material : <span className="font-mono text-lime-700 tabular-nums">{selectedHistory.naics.raw}</span>
@@ -1610,7 +1684,7 @@ function Method1Page() {
                             </span>
                           </div>
                         ) : null}
-                        {selectedHistory.naics.fabrication && selectedHistory.calc.sgd_amounts.fabrication > 0 ? (
+                        {!selectedHistory.calc.line_items?.length && selectedHistory.naics.fabrication && selectedHistory.calc.sgd_amounts.fabrication > 0 ? (
                           <div className="flex items-center justify-between gap-3">
                             <span className="text-muted-foreground">
                               Fabrication :  <span className="font-mono text-teal-700 tabular-nums">{selectedHistory.naics.fabrication}</span>
@@ -1620,7 +1694,7 @@ function Method1Page() {
                             </span>
                           </div>
                         ) : null}
-                        {selectedHistory.naics.surface && selectedHistory.calc.sgd_amounts.surface_treatment > 0 ? (
+                        {!selectedHistory.calc.line_items?.length && selectedHistory.naics.surface && selectedHistory.calc.sgd_amounts.surface_treatment > 0 ? (
                           <div className="flex items-center justify-between gap-3">
                             <span className="text-muted-foreground">
                               Surface treatment :  <span className="font-mono text-rose-700 tabular-nums">{selectedHistory.naics.surface}</span>
@@ -1630,7 +1704,7 @@ function Method1Page() {
                             </span>
                           </div>
                         ) : null}
-                        {(!selectedHistory.naics.raw && !selectedHistory.naics.fabrication && !selectedHistory.naics.surface) ? (
+                        {(!selectedHistory.calc.line_items?.length && !selectedHistory.naics.raw && !selectedHistory.naics.fabrication && !selectedHistory.naics.surface) ? (
                           <p className="text-xs text-muted-foreground">No NAICS selections found.</p>
                         ) : null}
                       </div>
@@ -1671,6 +1745,7 @@ function Method1Page() {
                   loading={loading}
                   error={error}
                   transport={transportResult}
+                  naicsByCode={naicsByCode}
                 />
               </CardContent>
             </Card>
@@ -1684,6 +1759,7 @@ function Method1Page() {
                 <CalculationProcessPanel
                   loading={loading}
                   result={result}
+                  naicsByCode={naicsByCode}
                 />
               </CardContent>
             </Card>

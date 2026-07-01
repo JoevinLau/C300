@@ -24,18 +24,20 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   title: {
-    marginTop: 5,
-    fontSize: 24,
+    marginTop: 10,
+    fontSize: 22,
     fontWeight: 700,
+    lineHeight: 1.2,
   },
   subtitle: {
-    marginTop: 4,
+    marginTop: 8,
     color: '#52525b',
     fontSize: 10,
+    lineHeight: 1.4,
   },
   summary: {
-    marginTop: 24,
-    padding: 18,
+    marginTop: 32,
+    padding: 20,
     borderRadius: 6,
     backgroundColor: '#ecfccb',
   },
@@ -47,13 +49,15 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   summaryValue: {
-    marginTop: 4,
-    fontSize: 25,
+    marginTop: 12,
+    fontSize: 24,
     fontWeight: 700,
+    lineHeight: 1.15,
   },
   summaryMeta: {
-    marginTop: 5,
+    marginTop: 10,
     color: '#3f6212',
+    lineHeight: 1.35,
   },
   section: {
     marginTop: 22,
@@ -123,6 +127,33 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: 700,
   },
+  factorCard: {
+    marginBottom: 10,
+    padding: 12,
+    backgroundColor: '#f4f4f5',
+  },
+  factorTitle: {
+    fontSize: 11,
+    fontWeight: 700,
+    marginBottom: 7,
+  },
+  factorLine: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginTop: 4,
+  },
+  factorCode: {
+    width: '24%',
+    fontSize: 9,
+    fontWeight: 700,
+  },
+  factorFormula: {
+    width: '76%',
+    textAlign: 'right',
+    fontSize: 9,
+    fontWeight: 700,
+  },
   footer: {
     position: 'absolute',
     right: 40,
@@ -146,6 +177,25 @@ const formatNumber = (value: number, digits = 2) =>
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   })
+
+function getFactorLines(result: CalculateResponse, categoryKey: typeof categories[number]['key']) {
+  const lineItems = result.calculation.line_items?.filter((item) => item.category === categoryKey) ?? []
+  if (lineItems.length > 0) {
+    return lineItems.map((item) => ({
+      code: item.naics_code,
+      usd2022: item.amount_usd2022,
+      factor: item.factor,
+      emission: item.emission,
+    }))
+  }
+
+  return [{
+    code: 'NAICS',
+    usd2022: result.calculation.usd2022_amounts[categoryKey],
+    factor: result.calculation.factors[categoryKey],
+    emission: result.emissions[categoryKey],
+  }]
+}
 
 export function UseeioResultsPdf({
   result,
@@ -249,16 +299,23 @@ export function UseeioResultsPdf({
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Emission factor calculation</Text>
-          {categories.map((category) => (
-            <View key={category.key} style={styles.totalRow}>
-              <Text>{category.label}</Text>
-              <Text>
-                USD {formatNumber(result.calculation.usd2022_amounts[category.key])} x{' '}
-                {formatNumber(result.calculation.factors[category.key], 4)} ={' '}
-                {formatNumber(result.emissions[category.key])} kg CO2e
-              </Text>
-            </View>
-          ))}
+          {categories.map((category) => {
+            const lines = getFactorLines(result, category.key)
+            return (
+              <View key={category.key} style={styles.factorCard} wrap={false}>
+                <Text style={styles.factorTitle}>{category.label}</Text>
+                {lines.map((line, index) => (
+                  <View key={`${category.key}-${line.code}-${index}`} style={styles.factorLine}>
+                    <Text style={styles.factorCode}>{line.code}</Text>
+                    <Text style={styles.factorFormula}>
+                      USD {formatNumber(line.usd2022)} x {formatNumber(line.factor, 4)} ={' '}
+                      {formatNumber(line.emission)} kg CO2e
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )
+          })}
         </View>
 
         {transport?.transport ? (

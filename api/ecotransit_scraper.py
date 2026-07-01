@@ -220,7 +220,14 @@ def calculate_ecotransit(
     weight_tonnes = weight_kg / 1000
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
+        try:
+            browser = playwright.chromium.launch(headless=True)
+        except Exception as exc:
+            raise RuntimeError(
+                "Playwright Chromium is not installed or could not start. "
+                "Run `python -m playwright install chromium`, then retry. "
+                f"Original error: {exc}"
+            ) from exc
         page = browser.new_page()
 
         try:

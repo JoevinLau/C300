@@ -223,6 +223,7 @@ class RagService:
             os.getenv("RAG_SCORE_THRESHOLD", str(DEFAULT_SCORE_THRESHOLD))
         )
         self._openai_client = openai_client
+        self._clients: dict[str, Any] = {}
         self._collections: dict[str, Any] = {}
         self._lock = threading.RLock()
 
@@ -274,8 +275,18 @@ class RagService:
             name="supplier_documents",
             metadata={"hnsw:space": "cosine"},
         )
+        self._clients[safe_id] = client
         self._collections[safe_id] = collection
         return collection
+
+    def close(self) -> None:
+        with self._lock:
+            for client in self._clients.values():
+                close = getattr(client, "close", None)
+                if callable(close):
+                    close()
+            self._collections.clear()
+            self._clients.clear()
 
     def _openai(self) -> Any:
         if self._openai_client is not None:

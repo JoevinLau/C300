@@ -60,6 +60,7 @@ class RagServiceTests(unittest.TestCase):
         )
 
     def tearDown(self):
+        self.service.close()
         self.temporary_directory.cleanup()
 
     def test_chunk_text_uses_overlap(self):

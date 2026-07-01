@@ -1,6 +1,7 @@
 import type {
   CalculateRequest,
   CalculateResponse,
+  CalculationLineItemResult,
   EcoTransitRequest,
   EcoTransitResponse,
   Method2CalculateRequest,
@@ -12,6 +13,7 @@ import type {
 export type {
   CalculateRequest,
   CalculateResponse,
+  CalculationLineItemResult,
   EcoTransitRequest,
   EcoTransitResponse,
   Method2CalculateRequest,

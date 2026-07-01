@@ -17,6 +17,22 @@ export interface CalculateRequest {
     fabrication: string
     surface_treatment: string
   }
+  line_items?: CalculationLineItemRequest[]
+}
+
+export type CalculationCategory = 'raw_material' | 'fabrication' | 'surface_treatment'
+
+export interface CalculationLineItemRequest {
+  category: CalculationCategory
+  amount_sgd: number
+  naics_code: string
+}
+
+export interface CalculationLineItemResult extends CalculationLineItemRequest {
+  amount_usd: number
+  amount_usd2022: number
+  factor: number
+  emission: number
 }
 
 export interface CalculationDetails {
@@ -43,6 +59,7 @@ export interface CalculationDetails {
     fabrication: number
     surface_treatment: number
   }
+  line_items?: CalculationLineItemResult[]
 }
 
 export interface CalculateResponse {
