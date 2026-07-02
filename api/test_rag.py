@@ -20,7 +20,9 @@ from rag_service import (
     DocumentRecord,
     RagService,
     SearchResult,
+    VectorRecord,
     chunk_text,
+    extract_xls,
     extract_pdf,
     extract_xlsx,
 )
@@ -78,6 +80,19 @@ class RagServiceTests(unittest.TestCase):
         self.assertEqual(sections[0].row_start, 2)
         self.assertIn("Columns: Material | PCF", sections[0].text)
 
+    def test_extract_xls_preserves_sheet_and_rows(self):
+        import pandas as pd
+
+        frame = pd.DataFrame(
+            [["Material", "PCF"], ["Aluminium", "8.2"], ["Steel", "4.1"]]
+        )
+        with patch("pandas.read_excel", return_value={"Supplier data": frame}):
+            sections = extract_xls(b"fake xls", rows_per_section=1)
+        self.assertEqual(len(sections), 2)
+        self.assertEqual(sections[0].sheet, "Supplier data")
+        self.assertEqual(sections[0].row_start, 2)
+        self.assertIn("Columns: Material | PCF", sections[0].text)
+
     def test_extract_pdf_preserves_page_number(self):
         fake_page = SimpleNamespace(extract_text=lambda: "Supplier PCF is 8.2 kg CO2e.")
         with patch("pypdf.PdfReader", return_value=SimpleNamespace(pages=[fake_page])):
@@ -112,16 +127,21 @@ class RagServiceTests(unittest.TestCase):
         self.assertFalse(self.service.delete_document("workspace-a", record.document_id))
 
     def test_search_filters_low_relevance_results(self):
-        collection = MagicMock()
-        collection.query.return_value = {
-            "documents": [["Unrelated supplier text"]],
-            "metadatas": [[{
-                "document_id": "doc-1",
-                "filename": "supplier.pdf",
-                "location": "page 1",
-            }]],
-            "distances": [[0.9]],
-        }
+        self.service._save_vectors(
+            "workspace-a",
+            [
+                VectorRecord(
+                    id="doc-1:0",
+                    text="Unrelated supplier text",
+                    embedding=[0.0, 1.0],
+                    metadata={
+                        "document_id": "doc-1",
+                        "filename": "supplier.pdf",
+                        "location": "page 1",
+                    },
+                )
+            ],
+        )
         record = DocumentRecord(
             document_id="doc-1",
             filename="supplier.pdf",
@@ -131,7 +151,6 @@ class RagServiceTests(unittest.TestCase):
         )
         with (
             patch.object(self.service, "list_documents", return_value=[record]),
-            patch.object(self.service, "_collection", return_value=collection),
             patch.object(self.service, "_embed", return_value=[[1.0, 0.0]]),
         ):
             self.assertEqual(self.service.search("workspace-a", "PCF"), [])

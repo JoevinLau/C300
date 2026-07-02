@@ -1,14 +1,14 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
 
 import { postCalculate } from './api-client'
 import type { CalculateRequest } from '../shared/calculator-types'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-let apiProcess: ChildProcessWithoutNullStreams | null = null
+let apiProcess: ChildProcess | null = null
 
 function registerApiHandlers() {
   ipcMain.handle('calculator:calculate', async (_event, payload: CalculateRequest) => {
@@ -41,32 +41,72 @@ function startApiServer() {
   const projectRoot = path.join(__dirname, '..', '..')
   const apiScript = path.join(projectRoot, 'api', 'main.py')
   const ragDataDir = path.join(app.getPath('userData'), 'rag-data')
-  const venvPython = path.join(
-    projectRoot,
-    'api',
-    'venv',
-    process.platform === 'win32' ? 'Scripts' : 'bin',
-    process.platform === 'win32' ? 'python.exe' : 'python',
-  )
-  const pythonExecutable = fs.existsSync(venvPython)
-    ? venvPython
-    : process.platform === 'win32'
-      ? 'python'
-      : 'python3'
+  const playwrightBrowsersDir = path.join(projectRoot, '.playwright-browsers')
+  const pythonName = process.platform === 'win32' ? 'python.exe' : 'python'
+  const binDir = process.platform === 'win32' ? 'Scripts' : 'bin'
+  const candidates = [
+    process.env.PYTHON,
+    path.join(projectRoot, '.venv-api', binDir, pythonName),
+    path.join(projectRoot, 'api', 'venv', binDir, pythonName),
+    path.join(projectRoot, '.venv', binDir, pythonName),
+    process.platform === 'win32' ? 'python' : 'python3',
+    process.platform === 'win32' ? 'py' : undefined,
+  ].filter((candidate): candidate is string => Boolean(candidate))
 
-  apiProcess = spawn(pythonExecutable, [apiScript], {
-    cwd: projectRoot,
-    env: {
-      ...process.env,
-      RAG_DATA_DIR: ragDataDir,
-    },
-    windowsHide: true,
-    stdio: 'pipe',
-  })
+  const env = {
+    ...process.env,
+    ELECTRON_RUN_AS_NODE: undefined,
+    PLAYWRIGHT_BROWSERS_PATH: playwrightBrowsersDir,
+    RAG_DATA_DIR: ragDataDir,
+  }
 
-  apiProcess.on('exit', () => {
-    apiProcess = null
-  })
+  const launch = (index: number) => {
+    const pythonExecutable = candidates[index]
+    if (!pythonExecutable) {
+      console.error('FastAPI startup failed: no usable Python executable was found.')
+      return
+    }
+    if (path.isAbsolute(pythonExecutable) && !fs.existsSync(pythonExecutable)) {
+      launch(index + 1)
+      return
+    }
+
+    const args = pythonExecutable === 'py' ? ['-3', apiScript] : [apiScript]
+    const child = spawn(pythonExecutable, args, {
+      cwd: projectRoot,
+      env,
+      windowsHide: true,
+      stdio: 'pipe',
+    })
+
+    apiProcess = child
+    let stderr = ''
+    let settled = false
+    const settleTimer = setTimeout(() => {
+      settled = true
+    }, 3000)
+
+    child.stderr?.on('data', (chunk) => {
+      stderr += chunk.toString()
+    })
+    child.on('error', (error) => {
+      clearTimeout(settleTimer)
+      console.error(`FastAPI startup failed with ${pythonExecutable}: ${error.message}`)
+      if (!settled) launch(index + 1)
+    })
+    child.on('exit', (code) => {
+      clearTimeout(settleTimer)
+      if (apiProcess === child) apiProcess = null
+      if (!settled) {
+        console.error(
+          `FastAPI exited during startup with ${pythonExecutable} (code ${code}). ${stderr.trim()}`,
+        )
+        launch(index + 1)
+      }
+    })
+  }
+
+  launch(0)
 }
 
 app.whenReady().then(() => {

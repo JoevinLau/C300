@@ -119,6 +119,14 @@ type ComponentView = {
 const kg = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 })
 const API_BASE = 'http://127.0.0.1:8000'
 const WORKSPACE_ID = 'method2-demo'
+
+function getDocumentRequestError(error: unknown) {
+  if (error instanceof TypeError && error.message === 'Failed to fetch') {
+    return 'Cannot connect to the local API on port 8000. Restart the app or start the FastAPI backend, then retry the upload.'
+  }
+  return error instanceof Error ? error.message : String(error)
+}
+
 const demoPart = {
   partId: 'M2-DEMO-001',
   partName: 'Precision aluminium bracket',
@@ -452,7 +460,7 @@ export default function Method2Page() {
       }
       setDocuments(Array.isArray(data) ? data : [])
     } catch (loadError) {
-      setDocumentError(loadError instanceof Error ? loadError.message : String(loadError))
+      setDocumentError(getDocumentRequestError(loadError))
     } finally {
       setDocumentsLoading(false)
     }
@@ -496,7 +504,7 @@ export default function Method2Page() {
       await loadDocuments()
     } catch (uploadError) {
       setRetryFiles(files)
-      setDocumentError(uploadError instanceof Error ? uploadError.message : String(uploadError))
+      setDocumentError(getDocumentRequestError(uploadError))
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -520,7 +528,7 @@ export default function Method2Page() {
         current.filter((document) => document.document_id !== documentId),
       )
     } catch (deleteError) {
-      setDocumentError(deleteError instanceof Error ? deleteError.message : String(deleteError))
+      setDocumentError(getDocumentRequestError(deleteError))
     }
   }
 
@@ -640,6 +648,11 @@ export default function Method2Page() {
     const rawSum = rawItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.raw_material_sgd)
     const surfSum = surfaceItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.surface_treatment_sgd)
     const year = Number(form.year)
+    if (!Number.isInteger(year) || year < 2020 || year > 2030) {
+      setError('Enter a valid assessment year from 2020 to 2030.')
+      return
+    }
+
     const transportEmissions = transportResult?.transport?.chosen_emissions_kg ?? 0
 
     setCalculateLoading(true)
@@ -792,6 +805,7 @@ export default function Method2Page() {
                   showYearInHeader={false}
                   showYearColumn
                   showAllocationStepBadge={false}
+                  showNaicsFactorDetails
                 />
 
                 <Method1TransportationSection
@@ -995,7 +1009,7 @@ export default function Method2Page() {
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept=".pdf,.xlsx,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                      accept=".pdf,.xlsx,.xls,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                       multiple
                       className="hidden"
                       onChange={(event) => {

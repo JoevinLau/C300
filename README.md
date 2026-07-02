@@ -41,7 +41,7 @@ The renderer is organized as a workflow dashboard:
                            │
           ┌────────────────┼─────────────────┐
           ▼                ▼                 ▼
- MySQL + dev_data     Local Chroma       OpenAI API
+ MySQL + dev_data     Local JSON        OpenAI API
  calculation data    vector index        embeddings + answer
 ```
 
@@ -54,7 +54,7 @@ PDF / XLSX upload
 extract text and rows → chunk with source metadata → OpenAI embeddings
         │
         ▼
-workspace-scoped Chroma index in Electron userData
+workspace-scoped JSON vector index in Electron userData
         │
         ▼
 user question → top matching chunks → grounded answer + citations
@@ -184,7 +184,7 @@ api/
   main.py           FastAPI app and routes
   service.py        MySQL access + dev_data fallback
   calculator.py     SGD → USD 2022 and emissions math
-  rag_service.py    Extraction, chunking, embeddings, Chroma persistence, retrieval
+  rag_service.py    Extraction, chunking, embeddings, local vector persistence, retrieval
   db.py             MySQL connection settings
   dev_data.py       Fallback NAICS / FX when DB is unavailable
   test_rag.py       RAG service and API tests

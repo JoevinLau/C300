@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import threading
@@ -12,7 +13,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SUPPORTED_EXTENSIONS = {".pdf", ".xlsx"}
+SUPPORTED_EXTENSIONS = {".pdf", ".xlsx", ".xls"}
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 DEFAULT_TOP_K = 6
 DEFAULT_SCORE_THRESHOLD = 0.25
@@ -58,6 +59,14 @@ class SearchResult:
     location: str
     excerpt: str
     score: float
+
+
+@dataclass(frozen=True)
+class VectorRecord:
+    id: str
+    text: str
+    embedding: list[float]
+    metadata: dict[str, str | int]
 
 
 def _safe_workspace_id(workspace_id: str) -> str:
@@ -183,16 +192,72 @@ def extract_xlsx(contents: bytes, *, rows_per_section: int = 25) -> list[Extract
         raise RagError(f"Failed to parse spreadsheet: {exc}") from exc
 
 
+def extract_xls(contents: bytes, *, rows_per_section: int = 25) -> list[ExtractedSection]:
+    try:
+        import pandas as pd
+    except ImportError as exc:
+        raise RagError(
+            "Python dependency pandas is missing. Install api/requirements.txt."
+        ) from exc
+
+    try:
+        sheets = pd.read_excel(BytesIO(contents), sheet_name=None, header=None)
+    except ImportError as exc:
+        raise RagError(
+            "Python dependency xlrd is missing. Install api/requirements.txt."
+        ) from exc
+    except Exception as exc:
+        raise RagError(f"Failed to parse spreadsheet: {exc}") from exc
+
+    sections: list[ExtractedSection] = []
+    for sheet_name, frame in sheets.items():
+        frame = frame.fillna("")
+        rows = [
+            [str(cell) if cell is not None else "" for cell in row]
+            for row in frame.to_numpy().tolist()
+        ]
+        rows = [row for row in rows if any(cell.strip() for cell in row)]
+        if not rows:
+            continue
+
+        header = rows[0]
+        data_rows = rows[1:] or [rows[0]]
+        for offset in range(0, len(data_rows), rows_per_section):
+            batch = data_rows[offset : offset + rows_per_section]
+            row_start = offset + 2 if len(rows) > 1 else 1
+            row_end = row_start + len(batch) - 1
+            lines = [
+                f"Sheet: {sheet_name}",
+                "Columns: " + " | ".join(header),
+                *[" | ".join(row) for row in batch],
+            ]
+            sections.append(
+                ExtractedSection(
+                    text="\n".join(lines),
+                    location=f"sheet {sheet_name}, rows {row_start}-{row_end}",
+                    sheet=str(sheet_name),
+                    row_start=row_start,
+                    row_end=row_end,
+                )
+            )
+    return sections
+
+
 def extract_document(filename: str, contents: bytes) -> list[ExtractedSection]:
     extension = Path(filename).suffix.lower()
     if extension not in SUPPORTED_EXTENSIONS:
         raise UnsupportedDocumentError(
-            f"Unsupported file type '{extension or 'unknown'}'. Upload PDF or XLSX files."
+            f"Unsupported file type '{extension or 'unknown'}'. Upload PDF, XLSX, or XLS files."
         )
     if not contents:
         raise EmptyDocumentError("The uploaded file is empty.")
 
-    sections = extract_pdf(contents) if extension == ".pdf" else extract_xlsx(contents)
+    if extension == ".pdf":
+        sections = extract_pdf(contents)
+    elif extension == ".xls":
+        sections = extract_xls(contents)
+    else:
+        sections = extract_xlsx(contents)
     if not sections:
         raise EmptyDocumentError("No readable text or spreadsheet rows were found.")
     return sections
@@ -223,7 +288,6 @@ class RagService:
             os.getenv("RAG_SCORE_THRESHOLD", str(DEFAULT_SCORE_THRESHOLD))
         )
         self._openai_client = openai_client
-        self._collections: dict[str, Any] = {}
         self._lock = threading.RLock()
 
     def _workspace_dir(self, workspace_id: str) -> Path:
@@ -233,6 +297,9 @@ class RagService:
 
     def _manifest_path(self, workspace_id: str) -> Path:
         return self._workspace_dir(workspace_id) / "documents.json"
+
+    def _vectors_path(self, workspace_id: str) -> Path:
+        return self._workspace_dir(workspace_id) / "vectors.json"
 
     def _load_manifest(self, workspace_id: str) -> list[DocumentRecord]:
         path = self._manifest_path(workspace_id)
@@ -255,27 +322,24 @@ class RagService:
         )
         temporary_path.replace(path)
 
-    def _collection(self, workspace_id: str) -> Any:
-        safe_id = _safe_workspace_id(workspace_id)
-        if safe_id in self._collections:
-            return self._collections[safe_id]
-
+    def _load_vectors(self, workspace_id: str) -> list[VectorRecord]:
+        path = self._vectors_path(workspace_id)
+        if not path.exists():
+            return []
         try:
-            import chromadb
-        except ImportError as exc:
-            raise RagError(
-                "Python dependency chromadb is missing. Install api/requirements.txt."
-            ) from exc
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            return [VectorRecord(**item) for item in payload]
+        except (OSError, ValueError, TypeError) as exc:
+            raise RagError(f"Failed to read vector index: {exc}") from exc
 
-        client = chromadb.PersistentClient(
-            path=str(self._workspace_dir(safe_id) / "chroma")
+    def _save_vectors(self, workspace_id: str, vectors: list[VectorRecord]) -> None:
+        path = self._vectors_path(workspace_id)
+        temporary_path = path.with_suffix(".tmp")
+        temporary_path.write_text(
+            json.dumps([asdict(vector) for vector in vectors]),
+            encoding="utf-8",
         )
-        collection = client.get_or_create_collection(
-            name="supplier_documents",
-            metadata={"hnsw:space": "cosine"},
-        )
-        self._collections[safe_id] = collection
-        return collection
+        temporary_path.replace(path)
 
     def _openai(self) -> Any:
         if self._openai_client is not None:
@@ -336,12 +400,15 @@ class RagService:
             if len(embeddings) != len(chunks):
                 raise RagError("Embedding response count did not match the document chunks.")
 
-            collection = self._collection(workspace_id)
             replaced = [
                 document for document in documents if document.filename == filename
             ]
-            for document in replaced:
-                collection.delete(where={"document_id": document.document_id})
+            replaced_ids = {document.document_id for document in replaced}
+            vectors = [
+                vector
+                for vector in self._load_vectors(workspace_id)
+                if str(vector.metadata.get("document_id")) not in replaced_ids
+            ]
 
             document_id = str(uuid.uuid4())
             ids = [f"{document_id}:{index}" for index in range(len(chunks))]
@@ -365,11 +432,14 @@ class RagService:
                     metadata["row_end"] = section.row_end
                 metadatas.append(metadata)
 
-            collection.add(
-                ids=ids,
-                documents=[text for text, _section in chunks],
-                embeddings=embeddings,
-                metadatas=metadatas,
+            vectors.extend(
+                VectorRecord(
+                    id=ids[index],
+                    text=text,
+                    embedding=embeddings[index],
+                    metadata=metadatas[index],
+                )
+                for index, (text, _section) in enumerate(chunks)
             )
             record = DocumentRecord(
                 document_id=document_id,
@@ -381,6 +451,7 @@ class RagService:
             remaining = [
                 document for document in documents if document.filename != filename
             ]
+            self._save_vectors(workspace_id, vectors)
             self._save_manifest(workspace_id, [*remaining, record])
             return record
 
@@ -391,8 +462,13 @@ class RagService:
                 document.document_id == document_id for document in documents
             ):
                 return False
-            self._collection(workspace_id).delete(
-                where={"document_id": document_id}
+            self._save_vectors(
+                workspace_id,
+                [
+                    vector
+                    for vector in self._load_vectors(workspace_id)
+                    if str(vector.metadata.get("document_id")) != document_id
+                ],
             )
             self._save_manifest(
                 workspace_id,
@@ -409,29 +485,40 @@ class RagService:
             return []
 
         query_embedding = self._embed([query])[0]
-        result = self._collection(workspace_id).query(
-            query_embeddings=[query_embedding],
-            n_results=self.top_k,
-            include=["documents", "metadatas", "distances"],
-        )
-        documents = (result.get("documents") or [[]])[0]
-        metadatas = (result.get("metadatas") or [[]])[0]
-        distances = (result.get("distances") or [[]])[0]
+        scored = sorted(
+            (
+                (_cosine_similarity(query_embedding, vector.embedding), vector)
+                for vector in self._load_vectors(workspace_id)
+            ),
+            key=lambda item: item[0],
+            reverse=True,
+        )[: self.top_k]
         matches = []
-        for text, metadata, distance in zip(documents, metadatas, distances):
-            score = max(0.0, min(1.0, 1.0 - float(distance)))
+        for score, vector in scored:
             if score < self.score_threshold:
                 continue
+            metadata = vector.metadata
             matches.append(
                 SearchResult(
                     document_id=str(metadata["document_id"]),
                     filename=str(metadata["filename"]),
                     location=str(metadata["location"]),
-                    excerpt=str(text)[:500],
+                    excerpt=vector.text[:500],
                     score=round(score, 4),
                 )
             )
         return matches
+
+
+def _cosine_similarity(left: list[float], right: list[float]) -> float:
+    if not left or not right or len(left) != len(right):
+        return 0.0
+    dot = sum(a * b for a, b in zip(left, right))
+    left_norm = math.sqrt(sum(a * a for a in left))
+    right_norm = math.sqrt(sum(b * b for b in right))
+    if left_norm == 0 or right_norm == 0:
+        return 0.0
+    return max(0.0, min(1.0, dot / (left_norm * right_norm)))
 
 
 def _get_ai_key() -> str:

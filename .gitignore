@@ -1,6 +1,10 @@
 # Dependencies
 node_modules/
 .pnpm-store/
+.venv-api/
+.uv-cache/
+.uv-python/
+.playwright-browsers/
 api/venv/
 venv/
 __pycache__/

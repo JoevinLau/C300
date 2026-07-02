@@ -1,4 +1,6 @@
+import os
 import re
+from pathlib import Path
 from typing import Any
 
 
@@ -11,6 +13,16 @@ AIRPORT_SEARCH_OVERRIDES = {
     "port of tuas": "Singapore Changi",
     "port of tuas / singapore": "Singapore Changi",
 }
+
+
+def _local_chromium_executable() -> Path | None:
+    browsers_path = os.getenv("PLAYWRIGHT_BROWSERS_PATH")
+    if not browsers_path:
+        return None
+
+    root = Path(browsers_path)
+    candidates = sorted(root.glob("chromium-*/chrome-win64/chrome.exe"), reverse=True)
+    return candidates[0] if candidates else None
 
 
 def _to_float(value: str) -> float | None:
@@ -220,7 +232,11 @@ def calculate_ecotransit(
     weight_tonnes = weight_kg / 1000
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
+        launch_options: dict[str, Any] = {"headless": True}
+        executable_path = _local_chromium_executable()
+        if executable_path:
+            launch_options["executable_path"] = str(executable_path)
+        browser = playwright.chromium.launch(**launch_options)
         page = browser.new_page()
 
         try:

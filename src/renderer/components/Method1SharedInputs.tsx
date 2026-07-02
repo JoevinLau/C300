@@ -308,6 +308,7 @@ export function Method1SpendInputSections({
   showYearInHeader = true,
   showYearColumn = false,
   showAllocationStepBadge = true,
+  showNaicsFactorDetails = false,
 }: {
   form: Record<Method1FormKey, string>
   hasInvoiceTotal: boolean
@@ -340,6 +341,7 @@ export function Method1SpendInputSections({
   showYearInHeader?: boolean
   showYearColumn?: boolean
   showAllocationStepBadge?: boolean
+  showNaicsFactorDetails?: boolean
 }) {
   const categories = METHOD1_CATEGORIES.filter((cat) => visibleCategories.includes(cat.id))
   const categoryAmounts = categories.map((cat) => {
@@ -522,21 +524,48 @@ export function Method1SpendInputSections({
                       <Label className="text-xs md:sr-only">{cat.label} NAICS codes</Label>
                       <div className="space-y-2">
                         {items.map((item, index) => (
-                          <Select key={index} value={item.naics} onValueChange={(value) => updateItem(cat.id, index, { naics: value })}>
-                            <SelectTrigger className="w-full font-mono">
-                              <SelectValue>{naicsByCode.get(item.naics)?.code ?? item.naics}</SelectValue>
-                            </SelectTrigger>
-                            <SelectContent position="popper" className="max-w-[min(24rem,calc(100vw-2rem))]">
-                              {sortNaicsOptions(naicsOptions, cat.defaultNaics).map((option) => (
-                                <SelectItem key={option.code} value={option.code} textValue={`${option.code} ${option.description}`} className="items-start py-2.5">
-                                  <div className="flex flex-col gap-0.5 pr-2">
-                                    <span className="font-mono font-medium">{option.code}</span>
-                                    <span className="text-xs leading-snug text-muted-foreground">{option.description}</span>
-                                  </div>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <div key={index} className="space-y-1.5">
+                            <Select
+                              value={item.naics}
+                              onValueChange={(value) => updateItem(cat.id, index, { naics: value })}
+                              disabled={naicsOptions.length === 0}
+                            >
+                              <SelectTrigger className="h-11 w-full min-w-0 font-mono">
+                                <SelectValue>
+                                  <span className="flex min-w-0 items-center gap-2 text-left">
+                                    <span className="shrink-0 font-mono">{naicsByCode.get(item.naics)?.code ?? item.naics}</span>
+                                    {naicsByCode.get(item.naics)?.description ? (
+                                      <span className="min-w-0 truncate font-sans text-sm text-muted-foreground">
+                                        {naicsByCode.get(item.naics)?.description}
+                                      </span>
+                                    ) : null}
+                                  </span>
+                                </SelectValue>
+                              </SelectTrigger>
+                              <SelectContent
+                                position="popper"
+                                className="w-[var(--radix-select-trigger-width)] min-w-[min(36rem,calc(100vw-2rem))] max-w-[min(46rem,calc(100vw-2rem))]"
+                              >
+                                {sortNaicsOptions(naicsOptions, cat.defaultNaics).map((option) => (
+                                  <SelectItem key={option.code} value={option.code} textValue={`${option.code} ${option.description}`} className="items-start py-2.5">
+                                    <div className="flex flex-col gap-0.5 pr-2">
+                                      <span className="font-mono text-sm font-medium">{option.code}</span>
+                                      <span className="text-xs leading-snug text-muted-foreground">{option.description}</span>
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {showNaicsFactorDetails ? (
+                              <p className="text-[11px] leading-snug text-muted-foreground">
+                                {naicsByCode.get(item.naics)?.kgco2e_per_usd != null
+                                  ? `${naicsByCode.get(item.naics)?.kgco2e_per_usd?.toFixed(4)} kg CO2e/USD from the Method 1 NAICS database`
+                                  : naicsOptions.length > 0
+                                    ? 'No factor returned for this NAICS code'
+                                    : 'Loading NAICS factors from the Method 1 database'}
+                              </p>
+                            ) : null}
+                          </div>
                         ))}
                       </div>
                       <p className="text-xs leading-snug text-muted-foreground">Select NAICS for each line item in the column to the left.</p>

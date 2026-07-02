@@ -420,6 +420,7 @@ async def upload_rag_documents(
             record = rag_service.ingest(workspace_id, filename, contents)
             results.append(RagDocument(**asdict(record)))
         except RagError as exc:
+            logger.warning("Supplier document indexing failed for %s: %s", filename, exc)
             results.append(
                 RagDocument(
                     document_id="",
@@ -429,6 +430,19 @@ async def upload_rag_documents(
                     chunk_count=0,
                     status="error",
                     error=str(exc),
+                )
+            )
+        except Exception as exc:
+            logger.exception("Unexpected supplier document indexing failure for %s", filename)
+            results.append(
+                RagDocument(
+                    document_id="",
+                    filename=filename,
+                    file_type=Path(filename).suffix.lower().lstrip("."),
+                    content_hash="",
+                    chunk_count=0,
+                    status="error",
+                    error=f"Unexpected indexing failure: {exc}",
                 )
             )
         finally:
