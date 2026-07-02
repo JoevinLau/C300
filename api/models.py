@@ -34,6 +34,12 @@ class SgdAmountsInput(StrictApiModel):
     surface_treatment: float = Field(..., ge=0)
 
 
+class Method1LineItemInput(StrictApiModel):
+    category: Literal["raw_material", "fabrication", "surface_treatment"]
+    amount_sgd: float = Field(..., gt=0)
+    naics_code: str = Field(..., pattern=r"^\d{6}$")
+
+
 class InputData(StrictApiModel):
     invoice_id: str = Field(..., min_length=1, max_length=128)
     year: int = Field(..., ge=2020, le=2030)
@@ -41,6 +47,7 @@ class InputData(StrictApiModel):
     sgd_amounts: SgdAmountsInput | None = None
     allocation: Allocation | None = None
     naics: Naics
+    line_items: list[Method1LineItemInput] | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -103,6 +110,16 @@ class EmissionFactors(StrictApiModel):
     surface_treatment: float
 
 
+class Method1LineItemResult(StrictApiModel):
+    category: Literal["raw_material", "fabrication", "surface_treatment"]
+    amount_sgd: float
+    amount_usd: float
+    amount_usd2022: float
+    naics_code: str = Field(..., pattern=r"^\d{6}$")
+    factor: float
+    emission: float
+
+
 class CalculationDetails(StrictApiModel):
     fx_rate: float
     inflation_index: float
@@ -111,6 +128,7 @@ class CalculationDetails(StrictApiModel):
     usd_amounts: UsdAmounts
     usd2022_amounts: Usd2022Amounts
     factors: EmissionFactors
+    line_items: list[Method1LineItemResult] | None = None
 
 
 class CostBreakdown(StrictApiModel):

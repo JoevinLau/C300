@@ -702,7 +702,7 @@ function NaicsMappingPage() {
         .filter(([, factor]) => !factor)
         .map(([code]) => code)
 
-      const refreshedRows = mappedData.map(row => {
+      const refreshedRows: MappedRow[] = mappedData.map(row => {
         const materialName = cleanMaterialToken(row.material_name) || row.material_name
         const selected = selectedByMaterial.get(materialName)
         if (!selected) {

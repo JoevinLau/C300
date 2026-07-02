@@ -5,6 +5,7 @@ node_modules/
 .uv-cache/
 .uv-python/
 .playwright-browsers/
+.corepack-shims/
 api/venv/
 venv/
 __pycache__/
@@ -16,6 +17,9 @@ dist/
 release/
 graphify-out/
 rag-data/
+result.html
+result.png
+before_singapore_click.png
 __pycache__/
 *.pyc
 

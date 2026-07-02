@@ -10,17 +10,20 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from ecotransit_scraper import calculate_ecotransit
 
 # Ensure repo root is on sys.path so imports work when running `python api/main.py`
 API_DIR = Path(__file__).resolve().parent
 ROOT_DIR = API_DIR.parent
+if str(API_DIR) not in sys.path:
+    sys.path.insert(0, str(API_DIR))
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from ecotransit_scraper import calculate_ecotransit
 from calculation.method2_calculations import compute_method2, list_machine_library
 from service import (
     calculate_batch_emissions,
+    calculate_ecotransit_transport,
     confirm_naics_mapping,
     compute_emissions,
     fetch_naics_for_material,
@@ -128,6 +131,12 @@ class SgdAmountsInput(BaseModel):
     surface_treatment: float = Field(..., ge=0)
 
 
+class Method1LineItemInput(BaseModel):
+    category: Literal["raw_material", "fabrication", "surface_treatment"]
+    amount_sgd: float = Field(..., gt=0)
+    naics_code: str = Field(..., min_length=6, max_length=6)
+
+
 class InputData(BaseModel):
     invoice_id: str = Field(..., min_length=1)
     year: int = Field(..., ge=2020, le=2030)
@@ -135,6 +144,7 @@ class InputData(BaseModel):
     sgd_amounts: SgdAmountsInput | None = None
     allocation: Allocation | None = None
     naics: Naics
+    line_items: list[Method1LineItemInput] | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -200,6 +210,16 @@ class EmissionFactors(BaseModel):
     surface_treatment: float
 
 
+class Method1LineItemResult(BaseModel):
+    category: Literal["raw_material", "fabrication", "surface_treatment"]
+    amount_sgd: float
+    amount_usd: float
+    amount_usd2022: float
+    naics_code: str
+    factor: float
+    emission: float
+
+
 class CalculationDetails(BaseModel):
     fx_rate: float
     inflation_index: float
@@ -208,6 +228,7 @@ class CalculationDetails(BaseModel):
     usd_amounts: UsdAmounts
     usd2022_amounts: Usd2022Amounts
     factors: EmissionFactors
+    line_items: list[Method1LineItemResult] | None = None
 
 
 class CostBreakdown(BaseModel):
@@ -339,6 +360,7 @@ def calculate_emissions(data: InputData):
         "total_amount_sgd": data.total_amount_sgd,
         "sgd_amounts": data.sgd_amounts.model_dump(),
         "naics": data.naics.model_dump(),
+        "line_items": [item.model_dump() for item in data.line_items] if data.line_items else None,
     }
 
     try:
@@ -564,6 +586,15 @@ def home():
 
 @app.post("/ecotransit")
 def ecotransit(data: EcoTransitRequest):
+    if os.getenv("ECOTRANSIT_API_URL", "").strip() and os.getenv("ECOTRANSIT_API_TOKEN", "").strip():
+        return calculate_ecotransit_transport(
+            port_of_loading=data.port_of_loading,
+            port_of_discharge=data.port_of_discharge,
+            weight_kg=data.weight_kg,
+            transport_mode=data.transport_mode,
+            origin_country=data.origin_country,
+        )
+
     try:
         result = calculate_ecotransit(
             port_of_loading=data.port_of_loading,

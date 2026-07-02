@@ -8,6 +8,8 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type React from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -180,6 +182,160 @@ function sortNaicsOptions(options: NaicsOption[], preferredCode: string): NaicsO
     if (b.code === preferredCode) return 1
     return a.code.localeCompare(b.code)
   })
+}
+
+export function SearchableNaicsSelect({
+  value,
+  options,
+  preferredCode,
+  naicsByCode,
+  onChange,
+}: {
+  value: string
+  options: NaicsOption[]
+  preferredCode: string
+  naicsByCode: Map<string, NaicsOption>
+  onChange: (value: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [menuRect, setMenuRect] = useState<{
+    left: number
+    top: number
+    width: number
+    maxHeight: number
+  } | null>(null)
+  const selected = naicsByCode.get(value)
+  const sortedOptions = useMemo(() => sortNaicsOptions(options, preferredCode), [options, preferredCode])
+  const filteredOptions = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+    if (!normalizedQuery) return sortedOptions
+
+    return sortedOptions.filter((option) => {
+      if (/^\d+$/.test(normalizedQuery)) {
+        return option.code.startsWith(normalizedQuery)
+      }
+
+      const searchable = `${option.code} ${option.description} ${option.category ?? ''}`.toLowerCase()
+      return searchable.includes(normalizedQuery)
+    })
+  }, [query, sortedOptions])
+  const inputValue = open ? query : value
+  const selectedFactor = selected?.kgco2e_per_usd
+
+  useEffect(() => {
+    if (!open) return
+
+    const updateMenuRect = () => {
+      const rect = inputRef.current?.getBoundingClientRect()
+      if (!rect) return
+
+      const gap = 4
+      const pagePadding = 12
+      const spaceBelow = window.innerHeight - rect.bottom - pagePadding
+      const spaceAbove = rect.top - pagePadding
+      const opensAbove = spaceBelow < 220 && spaceAbove > spaceBelow
+      const maxHeight = Math.max(160, Math.min(320, opensAbove ? spaceAbove - gap : spaceBelow - gap))
+
+      setMenuRect({
+        left: rect.left,
+        top: opensAbove ? rect.top - gap - maxHeight : rect.bottom + gap,
+        width: rect.width,
+        maxHeight,
+      })
+    }
+
+    updateMenuRect()
+    window.addEventListener('resize', updateMenuRect)
+    window.addEventListener('scroll', updateMenuRect, true)
+
+    return () => {
+      window.removeEventListener('resize', updateMenuRect)
+      window.removeEventListener('scroll', updateMenuRect, true)
+    }
+  }, [open])
+
+  return (
+    <div className="relative">
+      <Input
+        ref={inputRef}
+        value={inputValue}
+        onFocus={() => {
+          setQuery('')
+          setOpen(true)
+        }}
+        onBlur={() => {
+          window.setTimeout(() => {
+            setOpen(false)
+            setQuery('')
+          }, 120)
+        }}
+        onChange={(event) => {
+          setQuery(event.target.value)
+          setOpen(true)
+        }}
+        placeholder="Search NAICS"
+        className="h-9 font-mono tabular-nums"
+        autoComplete="off"
+      />
+      {open && menuRect
+        ? createPortal(
+            <div
+              className="fixed z-[1000] overflow-y-auto rounded-lg border border-zinc-900/15 bg-white p-1 shadow-xl"
+              style={{
+                left: menuRect.left,
+                top: menuRect.top,
+                width: menuRect.width,
+                maxHeight: menuRect.maxHeight,
+              }}
+            >
+              {filteredOptions.length > 0 ? (
+                filteredOptions.map((option) => (
+                  <button
+                    key={option.code}
+                    type="button"
+                    className={cn(
+                      'flex w-full flex-col gap-0.5 rounded-md px-2 py-2 text-left text-sm outline-none hover:bg-lime-100 focus:bg-lime-100',
+                      option.code === value && 'bg-lime-50',
+                    )}
+                    onMouseDown={(event) => {
+                      event.preventDefault()
+                      onChange(option.code)
+                      setQuery('')
+                      setOpen(false)
+                    }}
+                  >
+                    <span className="flex w-full items-center justify-between gap-3">
+                      <span className="font-mono font-medium text-zinc-950">{option.code}</span>
+                      {typeof option.kgco2e_per_usd === 'number' ? (
+                        <span className="shrink-0 font-mono text-xs text-lime-700">
+                          {option.kgco2e_per_usd.toFixed(3)} kgCO2e/USD
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="text-xs leading-snug text-muted-foreground">{option.description}</span>
+                  </button>
+                ))
+              ) : (
+                <p className="px-2 py-3 text-sm text-muted-foreground">No NAICS matches</p>
+              )}
+            </div>,
+            document.body,
+          )
+        : null}
+      {selected ? (
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+          <span className="line-clamp-1">{selected.description}</span>
+          {typeof selectedFactor === 'number' ? (
+            <span className="font-mono text-lime-700">
+              {selectedFactor.toFixed(3)} kgCO2e/USD
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 export function Method1StepIndicator({
@@ -525,37 +681,13 @@ export function Method1SpendInputSections({
                       <div className="space-y-2">
                         {items.map((item, index) => (
                           <div key={index} className="space-y-1.5">
-                            <Select
+                            <SearchableNaicsSelect
                               value={item.naics}
-                              onValueChange={(value) => updateItem(cat.id, index, { naics: value })}
-                              disabled={naicsOptions.length === 0}
-                            >
-                              <SelectTrigger className="h-11 w-full min-w-0 font-mono">
-                                <SelectValue>
-                                  <span className="flex min-w-0 items-center gap-2 text-left">
-                                    <span className="shrink-0 font-mono">{naicsByCode.get(item.naics)?.code ?? item.naics}</span>
-                                    {naicsByCode.get(item.naics)?.description ? (
-                                      <span className="min-w-0 truncate font-sans text-sm text-muted-foreground">
-                                        {naicsByCode.get(item.naics)?.description}
-                                      </span>
-                                    ) : null}
-                                  </span>
-                                </SelectValue>
-                              </SelectTrigger>
-                              <SelectContent
-                                position="popper"
-                                className="w-[var(--radix-select-trigger-width)] min-w-[min(36rem,calc(100vw-2rem))] max-w-[min(46rem,calc(100vw-2rem))]"
-                              >
-                                {sortNaicsOptions(naicsOptions, cat.defaultNaics).map((option) => (
-                                  <SelectItem key={option.code} value={option.code} textValue={`${option.code} ${option.description}`} className="items-start py-2.5">
-                                    <div className="flex flex-col gap-0.5 pr-2">
-                                      <span className="font-mono text-sm font-medium">{option.code}</span>
-                                      <span className="text-xs leading-snug text-muted-foreground">{option.description}</span>
-                                    </div>
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                              options={naicsOptions}
+                              preferredCode={cat.defaultNaics}
+                              naicsByCode={naicsByCode}
+                              onChange={(value) => updateItem(cat.id, index, { naics: value })}
+                            />
                             {showNaicsFactorDetails ? (
                               <p className="text-[11px] leading-snug text-muted-foreground">
                                 {naicsByCode.get(item.naics)?.kgco2e_per_usd != null
@@ -568,7 +700,7 @@ export function Method1SpendInputSections({
                           </div>
                         ))}
                       </div>
-                      <p className="text-xs leading-snug text-muted-foreground">Select NAICS for each line item in the column to the left.</p>
+                      <p className="text-xs leading-snug text-muted-foreground">Type a code or keyword to filter NAICS options.</p>
                     </div>
                   </div>
                 )

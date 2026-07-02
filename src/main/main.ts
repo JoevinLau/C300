@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { spawn, type ChildProcess } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
 
 import { postCalculate } from './api-client'
@@ -35,6 +35,44 @@ function createWindow() {
   }
 
   void window.loadFile(path.join(__dirname, '../renderer/index.html'))
+}
+
+function canRunPython(executable: string) {
+  try {
+    const result = spawnSync(executable, ['--version'], {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 5000,
+    })
+    return result.status === 0
+  } catch {
+    return false
+  }
+}
+
+function resolvePythonExecutable(venvPythons: string[]) {
+  const candidates = [
+    ...venvPythons,
+    process.platform === 'win32' ? 'python' : 'python3',
+    'python3',
+    'python',
+  ]
+
+  const seen = new Set<string>()
+  for (const candidate of candidates) {
+    if (seen.has(candidate)) continue
+    seen.add(candidate)
+
+    if (venvPythons.includes(candidate) && !fs.existsSync(candidate)) {
+      continue
+    }
+
+    if (canRunPython(candidate)) {
+      return candidate
+    }
+  }
+
+  return process.platform === 'win32' ? 'python' : 'python3'
 }
 
 function startApiServer() {

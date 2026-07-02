@@ -341,6 +341,9 @@ class RagService:
         )
         temporary_path.replace(path)
 
+    def close(self) -> None:
+        return None
+
     def _openai(self) -> Any:
         if self._openai_client is not None:
             return self._openai_client

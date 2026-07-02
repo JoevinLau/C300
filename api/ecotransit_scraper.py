@@ -236,7 +236,14 @@ def calculate_ecotransit(
         executable_path = _local_chromium_executable()
         if executable_path:
             launch_options["executable_path"] = str(executable_path)
-        browser = playwright.chromium.launch(**launch_options)
+        try:
+            browser = playwright.chromium.launch(**launch_options)
+        except Exception as exc:
+            raise RuntimeError(
+                "Playwright Chromium is not installed or could not start. "
+                "Run `python -m playwright install chromium`, then retry. "
+                f"Original error: {exc}"
+            ) from exc
         page = browser.new_page()
 
         try:
