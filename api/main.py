@@ -20,12 +20,12 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from ecotransit_scraper import calculate_ecotransit
+from calculator import compute_emissions
 from calculation.method2_calculations import compute_method2, list_machine_library
 from service import (
     calculate_batch_emissions,
     calculate_ecotransit_transport,
     confirm_naics_mapping,
-    compute_emissions,
     fetch_naics_for_material,
     get_naics_factor_by_code,
     list_naics_options,

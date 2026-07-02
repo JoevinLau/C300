@@ -106,8 +106,8 @@ def _select_location(page: Any, input_index: int, text: str, transport_mode: str
 
     location_input = _visible_location_input(page, location_index)
     location_input.click(timeout=15000)
-    page.keyboard.press("Control+A")
-    page.keyboard.type(search_text, delay=20)
+    location_input.fill("")
+    location_input.press_sequentially(search_text, delay=80)
     page.wait_for_timeout(3000)
 
     cells = page.locator("vaadin-grid-cell-content")
