@@ -197,15 +197,24 @@ CREATE TABLE method2_machine_profiles (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     machine_key VARCHAR(128) NOT NULL,
     machine_name VARCHAR(255) NOT NULL,
-    rated_power_kw DECIMAL(18,8) NOT NULL,
-    standby_power_kw DECIMAL(18,8) NULL,
+    duty_level VARCHAR(64) NOT NULL,
+    peak_power_kw DECIMAL(18,8) NOT NULL,
+    avg_operating_load_kw DECIMAL(18,8) NOT NULL,
+    voltage_v DECIMAL(18,8) NULL,
+    frequency_hz DECIMAL(18,8) NULL,
+    full_load_current_a DECIMAL(18,8) NULL,
     country_code CHAR(2) NOT NULL DEFAULT 'SG',
+    data_source VARCHAR(128) NOT NULL DEFAULT 'company_workbook',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    UNIQUE KEY uq_method2_machine_profile (machine_key, country_code),
-    CONSTRAINT chk_method2_machine_power CHECK (rated_power_kw >= 0),
-    CONSTRAINT chk_method2_machine_standby CHECK (standby_power_kw IS NULL OR standby_power_kw >= 0)
+    UNIQUE KEY uq_method2_machine_profile (machine_key, duty_level, country_code),
+    KEY idx_method2_machine_country (country_code),
+    CONSTRAINT chk_method2_machine_peak_power CHECK (peak_power_kw >= 0),
+    CONSTRAINT chk_method2_machine_avg_load CHECK (avg_operating_load_kw >= 0),
+    CONSTRAINT chk_method2_machine_voltage CHECK (voltage_v IS NULL OR voltage_v >= 0),
+    CONSTRAINT chk_method2_machine_frequency CHECK (frequency_hz IS NULL OR frequency_hz >= 0),
+    CONSTRAINT chk_method2_machine_current CHECK (full_load_current_a IS NULL OR full_load_current_a >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO official_naics_factors
@@ -257,7 +266,7 @@ ON DUPLICATE KEY UPDATE index_value = VALUES(index_value), source = VALUES(sourc
 INSERT INTO method2_grid_electricity_factors
     (country_code, region_name, year, kgco2e_per_kwh, data_source)
 VALUES
-    ('SG', 'Singapore', 2024, 0.45800000, 'Method 2 prototype default')
+    ('SG', 'Singapore', 2026, 0.41680000, 'Company workbook EMA 2025/2026')
 ON DUPLICATE KEY UPDATE kgco2e_per_kwh = VALUES(kgco2e_per_kwh);
 
 INSERT INTO method2_transport_emission_factors
