@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from difflib import SequenceMatcher
 import json
 import logging
 import os
@@ -147,6 +148,15 @@ def _normalize_material_token(material: str) -> str:
     return clean_material_token(material)
 
 
+def _material_match_key(material: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", _normalize_material_token(material))
+
+
+def _material_identifiers(material: str) -> set[str]:
+    token = _normalize_material_token(material)
+    return set(re.findall(r"\d{4,6}", token))
+
+
 def _official_factor_to_option(row: dict, source: str, confidence: str) -> dict:
     return {
         "code": str(row.get("naics_code", "") or "").strip(),
@@ -157,6 +167,88 @@ def _official_factor_to_option(row: dict, source: str, confidence: str) -> dict:
         "source": source,
         "confidence": confidence,
     }
+
+
+def _fetch_official_factor(cur, naics_code: str) -> dict:
+    cur.execute(
+        """
+        SELECT naics_code, description, category, kgco2e_per_usd, data_source
+        FROM official_naics_factors
+        WHERE naics_code = %s
+        LIMIT 1
+        """,
+        (naics_code,),
+    )
+    official_hit = cur.fetchone()
+    if not official_hit:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Custom dictionary points to a missing official NAICS factor: "
+                f"{naics_code}"
+            ),
+        )
+    return official_hit
+
+
+def _lookup_official_factor(cur, naics_code: str) -> dict | None:
+    cur.execute(
+        """
+        SELECT naics_code, description, category, kgco2e_per_usd, data_source
+        FROM official_naics_factors
+        WHERE naics_code = %s
+        LIMIT 1
+        """,
+        (naics_code,),
+    )
+    return cur.fetchone()
+
+
+def _find_normalized_dictionary_hit(cur, token: str, user_id: str) -> tuple[dict | None, str]:
+    token_key = _material_match_key(token)
+    token_ids = _material_identifiers(token)
+    if len(token_key) < 4 and not token_ids:
+        return None, ""
+
+    cur.execute(
+        """
+        SELECT material_token, mapped_naics
+        FROM user_custom_dictionary
+        WHERE user_id = %s
+        """,
+        (user_id,),
+    )
+    rows = cur.fetchall() or []
+
+    for row in rows:
+        candidate_key = _material_match_key(str(row.get("material_token") or ""))
+        if len(candidate_key) >= 4 and candidate_key == token_key:
+            return row, "normalized"
+
+    id_matches = [
+        row
+        for row in rows
+        if token_ids & _material_identifiers(str(row.get("material_token") or ""))
+    ]
+    mapped_codes = {str(row.get("mapped_naics") or "") for row in id_matches}
+    if len(id_matches) == 1 or len(mapped_codes) == 1:
+        return id_matches[0], "normalized"
+
+    best_row: dict | None = None
+    best_score = 0.0
+    for row in rows:
+        candidate_key = _material_match_key(str(row.get("material_token") or ""))
+        if len(candidate_key) < 4:
+            continue
+        score = SequenceMatcher(None, token_key, candidate_key).ratio()
+        if score > best_score:
+            best_score = score
+            best_row = row
+
+    if best_row and best_score >= 0.92:
+        return best_row, "normalized"
+
+    return None, ""
 
 
 def search_naics_mappings(keyword: str, user_id: str = DEFAULT_USER_ID) -> dict:
@@ -181,30 +273,25 @@ def search_naics_mappings(keyword: str, user_id: str = DEFAULT_USER_ID) -> dict:
         )
         dictionary_hit = cur.fetchone()
         if dictionary_hit:
-            cur.execute(
-                """
-                SELECT naics_code, description, category, kgco2e_per_usd, data_source
-                FROM official_naics_factors
-                WHERE naics_code = %s
-                LIMIT 1
-                """,
-                (dictionary_hit["mapped_naics"],),
-            )
-            official_hit = cur.fetchone()
-            if not official_hit:
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        "Custom dictionary points to a missing official NAICS factor: "
-                        f"{dictionary_hit['mapped_naics']}"
-                    ),
-                )
+            official_hit = _fetch_official_factor(cur, dictionary_hit["mapped_naics"])
 
             return {
                 "query": keyword,
                 "material_token": token,
                 "tier": 1,
                 "matches": [_official_factor_to_option(official_hit, "user_custom_dictionary", "exact")],
+            }
+
+        dictionary_hit, dictionary_confidence = _find_normalized_dictionary_hit(cur, token, user_id)
+        if dictionary_hit:
+            official_hit = _fetch_official_factor(cur, dictionary_hit["mapped_naics"])
+
+            return {
+                "query": keyword,
+                "material_token": token,
+                "matched_material_token": dictionary_hit["material_token"],
+                "tier": 1,
+                "matches": [_official_factor_to_option(official_hit, "user_custom_dictionary", dictionary_confidence)],
             }
 
         # Fast exact lookup for direct NAICS-code inputs or exact descriptions.
@@ -314,29 +401,66 @@ def suggest_naics_with_llm(material: str) -> dict:
     except ImportError as exc:
         raise HTTPException(status_code=500, detail=f"OpenAI dependency missing: {exc}") from exc
 
-    prompt = (
-        "What is the most likely 6-digit NAICS code for the raw material "
-        f"'{token}' in precision engineering? Return ONLY the 6-digit code."
-    )
-
     try:
         client = OpenAI(api_key=api_key)
-        response = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0,
-            max_tokens=12,
-        )
-        content = response.choices[0].message.content if response.choices else ""
-        suggested_code = re.search(r"\b\d{6}\b", content or "")
-        if not suggested_code:
-            raise ValueError("OpenAI did not return a 6-digit NAICS code.")
+        conn = get_conn()
+        cur = conn.cursor(dictionary=True)
+        rejected_codes: set[str] = set()
 
-        return {
-            "material_token": token,
-            "suggested_naics": suggested_code.group(0),
-            "source": "openai",
-        }
+        try:
+            for attempt in range(1, 4):
+                rejected_note = (
+                    f" Do not return these invalid or unavailable codes: {', '.join(sorted(rejected_codes))}."
+                    if rejected_codes
+                    else ""
+                )
+                prompt = (
+                    "Suggest up to five likely 6-digit NAICS codes for the raw material "
+                    f"'{token}' in precision engineering. Return only the codes separated by commas."
+                    " Prefer broad official NAICS manufacturing categories when the material is a raw alloy, plastic, or metal."
+                    f"{rejected_note}"
+                )
+                response = client.chat.completions.create(
+                    model=OPENAI_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0,
+                    max_tokens=40,
+                )
+                content = response.choices[0].message.content if response.choices else ""
+                candidate_codes: list[str] = []
+                for code in re.findall(r"\b\d{6}\b", content or ""):
+                    if code not in candidate_codes and code not in rejected_codes:
+                        candidate_codes.append(code)
+
+                if not candidate_codes:
+                    logger.warning("OpenAI returned no NAICS candidates on attempt %s for token=%r", attempt, token)
+                    continue
+
+                for code in candidate_codes:
+                    official = _lookup_official_factor(cur, code)
+                    if official:
+                        return {
+                            "material_token": token,
+                            "suggested_naics": code,
+                            "description": official.get("description"),
+                            "category": official.get("category"),
+                            "kgco2e_per_usd": float(official["kgco2e_per_usd"]) if official.get("kgco2e_per_usd") is not None else None,
+                            "data_source": official.get("data_source"),
+                            "source": "openai",
+                            "attempt": attempt,
+                        }
+                    rejected_codes.add(code)
+        finally:
+            cur.close()
+            conn.close()
+
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "AI could not find a NAICS code that exists in the official NAICS database. "
+                "Please enter and refresh a 6-digit NAICS code manually."
+            )
+        )
     except HTTPException:
         raise
     except Exception as exc:

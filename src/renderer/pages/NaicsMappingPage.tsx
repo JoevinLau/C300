@@ -191,6 +191,12 @@ function cleanNaicsCode(code: string): string {
   return String(code || '').replace(/[^0-9]/g, '').slice(0, 6)
 }
 
+function getNaicsCategoryLabel(code: string, category?: string | null): string {
+  if (category) return category
+  const sector = cleanNaicsCode(code).slice(0, 2)
+  return NAICS_SECTORS[sector] || ''
+}
+
 async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, init)
   const body: unknown = await response.json().catch(() => null)
@@ -206,12 +212,56 @@ async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 
-async function fetchLlmNaicsSuggestion(materialName: string): Promise<string | null> {
-  const suggestion = await fetchApi<{ suggested_naics: string }>(
+async function fetchLlmNaicsSuggestion(materialName: string): Promise<NaicsFactorOption | null> {
+  const suggestion = await fetchApi<{
+    suggested_naics: string
+    description?: string
+    kgco2e_per_usd?: number | null
+    category?: string | null
+  }>(
     `/api/naics/llm-suggest?material=${encodeURIComponent(materialName)}`,
   ).catch(() => null)
 
-  return suggestion?.suggested_naics || null
+  if (!suggestion?.suggested_naics) return null
+
+  return {
+    code: suggestion.suggested_naics,
+    description: suggestion.description || 'AI suggestion - please confirm',
+    kgco2e_per_usd: suggestion.kgco2e_per_usd,
+    category: suggestion.category,
+  }
+}
+
+async function fetchNaicsFactor(code: string): Promise<NaicsFactorOption | null> {
+  const cleanCode = cleanNaicsCode(code)
+  if (cleanCode.length !== 6) return null
+
+  return fetchApi<NaicsFactorOption>(`/api/naics/factor/${encodeURIComponent(cleanCode)}`).catch(() => null)
+}
+
+function SourceGuide() {
+  return (
+    <div className="shrink-0 border-t border-zinc-900/10 bg-zinc-50 px-5 py-3">
+      <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-950">Source note</h3>
+        <p className="text-xs text-zinc-600">Use this to decide which rows need checking before you save.</p>
+      </div>
+      <div className="grid gap-2 text-xs text-zinc-700 md:grid-cols-3">
+        <div className="rounded border border-green-200 bg-green-50 px-3 py-2">
+          <span className="font-semibold text-green-800">Phase 1:</span>
+          <span className="ml-1">confirmed before in the shared dictionary.</span>
+        </div>
+        <div className="rounded border border-yellow-200 bg-yellow-50 px-3 py-2">
+          <span className="font-semibold text-yellow-800">Phase 2:</span>
+          <span className="ml-1">found by searching the official NAICS database.</span>
+        </div>
+        <div className="rounded border border-red-200 bg-red-50 px-3 py-2">
+          <span className="font-semibold text-red-800">Phase 3:</span>
+          <span className="ml-1">AI/manual suggestion; confirm only if the details look right.</span>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function detectColumn(headers: string[], target: TargetField): { column: string | null; confidence: number } {
@@ -248,7 +298,6 @@ function NaicsMappingPage() {
     { field: 'qty', excelColumn: null, confidence: -1 },
     { field: 'total_amount_sgd', excelColumn: null, confidence: -1 },
     { field: 'naics_code', excelColumn: null, confidence: -1 },
-    { field: 'description', excelColumn: null, confidence: -1 },
     { field: 'kgco2e', excelColumn: null, confidence: -1 },
     { field: 'category', excelColumn: null, confidence: -1 },
   ])
@@ -259,6 +308,7 @@ function NaicsMappingPage() {
   const [fetchNaicsProgress, setFetchNaicsProgress] = useState({ current: 0, total: 0 })
   const [filledCategories, setFilledCategories] = useState<Map<string, string>>(new Map())
   const [mappedData, setMappedData] = useState<MappedRow[]>([])
+  const [hasFetchedNaics, setHasFetchedNaics] = useState(false)
   const [confirmedData, setConfirmedData] = useState<MappedRow[] | null>(null)
   const [calculationResults, setCalculationResults] = useState<BatchCalculationResult[] | null>(null)
   const [calculationLoading, setCalculationLoading] = useState(false)
@@ -325,6 +375,7 @@ function NaicsMappingPage() {
         setFetchNaicsProgress({ current: 0, total: 0 })
         setCalculationResults(null)
         setConfirmedData(null)
+        setHasFetchedNaics(false)
 
         setExcelData(prev => ({ ...prev, fileName: file.name } as ExcelData))
         processSheet(wb, wb.SheetNames[0])
@@ -433,6 +484,7 @@ function NaicsMappingPage() {
                 code: string
                 description: string
                 kgco2e_per_usd?: number
+                category?: string | null
                 source?: string
                 confidence?: string
               }>
@@ -449,42 +501,40 @@ function NaicsMappingPage() {
                 total_amount_sgd: '',
                 naics_code: match.code || '',
                 description: match.description || 'Not Found - Please manual entry',
-                category: '',
+                category: getNaicsCategoryLabel(match.code || '', match.category),
                 kgco2e: match.kgco2e_per_usd != null ? String(match.kgco2e_per_usd) : '',
                 source: result.tier === 1 ? 'phase1' : 'phase2',
                 confidence_level: match.confidence === 'exact' ? 'exact' : 'partial',
               })
             } else {
-              const suggestedNaics = await fetchLlmNaicsSuggestion(materialName)
+              const phase3Factor = await fetchLlmNaicsSuggestion(materialName)
               resultByName.set(materialName, {
                 supplier: '',
                 material_name: cleanedMaterialName,
                 weight: '',
                 qty: '',
                 total_amount_sgd: '',
-                naics_code: suggestedNaics || '',
-                description: suggestedNaics ? 'LLM suggestion - please confirm' : 'Not Found - Please manual entry',
-                category: '',
-                kgco2e: '',
+                naics_code: cleanNaicsCode(phase3Factor?.code || ''),
+                description: phase3Factor?.description || 'No verified NAICS found - Please manual entry',
+                category: getNaicsCategoryLabel(phase3Factor?.code || '', phase3Factor?.category),
+                kgco2e: phase3Factor?.kgco2e_per_usd != null ? String(phase3Factor.kgco2e_per_usd) : '',
                 source: 'phase3',
                 confidence_level: 'low',
               })
             }
           } catch (rowError) {
             console.error(`Error fetching NAICS for ${materialName}:`, rowError)
-            const suggestedNaics = await fetchLlmNaicsSuggestion(materialName)
+            const phase3Factor = await fetchLlmNaicsSuggestion(materialName)
             resultByName.set(materialName, {
               supplier: '',
               material_name: materialName,
               weight: '',
               qty: '',
               total_amount_sgd: '',
-              naics_code: suggestedNaics || '',
-              description: suggestedNaics
-                ? 'LLM suggestion - please confirm'
-                : 'Connection failed - Please manual entry',
-              category: '',
-              kgco2e: '',
+              naics_code: cleanNaicsCode(phase3Factor?.code || ''),
+              description: phase3Factor?.description || 'No verified NAICS found - Please manual entry',
+              category: getNaicsCategoryLabel(phase3Factor?.code || '', phase3Factor?.category),
+              kgco2e: phase3Factor?.kgco2e_per_usd != null ? String(phase3Factor.kgco2e_per_usd) : '',
               source: 'phase3',
               confidence_level: 'low',
             })
@@ -524,6 +574,7 @@ function NaicsMappingPage() {
       })
 
       setMappedData(newMappedData)
+      setHasFetchedNaics(true)
       setStep(3)
     } catch (error) {
       console.error('Error fetching NAICS:', error)
@@ -562,7 +613,7 @@ function NaicsMappingPage() {
         kgco2e: kgco2eIdx >= 0 ? row[kgco2eIdx]?.toString() || '' : '',
         category: catIdx >= 0 
           ? row[catIdx]?.toString() || '' 
-          : (naicsIdx >= 0 ? filledCategories.get(naicsCode.trim()) || '' : ''),
+          : (naicsIdx >= 0 ? getNaicsCategoryLabel(naicsCode, filledCategories.get(naicsCode.trim())) : ''),
         source: naicsCode ? 'phase1' : 'phase3'
       }
     })
@@ -572,6 +623,7 @@ function NaicsMappingPage() {
   const handleShowPreview = () => {
     const data = buildMappedData()
     setMappedData(data)
+    setHasFetchedNaics(false)
     setStep(3)
   }
 
@@ -723,14 +775,13 @@ function NaicsMappingPage() {
           }
         }
 
-        const sectorCategory = NAICS_SECTORS[selected.code.slice(0, 2)] || ''
         return {
           ...row,
           material_name: materialName,
           naics_code: cleanNaicsCode(factor.code || selected.code),
           description: factor.description || row.description,
           kgco2e: factor.kgco2e_per_usd != null ? String(factor.kgco2e_per_usd) : row.kgco2e,
-          category: factor.category || sectorCategory || row.category,
+          category: getNaicsCategoryLabel(factor.code || selected.code, factor.category) || row.category,
           source: selected.priority === 2 ? 'phase3' : 'phase2',
           confidence_level: 'exact',
         }
@@ -906,6 +957,7 @@ function NaicsMappingPage() {
                       setConfirmedData(null)
                       setCalculationResults(null)
                       setMappedData([])
+                      setHasFetchedNaics(false)
                       setFetchNaicsProgress({ current: 0, total: 0 })
                     }}
                   >
@@ -913,6 +965,8 @@ function NaicsMappingPage() {
                   </Button>
                 </div>
               </div>
+
+              {hasFetchedNaics && <SourceGuide />}
 
               <div className="overflow-x-auto">
 
@@ -1042,7 +1096,7 @@ function NaicsMappingPage() {
           {/* Step 3: Preview */}
           {step >= 3 && mappedData.length > 0 && (
             <>
-              <section className="rounded-lg border border-zinc-900/12 bg-white shadow-sm overflow-hidden flex flex-col max-h-[70vh]">
+              <section className="rounded-lg border border-zinc-900/12 bg-white shadow-sm overflow-hidden flex flex-col">
                 <div className="border-b border-zinc-900/10 p-5 flex items-center justify-between shrink-0">
                   <div>
                     <CardTitle className="text-2xl flex items-center gap-2">
@@ -1061,7 +1115,7 @@ function NaicsMappingPage() {
                   </Button>
                 </div>
 
-                <div className="overflow-auto flex-1 border-b border-zinc-900/10">
+                <div className="min-h-[26rem] max-h-[58vh] overflow-auto border-b border-zinc-900/10">
                   <table className="w-full text-sm border-collapse">
                     <thead className="bg-zinc-950 sticky top-0 z-20">
                       <tr>
@@ -1174,6 +1228,8 @@ function NaicsMappingPage() {
               )}
             </>
           )}
+
+          {hasFetchedNaics && step >= 3 && mappedData.length > 0 && <SourceGuide />}
 
           <Card className="border-zinc-900/12 bg-white">
             <CardHeader className="border-b border-zinc-900/10 pb-5">
