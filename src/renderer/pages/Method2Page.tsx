@@ -344,6 +344,8 @@ export default function Method2Page() {
   const [retryFiles, setRetryFiles] = useState<File[]>([])
   const [expandedCitation, setExpandedCitation] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const calculationRequestId = useRef(0)
+  const transportRequestId = useRef(0)
 
   useEffect(() => {
     void fetchMethod2Machines()
@@ -421,6 +423,21 @@ export default function Method2Page() {
 
   const components = useMemo(() => buildComponents(result, transportSummary), [result, transportSummary])
 
+  function invalidateResult() {
+    calculationRequestId.current += 1
+    setCalculateLoading(false)
+    setResult(null)
+    setError(null)
+  }
+
+  function invalidateTransport() {
+    transportRequestId.current += 1
+    setTransportLoading(false)
+    setTransportResult(null)
+    setTransportSummary('No transport calculation yet')
+    invalidateResult()
+  }
+
   const fixedContext = useMemo(() => {
     return {
       method: 'Method 2 hybrid calculation',
@@ -445,9 +462,9 @@ export default function Method2Page() {
     }
   }, [components, form.invoice_id, form.year, result, transportResult, transportWeight])
 
-  async function loadDocuments() {
+  async function loadDocuments(clearExistingError = true) {
     setDocumentsLoading(true)
-    setDocumentError('')
+    if (clearExistingError) setDocumentError('')
     try {
       const response = await fetch(
         `${API_BASE}/rag/documents?workspace_id=${encodeURIComponent(WORKSPACE_ID)}`,
@@ -501,7 +518,7 @@ export default function Method2Page() {
       } else {
         setRetryFiles([])
       }
-      await loadDocuments()
+      await loadDocuments(failures.length === 0)
     } catch (uploadError) {
       setRetryFiles(files)
       setDocumentError(getDocumentRequestError(uploadError))
@@ -527,6 +544,15 @@ export default function Method2Page() {
       setDocuments((current) =>
         current.filter((document) => document.document_id !== documentId),
       )
+      setMessages((current) =>
+        current.map((message) => ({
+          ...message,
+          citations: message.citations?.filter(
+            (citation) => citation.document_id !== documentId,
+          ),
+        })),
+      )
+      setExpandedCitation(null)
     } catch (deleteError) {
       setDocumentError(getDocumentRequestError(deleteError))
     }
@@ -534,24 +560,28 @@ export default function Method2Page() {
 
   function updateField(key: Method1FormKey, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }))
+    invalidateResult()
   }
 
   function updateItem(category: CategoryId, index: number, fields: Partial<LineItem>) {
     if (category === 'raw') setRawItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...fields } : item)))
     if (category === 'fabrication') setFabItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...fields } : item)))
     if (category === 'surface') setSurfaceItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...fields } : item)))
+    invalidateResult()
   }
 
   function addItem(category: CategoryId) {
     if (category === 'raw') setRawItems((prev) => [...prev, { amount: '', naics: '331110' }])
     if (category === 'fabrication') setFabItems((prev) => [...prev, { amount: '', naics: '332710' }])
     if (category === 'surface') setSurfaceItems((prev) => [...prev, { amount: '', naics: '332812' }])
+    invalidateResult()
   }
 
   function removeItem(category: CategoryId, index: number) {
-    if (category === 'raw') setRawItems((prev) => prev.filter((_, i) => i !== index))
-    if (category === 'fabrication') setFabItems((prev) => prev.filter((_, i) => i !== index))
-    if (category === 'surface') setSurfaceItems((prev) => prev.filter((_, i) => i !== index))
+    if (category === 'raw') setRawItems((prev) => prev.length <= 1 ? prev : prev.filter((_, i) => i !== index))
+    if (category === 'fabrication') setFabItems((prev) => prev.length <= 1 ? prev : prev.filter((_, i) => i !== index))
+    if (category === 'surface') setSurfaceItems((prev) => prev.length <= 1 ? prev : prev.filter((_, i) => i !== index))
+    invalidateResult()
   }
 
   function applyAmountPreset(rawPct: number, fabPct: number, surfacePct: number) {
@@ -568,6 +598,7 @@ export default function Method2Page() {
       fabrication_sgd: String(fab),
       surface_treatment_sgd: String(surface),
     }))
+    invalidateResult()
   }
 
   function applyDefaultSplit() {
@@ -589,12 +620,15 @@ export default function Method2Page() {
       fabrication_sgd: String(fab),
       surface_treatment_sgd: String(surface),
     }))
+    invalidateResult()
   }
 
   async function handleTransportCalculate(event?: React.SyntheticEvent) {
     if (event) event.preventDefault()
     setTransportError(null)
     setTransportResult(null)
+    setTransportSummary('No transport calculation yet')
+    invalidateResult()
     const weight = Number(transportWeight)
     if (!Number.isFinite(weight) || weight <= 0) {
       setTransportError('Enter a valid shipment weight in kg')
@@ -616,6 +650,7 @@ export default function Method2Page() {
       return
     }
 
+    const requestId = ++transportRequestId.current
     setTransportLoading(true)
     try {
       const matchedPort = TRANSPORT_PORTS.find(
@@ -629,19 +664,30 @@ export default function Method2Page() {
         weight_kg: weight,
         transport_mode: transportMode,
       })
+      if (requestId !== transportRequestId.current) return
       const emissions = response.transport.chosen_emissions_kg ?? 0
       setTransportResult(response)
       setTransportSummary(`${kg.format(emissions)} kg CO2e via ${response.transport.chosen_mode}`)
     } catch (err) {
-      setTransportError(err instanceof Error ? err.message : String(err))
+      if (requestId === transportRequestId.current) {
+        setTransportError(err instanceof Error ? err.message : String(err))
+      }
     } finally {
-      setTransportLoading(false)
+      if (requestId === transportRequestId.current) setTransportLoading(false)
     }
   }
 
   async function handleCalculate() {
+    setResult(null)
+    setError(null)
+
     if (!allocationValid) {
       setError('Enter at least one raw material or surface treatment amount before calculating Method 2.')
+      return
+    }
+
+    if (!transportResult) {
+      setError('Calculate transport before calculating Method 2 so transportation is included.')
       return
     }
 
@@ -655,8 +701,8 @@ export default function Method2Page() {
 
     const transportEmissions = transportResult?.transport?.chosen_emissions_kg ?? 0
 
+    const requestId = ++calculationRequestId.current
     setCalculateLoading(true)
-    setError(null)
     try {
       const response = await calculateMethod2({
         part_id: form.invoice_id.trim() || demoPart.partId,
@@ -676,11 +722,14 @@ export default function Method2Page() {
           operating_hours: Number(row.operatingHours),
         })),
       })
+      if (requestId !== calculationRequestId.current) return
       setResult(response)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (requestId === calculationRequestId.current) {
+        setError(err instanceof Error ? err.message : String(err))
+      }
     } finally {
-      setCalculateLoading(false)
+      if (requestId === calculationRequestId.current) setCalculateLoading(false)
     }
   }
 
@@ -818,11 +867,26 @@ export default function Method2Page() {
                   transportError={transportError}
                   transportResult={transportResult}
                   selectedTransportPort={selectedTransportPort}
-                  setTransportWeight={setTransportWeight}
-                  setTransportOrigin={setTransportOrigin}
-                  setTransportPortOfLoading={setTransportPortOfLoading}
-                  setTransportPortOfDischarge={setTransportPortOfDischarge}
-                  setTransportMode={setTransportMode}
+                  setTransportWeight={(value) => {
+                    setTransportWeight(value)
+                    invalidateTransport()
+                  }}
+                  setTransportOrigin={(value) => {
+                    setTransportOrigin(value)
+                    invalidateTransport()
+                  }}
+                  setTransportPortOfLoading={(value) => {
+                    setTransportPortOfLoading(value)
+                    invalidateTransport()
+                  }}
+                  setTransportPortOfDischarge={(value) => {
+                    setTransportPortOfDischarge(value)
+                    invalidateTransport()
+                  }}
+                  setTransportMode={(value) => {
+                    setTransportMode(value)
+                    invalidateTransport()
+                  }}
                   setTransportResult={setTransportResult}
                   setTransportError={setTransportError}
                   handleTransportCalculate={handleTransportCalculate}
@@ -843,7 +907,10 @@ export default function Method2Page() {
                       <Button
                         type="button"
                         size="sm"
-                        onClick={() => setRows((current) => [...current, { id: `machine-${Date.now()}`, machineType: 'CNC Milling', dutyLevel: 'Light', operatingHours: '1' }])}
+                        onClick={() => {
+                          setRows((current) => [...current, { id: `machine-${Date.now()}`, machineType: 'CNC Milling', dutyLevel: 'Light', operatingHours: '1' }])
+                          invalidateResult()
+                        }}
                       >
                         <Plus />
                         Add
@@ -863,7 +930,10 @@ export default function Method2Page() {
                             <Label>Machine Type</Label>
                             <Select
                               value={row.machineType}
-                              onValueChange={(value) => setRows((current) => current.map((item) => item.id === row.id ? { ...item, machineType: value, dutyLevel: machineLibrary.find((machine) => machine.machineType === value)?.dutyLevel ?? '' } : item))}
+                              onValueChange={(value) => {
+                                setRows((current) => current.map((item) => item.id === row.id ? { ...item, machineType: value, dutyLevel: machineLibrary.find((machine) => machine.machineType === value)?.dutyLevel ?? '' } : item))
+                                invalidateResult()
+                              }}
                             >
                               <SelectTrigger><SelectValue /></SelectTrigger>
                               <SelectContent>
@@ -873,7 +943,13 @@ export default function Method2Page() {
                           </div>
                           <div>
                             <Label>Duty Level</Label>
-                            <Select value={row.dutyLevel} onValueChange={(value) => setRows((current) => current.map((item) => item.id === row.id ? { ...item, dutyLevel: value } : item))}>
+                            <Select
+                              value={row.dutyLevel}
+                              onValueChange={(value) => {
+                                setRows((current) => current.map((item) => item.id === row.id ? { ...item, dutyLevel: value } : item))
+                                invalidateResult()
+                              }}
+                            >
                               <SelectTrigger><SelectValue /></SelectTrigger>
                               <SelectContent>
                                 {dutyLevels.map((dutyLevel) => <SelectItem key={dutyLevel} value={dutyLevel}>{dutyLevel}</SelectItem>)}
@@ -882,13 +958,29 @@ export default function Method2Page() {
                           </div>
                           <div>
                             <Label>Operating Hours</Label>
-                            <Input value={row.operatingHours} onChange={(event) => setRows((current) => current.map((item) => item.id === row.id ? { ...item, operatingHours: event.target.value } : item))} />
+                            <Input
+                              value={row.operatingHours}
+                              onChange={(event) => {
+                                setRows((current) => current.map((item) => item.id === row.id ? { ...item, operatingHours: event.target.value } : item))
+                                invalidateResult()
+                              }}
+                            />
                             <p className="mt-1 text-xs text-muted-foreground">
                               {ref ? `${ref.hourlyEmission} kg CO2e/hr, ${ref.avgKW} kW avg` : 'Select reference'}
                             </p>
                           </div>
                           <div className="flex items-end">
-                            <Button type="button" size="icon" variant="outline" onClick={() => setRows((current) => current.filter((item) => item.id !== row.id))} disabled={rows.length === 1}>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="outline"
+                              onClick={() => {
+                                setRows((current) => current.filter((item) => item.id !== row.id))
+                                invalidateResult()
+                              }}
+                              disabled={rows.length === 1}
+                              aria-label="Remove machining entry"
+                            >
                               <Trash2 />
                             </Button>
                           </div>
@@ -978,7 +1070,7 @@ export default function Method2Page() {
                       <CardDescription className="truncate text-zinc-300">Contextual help for Method 2.</CardDescription>
                     </div>
                   </div>
-                  <Button type="button" variant="ghost" size="icon" className="text-zinc-300 hover:bg-white/10 hover:text-white" onClick={() => setChatOpen(false)}>
+                  <Button type="button" variant="ghost" size="icon" className="text-zinc-300 hover:bg-white/10 hover:text-white" onClick={() => setChatOpen(false)} aria-label="Close assistant">
                     <X />
                   </Button>
                 </div>
@@ -1045,6 +1137,7 @@ export default function Method2Page() {
                           <button
                             type="button"
                             title={`Delete ${document.filename}`}
+                            aria-label={`Delete ${document.filename}`}
                             className="rounded p-1 text-zinc-400 hover:bg-rose-50 hover:text-rose-700"
                             onClick={() => void deleteDocument(document.document_id)}
                           >

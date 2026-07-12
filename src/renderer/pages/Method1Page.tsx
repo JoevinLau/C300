@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   ArrowLeft,
@@ -457,7 +457,7 @@ function ResultsPanel({
           Total emissions
         </p>
         <p className="mt-1 font-mono text-4xl font-semibold tracking-tight text-zinc-950 tabular-nums">
-          {kg.format(result.emissions.total)}
+          {kg.format(combinedEmissions)}
           <span className="ml-2 text-lg font-normal text-lime-700/90">kg CO₂e</span>
         </p>
         <div className="mt-4 flex flex-wrap gap-2 text-xs">
@@ -770,6 +770,8 @@ function Method1Page() {
   const [transportLoading, setTransportLoading] = useState(false)
   const [transportError, setTransportError] = useState<string | null>(null)
   const [transportResult, setTransportResult] = useState<EcoTransitResponse | null>(null)
+  const calculationRequestId = useRef(0)
+  const transportRequestId = useRef(0)
   const selectedTransportPort = useMemo(
     () => TRANSPORT_PORTS.find((item) => item.country.toLowerCase() === transportOrigin.trim().toLowerCase()),
     [transportOrigin],
@@ -834,28 +836,47 @@ function Method1Page() {
     ) as Record<CategoryId, number>
   }, [allocationSum, categoryAmounts, totalSgd])
 
+  function invalidateResult() {
+    calculationRequestId.current += 1
+    setLoading(false)
+    setResult(null)
+    setError(null)
+  }
+
+  function invalidateTransport() {
+    transportRequestId.current += 1
+    setTransportLoading(false)
+    setTransportResult(null)
+    setTransportError(null)
+    invalidateResult()
+  }
+
   function updateItem(category: CategoryId, index: number, fields: Partial<{ amount: string; naics: string }>) {
     if (category === 'raw') setRawItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...fields } : item)))
     if (category === 'fabrication') setFabItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...fields } : item)))
     if (category === 'surface') setSurfaceItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...fields } : item)))
+    invalidateResult()
   }
 
   function addItem(category: CategoryId) {
     if (category === 'raw') setRawItems((prev) => [...prev, { amount: '', naics: '331110' }])
     if (category === 'fabrication') setFabItems((prev) => [...prev, { amount: '', naics: '332710' }])
     if (category === 'surface') setSurfaceItems((prev) => [...prev, { amount: '', naics: '332812' }])
+    invalidateResult()
   }
 
   function removeItem(category: CategoryId, index: number) {
-    if (category === 'raw') setRawItems((prev) => prev.filter((_, i) => i !== index))
-    if (category === 'fabrication') setFabItems((prev) => prev.filter((_, i) => i !== index))
-    if (category === 'surface') setSurfaceItems((prev) => prev.filter((_, i) => i !== index))
+    if (category === 'raw') setRawItems((prev) => prev.length <= 1 ? prev : prev.filter((_, i) => i !== index))
+    if (category === 'fabrication') setFabItems((prev) => prev.length <= 1 ? prev : prev.filter((_, i) => i !== index))
+    if (category === 'surface') setSurfaceItems((prev) => prev.length <= 1 ? prev : prev.filter((_, i) => i !== index))
+    invalidateResult()
   }
 
   async function handleTransportCalculate(event?: React.SyntheticEvent) {
     if (event) event.preventDefault()
     setTransportError(null)
     setTransportResult(null)
+    invalidateResult()
 
     const weight = Number(transportWeight)
     if (!Number.isFinite(weight) || weight <= 0) {
@@ -878,6 +899,7 @@ function Method1Page() {
       return
     }
 
+    const requestId = ++transportRequestId.current
     setTransportLoading(true)
     try {
       const matchedPort = TRANSPORT_PORTS.find(
@@ -892,16 +914,19 @@ function Method1Page() {
         transport_mode: transportMode,
       })
 
-      setTransportResult(response)
+      if (requestId === transportRequestId.current) setTransportResult(response)
     } catch (err) {
-      setTransportError(err instanceof Error ? err.message : String(err))
+      if (requestId === transportRequestId.current) {
+        setTransportError(err instanceof Error ? err.message : String(err))
+      }
     } finally {
-      setTransportLoading(false)
+      if (requestId === transportRequestId.current) setTransportLoading(false)
     }
   }
 
   function updateField(key: FormKey, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }))
+    invalidateResult()
     if (key === 'invoice_id' || key === 'year' || key === 'total_amount_sgd') setActiveStep(1)
     if (
       key === 'raw_material_sgd' ||
@@ -918,6 +943,9 @@ function Method1Page() {
     const raw = Number(((totalSgd * rawPct) / 100).toFixed(2))
     const fab = Number(((totalSgd * fabPct) / 100).toFixed(2))
     const surface = Number((totalSgd - raw - fab).toFixed(2))
+    setRawItems([{ amount: String(raw), naics: rawItems[0]?.naics ?? form.naics_raw_material }])
+    setFabItems([{ amount: String(fab), naics: fabItems[0]?.naics ?? form.naics_fabrication }])
+    setSurfaceItems([{ amount: String(surface), naics: surfaceItems[0]?.naics ?? form.naics_surface_treatment }])
     setForm((prev) => ({
       ...prev,
       raw_material_sgd: String(raw),
@@ -925,6 +953,7 @@ function Method1Page() {
       surface_treatment_sgd: String(surface),
     }))
     setActiveStep(2)
+    invalidateResult()
   }
 
   function distributeEqually() {
@@ -933,6 +962,9 @@ function Method1Page() {
     const raw = share
     const fab = share
     const surface = Number((totalSgd - raw - fab).toFixed(2))
+    setRawItems([{ amount: String(raw), naics: rawItems[0]?.naics ?? form.naics_raw_material }])
+    setFabItems([{ amount: String(fab), naics: fabItems[0]?.naics ?? form.naics_fabrication }])
+    setSurfaceItems([{ amount: String(surface), naics: surfaceItems[0]?.naics ?? form.naics_surface_treatment }])
     setForm((prev) => ({
       ...prev,
       raw_material_sgd: String(raw),
@@ -940,6 +972,7 @@ function Method1Page() {
       surface_treatment_sgd: String(surface),
     }))
     setActiveStep(2)
+    invalidateResult()
   }
 
   function applyDefaultSplit() {
@@ -947,6 +980,10 @@ function Method1Page() {
   }
 
   function loadDemo() {
+    calculationRequestId.current += 1
+    transportRequestId.current += 1
+    setLoading(false)
+    setTransportLoading(false)
     const demoTransportWeight = '500'
     const demoTransportOrigin = 'China'
     const demoTransportMode: 'sea' | 'land' | 'air' = 'sea'
@@ -981,10 +1018,20 @@ function Method1Page() {
   }
 
   function resetForm() {
+    calculationRequestId.current += 1
+    transportRequestId.current += 1
     setForm(defaultForm)
     setRawItems([{ amount: '', naics: '331110' }])
     setFabItems([{ amount: '', naics: '332710' }])
     setSurfaceItems([{ amount: '', naics: '332812' }])
+    setTransportWeight('')
+    setTransportOrigin('China')
+    setTransportPortOfLoading('Port of Shanghai')
+    setTransportPortOfDischarge(PORT_OF_DISCHARGE)
+    setTransportMode('sea')
+    setTransportLoading(false)
+    setTransportError(null)
+    setTransportResult(null)
     setActiveStep(1)
     setError(null)
     setResult(null)
@@ -1028,6 +1075,7 @@ function Method1Page() {
       return
     }
 
+    const requestId = ++calculationRequestId.current
     setLoading(true)
     try {
       const lineItems = [
@@ -1060,6 +1108,7 @@ function Method1Page() {
         },
         line_items: lineItems,
       })
+      if (requestId !== calculationRequestId.current) return
       setResult(response)
       setActiveStep(2)
 
@@ -1078,9 +1127,11 @@ function Method1Page() {
       setHistoryItems((prev) => [item, ...prev].slice(0, 5))
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Calculation failed.')
+      if (requestId === calculationRequestId.current) {
+        setError(err instanceof Error ? err.message : 'Calculation failed.')
+      }
     } finally {
-      setLoading(false)
+      if (requestId === calculationRequestId.current) setLoading(false)
     }
   }
 
@@ -1288,6 +1339,7 @@ function Method1Page() {
                     <div className="divide-y divide-zinc-900/12">
                     {categoryAmounts.map((cat) => {
                       const pct = allocationPercentages[cat.id]
+                      const items = cat.id === 'raw' ? rawItems : cat.id === 'fabrication' ? fabItems : surfaceItems
 
                       return (
                         <div
@@ -1315,7 +1367,7 @@ function Method1Page() {
                           <div className="space-y-1">
                             <Label className="text-xs sm:sr-only">{cat.label} amounts</Label>
                             <div className="space-y-2">
-                              {(cat.id === 'raw' ? rawItems : cat.id === 'fabrication' ? fabItems : surfaceItems).map((item, index) => (
+                              {items.map((item, index) => (
                                 <div key={index} className="flex min-w-0 items-center gap-1.5">
                                   <Input
                                     type="number"
@@ -1327,7 +1379,15 @@ function Method1Page() {
                                     onChange={(event) => updateItem(cat.id as CategoryId, index, { amount: event.target.value })}
                                     className="h-9 min-w-0 flex-1 text-right font-mono tabular-nums"
                                   />
-                                  <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => removeItem(cat.id as CategoryId, index)}>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="size-8"
+                                    onClick={() => removeItem(cat.id as CategoryId, index)}
+                                    disabled={items.length <= 1}
+                                    aria-label={`Remove ${cat.label} entry ${index + 1}`}
+                                  >
                                     <X />
                                   </Button>
                                 </div>
@@ -1350,7 +1410,7 @@ function Method1Page() {
                           <div className="min-w-0 space-y-1.5 md:col-start-4">
                             <Label className="text-xs md:sr-only">{cat.label} NAICS codes</Label>
                             <div className="space-y-2">
-                              {(cat.id === 'raw' ? rawItems : cat.id === 'fabrication' ? fabItems : surfaceItems).map((item, index) => (
+                              {items.map((item, index) => (
                                 <SearchableNaicsSelect
                                   key={index}
                                   value={item.naics}
@@ -1389,7 +1449,14 @@ function Method1Page() {
               <CardContent className="grid gap-4 py-6 sm:grid-cols-3">
                 <div className="space-y-2 sm:col-span-1">
                   <Label htmlFor="transport_weight">Shipment weight (kg)</Label>
-                  <Input id="transport_weight" value={transportWeight} onChange={(event) => setTransportWeight(event.target.value)} />
+                  <Input
+                    id="transport_weight"
+                    value={transportWeight}
+                    onChange={(event) => {
+                      setTransportWeight(event.target.value)
+                      invalidateTransport()
+                    }}
+                  />
                 </div>
                 <div className="space-y-2 sm:col-span-1">
                   <Label htmlFor="transport_origin">Origin country</Label>
@@ -1397,7 +1464,10 @@ function Method1Page() {
                     id="transport_origin"
                     list="transport_country_options"
                     value={transportOrigin}
-                    onChange={(event) => setTransportOrigin(event.target.value)}
+                    onChange={(event) => {
+                      setTransportOrigin(event.target.value)
+                      invalidateTransport()
+                    }}
                     className="font-mono"
                     placeholder="Search country"
                   />
@@ -1412,7 +1482,10 @@ function Method1Page() {
                       <Input
                         id="transport_port_loading"
                         value={transportPortOfLoading}
-                        onChange={(event) => setTransportPortOfLoading(event.target.value)}
+                        onChange={(event) => {
+                          setTransportPortOfLoading(event.target.value)
+                          invalidateTransport()
+                        }}
                         className="mt-1 h-9 bg-white text-xs"
                         placeholder={selectedTransportPort?.loadingPort ?? 'Enter port of loading'}
                       />
@@ -1422,7 +1495,10 @@ function Method1Page() {
                       <Input
                         id="transport_port_discharge"
                         value={transportPortOfDischarge}
-                        onChange={(event) => setTransportPortOfDischarge(event.target.value)}
+                        onChange={(event) => {
+                          setTransportPortOfDischarge(event.target.value)
+                          invalidateTransport()
+                        }}
                         className="mt-1 h-9 bg-white text-xs"
                       />
                     </div>
@@ -1430,9 +1506,15 @@ function Method1Page() {
                 </div>
                 <div className="space-y-2 sm:col-span-1">
                   <Label htmlFor="transport_mode">Mode</Label>
-                  <Select onValueChange={(value) => setTransportMode(value as 'sea' | 'land' | 'air')}>
+                  <Select
+                    value={transportMode}
+                    onValueChange={(value) => {
+                      setTransportMode(value as 'sea' | 'land' | 'air')
+                      invalidateTransport()
+                    }}
+                  >
                     <SelectTrigger id="transport_mode" className="w-full">
-                      <SelectValue placeholder="Select mode">{transportMode}</SelectValue>
+                      <SelectValue placeholder="Select mode" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="sea">Sea</SelectItem>
@@ -1457,8 +1539,7 @@ function Method1Page() {
                         setTransportPortOfLoading('Port of Shanghai')
                         setTransportPortOfDischarge(PORT_OF_DISCHARGE)
                         setTransportMode('sea')
-                        setTransportResult(null)
-                        setTransportError(null)
+                        invalidateTransport()
                       }}
                     >
                       Reset
@@ -1572,6 +1653,7 @@ function Method1Page() {
                     </div>
                     <button
                       type="button"
+                      aria-label="Close calculation history"
                       className="rounded-lg p-2 text-muted-foreground hover:bg-lime-50 hover:text-foreground"
                       onClick={() => {
                         setHistoryOpen(false)

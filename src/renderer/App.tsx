@@ -28,6 +28,7 @@ const modules = [
     icon: DatabaseZap,
     title: 'NAICS mapping',
     href: '#naics-mapping',
+    disabled: false,
     description:
       'Map portfolio companies or spend categories to NAICS codes before calculating emissions factors.',
     bullets: [
@@ -40,6 +41,7 @@ const modules = [
     icon: FileSpreadsheet,
     title: 'USEEIO',
     href: '#method-1',
+    disabled: false,
     description:
       'Split invoice spend across raw material, fabrication, and surface treatment, then calculate emissions with NAICS factors.',
   },
@@ -47,6 +49,7 @@ const modules = [
     icon: BarChart3,
     title: 'Method 2',
     href: '#method-2',
+    disabled: false,
     description:
       'Estimate emissions from activity data such as energy use, materials, logistics, or production volume.',
   },
@@ -54,6 +57,7 @@ const modules = [
     icon: Workflow,
     title: 'Method 3',
     href: '#method-3',
+    disabled: true,
     description:
       'Calculate spend-based emissions using purchase amounts and mapped sector emission factors.',
   },
@@ -93,8 +97,16 @@ function HomePage() {
             {modules.map((module, index) => (
               <a
                 key={module.title}
-                href={module.href}
-                className="group grid min-h-[15rem] grid-rows-[auto_1fr_auto] rounded-lg border border-zinc-900/12 bg-white p-5 text-left shadow-sm transition-all hover:-translate-y-1 hover:border-zinc-950 hover:shadow-xl hover:shadow-zinc-950/10 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none"
+                href={module.disabled ? undefined : module.href}
+                aria-disabled={module.disabled || undefined}
+                onClick={(event) => {
+                  if (module.disabled) event.preventDefault()
+                }}
+                className={`group grid min-h-[15rem] grid-rows-[auto_1fr_auto] rounded-lg border border-zinc-900/12 bg-white p-5 text-left shadow-sm transition-all focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${
+                  module.disabled
+                    ? 'cursor-not-allowed opacity-65'
+                    : 'hover:-translate-y-1 hover:border-zinc-950 hover:shadow-xl hover:shadow-zinc-950/10'
+                }`}
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex size-11 items-center justify-center rounded-md bg-zinc-950 text-lime-300">
@@ -119,8 +131,8 @@ function HomePage() {
                   ) : null}
                 </div>
                 <div className="mt-6 flex items-center justify-between border-t border-zinc-900/10 pt-4 text-sm font-semibold text-zinc-950">
-                  Open workflow
-                  <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
+                  {module.disabled ? 'Coming soon' : 'Open workflow'}
+                  {module.disabled ? null : <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />}
                 </div>
               </a>
             ))}

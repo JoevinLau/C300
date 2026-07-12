@@ -661,7 +661,17 @@ export function Method1SpendInputSections({
                         {items.map((item, index) => (
                           <div key={index} className="flex min-w-0 items-center gap-1.5">
                             <Input type="number" min={0} step="0.01" placeholder="0.00" disabled={!hasInvoiceTotal} value={item.amount} onChange={(event) => updateItem(cat.id, index, { amount: event.target.value })} className="h-9 min-w-0 flex-1 text-right font-mono tabular-nums" />
-                            <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => removeItem(cat.id, index)}><X /></Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-8"
+                              onClick={() => removeItem(cat.id, index)}
+                              disabled={items.length <= 1}
+                              aria-label={`Remove ${cat.label} entry ${index + 1}`}
+                            >
+                              <X />
+                            </Button>
                           </div>
                         ))}
                         <Button type="button" size="sm" className="h-8" onClick={() => addItem(cat.id)} disabled={!hasInvoiceTotal}>Add</Button>
@@ -785,9 +795,9 @@ export function Method1TransportationSection({
         </div>
         <div className="space-y-2 sm:col-span-1">
           <Label htmlFor="transport_mode">Mode</Label>
-          <Select onValueChange={(value) => setTransportMode(value as 'sea' | 'land' | 'air')}>
+          <Select value={transportMode} onValueChange={(value) => setTransportMode(value as 'sea' | 'land' | 'air')}>
             <SelectTrigger id="transport_mode" className="w-full">
-              <SelectValue placeholder="Select mode">{transportMode}</SelectValue>
+              <SelectValue placeholder="Select mode" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="sea">Sea</SelectItem>
