@@ -174,7 +174,9 @@ export const TRANSPORT_PORTS = [
   { country: 'Sweden', loadingPort: 'Port of Gothenburg' },
 ]
 
-const TRANSPORT_COUNTRIES = TRANSPORT_PORTS.map((item) => item.country)
+const TRANSPORT_COUNTRIES = TRANSPORT_PORTS
+  .map((item) => item.country)
+  .sort((a, b) => a.localeCompare(b))
 
 function sortNaicsOptions(options: NaicsOption[], preferredCode: string): NaicsOption[] {
   return [...options].sort((a, b) => {
@@ -774,14 +776,31 @@ export function Method1TransportationSection({
       <CardContent className="grid gap-4 py-6 sm:grid-cols-3">
         <div className="space-y-2 sm:col-span-1">
           <Label htmlFor="transport_weight">Shipment weight (kg)</Label>
-          <Input id="transport_weight" value={transportWeight} onChange={(event) => setTransportWeight(event.target.value)} />
+          <Input
+            id="transport_weight"
+            type="number"
+            min={0}
+            step="any"
+            inputMode="decimal"
+            placeholder="0"
+            value={transportWeight}
+            onChange={(event) => setTransportWeight(event.target.value)}
+          />
         </div>
         <div className="space-y-2 sm:col-span-1">
           <Label htmlFor="transport_origin">Origin country</Label>
-          <Input id="transport_origin" list="transport_country_options" value={transportOrigin} onChange={(event) => setTransportOrigin(event.target.value)} className="font-mono" placeholder="Search country" />
-          <datalist id="transport_country_options">
-            {TRANSPORT_COUNTRIES.map((country) => <option key={country} value={country} />)}
-          </datalist>
+          <Select value={transportOrigin} onValueChange={setTransportOrigin}>
+            <SelectTrigger id="transport_origin" className="w-full font-mono">
+              <SelectValue placeholder="Select country" />
+            </SelectTrigger>
+            <SelectContent>
+              {TRANSPORT_COUNTRIES.map((country) => (
+                <SelectItem key={country} value={country} className="font-mono">
+                  {country}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <div className="grid gap-2 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3 text-xs">
             <div>
               <Label htmlFor="transport_port_loading" className="text-xs text-muted-foreground">Port of loading</Label>

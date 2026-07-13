@@ -1098,7 +1098,7 @@ export default function Method2Page() {
                       {uploading ? <Loader2 className="animate-spin" /> : <CloudUpload />}
                       Upload
                     </Button>
-                    <input
+                    <Input
                       ref={fileInputRef}
                       type="file"
                       accept=".pdf,.xlsx,.xls,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
@@ -1134,15 +1134,17 @@ export default function Method2Page() {
                             {document.chunk_count}
                           </span>
                           <ShieldCheck className="size-3.5 shrink-0 text-teal-600" />
-                          <button
+                          <Button
                             type="button"
+                            variant="ghost"
+                            size="icon"
                             title={`Delete ${document.filename}`}
                             aria-label={`Delete ${document.filename}`}
-                            className="rounded p-1 text-zinc-400 hover:bg-rose-50 hover:text-rose-700"
+                            className="size-7 text-zinc-400 hover:bg-rose-50 hover:text-rose-700"
                             onClick={() => void deleteDocument(document.document_id)}
                           >
                             <Trash2 className="size-3.5" />
-                          </button>
+                          </Button>
                         </div>
                       ))
                     )}
@@ -1153,15 +1155,17 @@ export default function Method2Page() {
                       <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
                       <span className="min-w-0 flex-1">{documentError}</span>
                       {retryFiles.length > 0 ? (
-                        <button
+                        <Button
                           type="button"
-                          className="inline-flex shrink-0 items-center gap-1 font-medium hover:underline"
+                          variant="link"
+                          size="sm"
+                          className="h-auto shrink-0 gap-1 p-0 text-rose-800"
                           onClick={() => void uploadDocuments(retryFiles)}
                           disabled={uploading}
                         >
                           <RotateCw className="size-3" />
                           Retry
-                        </button>
+                        </Button>
                       ) : null}
                     </div>
                   ) : null}
@@ -1191,18 +1195,20 @@ export default function Method2Page() {
                               {m.citations.map((citation, citationIndex) => {
                                 const citationKey = `${i}:${citationIndex}`
                                 return (
-                                  <button
+                                  <Button
                                     key={citationKey}
                                     type="button"
+                                    variant="ghost"
+                                    size="sm"
                                     onClick={() =>
                                       setExpandedCitation((current) =>
                                         current === citationKey ? null : citationKey,
                                       )
                                     }
-                                    className="rounded-md border border-white/15 bg-white/10 px-2 py-1 text-left text-[11px] text-zinc-100 hover:bg-white/15"
+                                    className="h-auto whitespace-normal rounded-md border border-white/15 bg-white/10 px-2 py-1 text-left text-[11px] text-zinc-100 hover:bg-white/15 hover:text-white"
                                   >
                                     {citationIndex + 1}. {citation.filename} · {citation.location}
-                                  </button>
+                                  </Button>
                                 )
                               })}
                             </div>
@@ -1248,16 +1254,18 @@ export default function Method2Page() {
             </Card>
           ) : null}
 
-          <button
+          <Button
             type="button"
+            variant="outline"
             onClick={() => setChatOpen((value) => !value)}
-            className="flex items-center gap-3 rounded-full border border-lime-300/70 bg-white px-4 py-3 text-sm font-medium text-zinc-950 shadow-xl transition-transform hover:scale-[1.02]"
+            className="h-auto gap-3 rounded-full border-lime-300/70 bg-white px-4 py-3 text-sm font-medium text-zinc-950 shadow-xl transition-transform hover:scale-[1.02] hover:bg-white"
+            aria-expanded={chatOpen}
           >
             <span className="flex size-10 items-center justify-center rounded-full bg-lime-300 text-zinc-950">
               <MessageCircle className="size-5" />
             </span>
             <span className="hidden sm:inline">Need any help?</span>
-          </button>
+          </Button>
         </div>
       </section>
     </AppBackground>

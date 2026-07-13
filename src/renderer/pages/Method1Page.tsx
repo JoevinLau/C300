@@ -12,6 +12,7 @@ import {
   Layers,
   Loader2,
   Paintbrush,
+  Plus,
   Sparkles,
   X,
 } from 'lucide-react'
@@ -209,7 +210,9 @@ const TRANSPORT_PORTS: TransportPort[] = [
   { country: 'Sweden', loadingPort: 'Port of Gothenburg' },
 ]
 
-const TRANSPORT_COUNTRIES = TRANSPORT_PORTS.map((item) => item.country)
+const TRANSPORT_COUNTRIES = TRANSPORT_PORTS
+  .map((item) => item.country)
+  .sort((a, b) => a.localeCompare(b))
 
 type HistoryItem = {
   invoiceId: string
@@ -294,46 +297,51 @@ function AllocationBar({
   const barTotal = segments.reduce((sum, seg) => sum + seg.amount, 0)
 
   return (
-    <div className="overflow-hidden rounded-lg border border-zinc-900/12 bg-zinc-950/5">
-      <div className="flex h-4">
+    <div className="overflow-hidden rounded-xl border border-zinc-900/12 bg-white shadow-[0_10px_30px_rgba(24,39,24,0.05)]">
+      <div className="flex flex-wrap items-end justify-between gap-3 px-4 pb-3 pt-4">
+        <div>
+          <p className="text-sm font-semibold text-zinc-950">Allocation overview</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">Live distribution across invoice components</p>
+        </div>
+        <div className="text-right">
+          <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Allocated</p>
+          <p className="mt-0.5 font-mono text-base font-semibold tabular-nums text-zinc-950">
+            {barTotal > 0 ? currency.format(barTotal) : currency.format(0)}
+          </p>
+        </div>
+      </div>
+
+      <div className="mx-4 flex h-2 overflow-hidden rounded-full bg-zinc-950/8">
         {segments.map((seg) =>
           seg.pct > 0 ? (
             <div
               key={seg.label}
-              className={cn('relative transition-all duration-300', seg.className)}
+              className={cn('transition-[width] duration-300', seg.className)}
               style={{ width: `${seg.pct}%` }}
               title={`${seg.label}: ${currency.format(seg.amount)} (${seg.pct.toFixed(1)}%)`}
-            >
-              {seg.pct >= 12 ? (
-                <span className="absolute inset-0 flex items-center justify-center text-[10px] font-semibold text-zinc-950/80 tabular-nums">
-                  {seg.pct.toFixed(0)}%
-                </span>
-              ) : null}
-            </div>
+            />
           ) : null,
         )}
       </div>
-      <div className="grid divide-x divide-zinc-900/12 sm:grid-cols-3">
+
+      <div className="mt-4 grid gap-px bg-zinc-900/10 sm:grid-cols-3">
         {segments.map((seg) => (
-          <div key={seg.label} className="px-3 py-2.5">
-            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span className={cn('size-2 shrink-0 rounded-full', seg.className)} />
-              {seg.label}
-            </p>
-            <p className="mt-0.5 font-mono text-sm tabular-nums text-foreground">
-              {seg.amount > 0 ? currency.format(seg.amount) : '—'}
+          <div key={seg.label} className="bg-white px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="flex items-center gap-2 text-xs font-medium text-zinc-600">
+                <span className={cn('h-3 w-1 shrink-0 rounded-full', seg.className)} />
+                {seg.label}
+              </p>
+              <span className="font-mono text-xs font-semibold tabular-nums text-zinc-500">
+                {seg.pct > 0 ? `${seg.pct.toFixed(1)}%` : '0.0%'}
+              </span>
+            </div>
+            <p className="mt-1.5 font-mono text-sm font-semibold tabular-nums text-foreground">
+              {seg.amount > 0 ? currency.format(seg.amount) : currency.format(0)}
             </p>
           </div>
         ))}
       </div>
-      {barTotal > 0 ? (
-        <div className="border-t border-zinc-900/12 px-3 py-2 text-right text-xs text-muted-foreground">
-          Allocated total{' '}
-          <span className="font-mono font-medium text-foreground tabular-nums">
-            {currency.format(barTotal)}
-          </span>
-        </div>
-      ) : null}
     </div>
   )
 }
@@ -482,7 +490,7 @@ function ResultsPanel({
           <p className="mt-1 font-mono text-lg text-lime-700 tabular-nums">
             {totalCostUsd > 0
               ? (result.emissions.total / totalCostUsd).toFixed(2)
-              : '—'}{' '}
+              : '-'}{' '}
             <span className="text-xs font-sans text-muted-foreground">kg/USD</span>
           </p>
         </div>
@@ -520,15 +528,16 @@ function ResultsPanel({
 
       {result.calculation.line_items?.length ? (
         <div className="space-y-2 border-t border-zinc-900/12 pt-4">
-          <button
+          <Button
             type="button"
-            className="flex w-full items-center justify-between gap-3 rounded-md px-0 py-1 text-left text-sm font-medium text-muted-foreground hover:text-foreground"
+            variant="ghost"
+            className="h-auto w-full justify-between px-0 py-1 text-left text-sm font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
             onClick={() => setLineItemsOpen((open) => !open)}
             aria-expanded={lineItemsOpen}
           >
             <span>Line item emission calculations</span>
             <ChevronDown className={cn('size-4 transition-transform', lineItemsOpen && 'rotate-180')} />
-          </button>
+          </Button>
           {lineItemsOpen ? (
             <div className="space-y-2">
               {result.calculation.line_items.map((item, index) => {
@@ -1138,7 +1147,7 @@ function Method1Page() {
   return (
     <AppBackground>
       <section className="relative z-10 mx-auto grid w-full max-w-[92rem] gap-4 pb-8 lg:grid-cols-[12rem_minmax(0,1fr)] 2xl:grid-cols-[12rem_minmax(0,1fr)_20rem]">
-        <aside className="rounded-lg bg-zinc-950 p-4 text-white lg:sticky lg:top-4 lg:self-start">
+        <aside className="min-w-0 rounded-lg bg-zinc-950 p-4 text-white lg:sticky lg:top-4 lg:self-start">
           <Button
             variant="ghost"
             className="-ml-2 mb-8 text-zinc-300 hover:bg-white/10 hover:text-white"
@@ -1182,7 +1191,7 @@ function Method1Page() {
         </aside>
 
         <form onSubmit={handleCalculate} className="contents">
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <div className="rounded-lg border border-zinc-900/12 bg-white p-5 shadow-sm">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -1192,11 +1201,11 @@ function Method1Page() {
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div className="rounded-md bg-zinc-950 px-4 py-3 text-white">
                     <p className="text-xs text-zinc-400">Invoice total</p>
-                    <p className="mt-1 font-mono text-lg">{hasInvoiceTotal ? currency.format(totalSgd) : '—'}</p>
+                    <p className="mt-1 font-mono text-lg">{hasInvoiceTotal ? currency.format(totalSgd) : '-'}</p>
                   </div>
                   <div className="rounded-md bg-lime-200 px-4 py-3 text-lime-950">
                     <p className="text-xs text-lime-950/70">Allocated</p>
-                    <p className="mt-1 font-mono text-lg">{allocationSum > 0 ? currency.format(allocationSum) : '—'}</p>
+                    <p className="mt-1 font-mono text-lg">{allocationSum > 0 ? currency.format(allocationSum) : '-'}</p>
                   </div>
                 </div>
               </div>
@@ -1253,29 +1262,30 @@ function Method1Page() {
               </CardContent>
             </Card>
 
-            <Card className="gap-0 overflow-hidden border-zinc-900/12 bg-white py-0 shadow-sm">
-              <CardHeader className="border-b border-zinc-900/10 bg-[#faf8f1] px-5 py-4">
-                <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-center 2xl:justify-between">
+            <Card className="gap-0 overflow-hidden rounded-xl border-zinc-900/12 bg-white py-0 shadow-[0_18px_50px_rgba(24,39,24,0.08)]">
+              <CardHeader className="border-b border-zinc-900/10 bg-white px-6 py-5">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                   <div className="flex min-w-0 items-center gap-3">
-                    <span className="flex size-9 items-center justify-center rounded-md bg-zinc-950 text-sm font-semibold text-lime-300">
+                    <span className="flex size-10 items-center justify-center rounded-lg bg-zinc-950 text-sm font-semibold text-lime-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]">
                       2
                     </span>
                     <div className="min-w-0">
-                      <CardTitle className="whitespace-nowrap">Cost allocation</CardTitle>
-                      <CardDescription className="text-sm 2xl:whitespace-nowrap">
+                      <CardTitle className="text-lg">Cost allocation</CardTitle>
+                      <CardDescription className="mt-1 max-w-2xl text-sm leading-5">
                         Enter SGD amounts per component and assign a NAICS code for each line.
                       </CardDescription>
                     </div>
                   </div>
-                  <div className="flex shrink-0 flex-wrap gap-2">
+                  <div className="flex w-fit shrink-0 flex-wrap gap-1 rounded-lg border border-zinc-900/10 bg-zinc-950/[0.025] p-1">
                     <Button
                       type="button"
-                      variant="outline"
+                      variant="ghost"
                       size="sm"
                       onClick={applyDefaultSplit}
                       disabled={!hasInvoiceTotal}
+                      className="bg-white shadow-sm hover:bg-lime-50"
                     >
-                      50 / 35 / 15
+                      Apply 50 / 35 / 15
                     </Button>
                     <Button
                       type="button"
@@ -1289,9 +1299,9 @@ function Method1Page() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-5 py-5">
+              <CardContent className="space-y-4 bg-zinc-950/[0.015] px-6 py-6">
                 {!hasInvoiceTotal ? (
-                  <div className="flex gap-3 rounded-lg border border-zinc-900/12 bg-white/70 px-3 py-2.5 text-sm text-muted-foreground">
+                  <div className="flex gap-3 rounded-lg border border-zinc-900/12 bg-white px-4 py-3 text-sm text-muted-foreground">
                     <CircleDollarSign className="mt-0.5 size-4 shrink-0" />
                     Enter the invoice total above before allocating amounts.
                   </div>
@@ -1301,13 +1311,13 @@ function Method1Page() {
 
                 <div
                   className={cn(
-                    'flex flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-sm',
+                    'flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm shadow-[0_6px_18px_rgba(24,39,24,0.04)]',
                     allocationValid
-                      ? 'border border-lime-400/25 bg-lime-400/10 text-lime-800'
-                      : 'border border-rose-400/25 bg-rose-400/10 text-rose-800',
+                      ? 'border-lime-500/30 bg-lime-50 text-lime-900'
+                      : 'border-rose-400/30 bg-rose-50 text-rose-900',
                   )}
                 >
-                  <span className="flex items-center gap-2">
+                  <span className="flex items-center gap-2 font-medium">
                     {allocationValid ? (
                       <CheckCircle2 className="size-4 shrink-0" />
                     ) : (
@@ -1321,22 +1331,22 @@ function Method1Page() {
                           : `${currency.format(Math.abs(remaining))} over invoice total`
                         : 'Waiting for invoice total'}
                   </span>
-                  <span className="font-mono font-semibold tabular-nums">
+                  <span className="font-mono text-sm font-semibold tabular-nums">
                     {currency.format(allocationSum)}
                     {hasInvoiceTotal ? ` / ${currency.format(totalSgd)}` : ''}
                   </span>
                 </div>
 
-                <div className="overflow-hidden rounded-lg border border-zinc-900/12">
+                <div className="overflow-hidden rounded-xl border border-zinc-900/12 bg-white shadow-[0_10px_30px_rgba(24,39,24,0.05)]">
                   <div className="w-full">
-                    <div className="hidden bg-zinc-950/5 px-3 py-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground md:grid md:grid-cols-[11rem_9.5rem_3rem_minmax(9.5rem,1fr)] md:gap-2">
+                    <div className="hidden bg-zinc-950 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-300 md:grid md:grid-cols-[12rem_minmax(9rem,11rem)_4rem_minmax(12rem,1fr)] md:gap-4">
                       <span>Component</span>
                       <span>Amount (SGD)</span>
                       <span className="text-right">Share</span>
                       <span>NAICS sector</span>
                     </div>
 
-                    <div className="divide-y divide-zinc-900/12">
+                    <div className="divide-y divide-zinc-900/10">
                     {categoryAmounts.map((cat) => {
                       const pct = allocationPercentages[cat.id]
                       const items = cat.id === 'raw' ? rawItems : cat.id === 'fabrication' ? fabItems : surfaceItems
@@ -1345,14 +1355,17 @@ function Method1Page() {
                         <div
                           key={cat.id}
                           className={cn(
-                            'grid gap-3 px-3 py-4 md:grid-cols-[11rem_9.5rem_3rem_minmax(9.5rem,1fr)] md:items-start md:gap-2',
-                            cat.rowClass,
+                            'relative grid gap-4 bg-white py-5 pl-5 pr-4 transition-colors md:grid-cols-[12rem_minmax(9rem,11rem)_4rem_minmax(12rem,1fr)] md:items-start md:gap-4',
+                            cat.id === 'raw' && 'hover:bg-lime-50/35',
+                            cat.id === 'fabrication' && 'hover:bg-teal-50/35',
+                            cat.id === 'surface' && 'hover:bg-rose-50/35',
                           )}
                         >
+                          <span className={cn('absolute inset-y-0 left-0 w-1', cat.barClass)} />
                           <div className="flex min-w-0 items-center gap-3">
                             <span
                               className={cn(
-                                'flex size-9 shrink-0 items-center justify-center rounded-lg border border-zinc-900/12 bg-zinc-950/5',
+                                'flex size-10 shrink-0 items-center justify-center rounded-lg border border-zinc-900/10 bg-zinc-950/[0.035] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]',
                                 cat.textClass,
                               )}
                             >
@@ -1365,7 +1378,7 @@ function Method1Page() {
                           </div>
 
                           <div className="space-y-1">
-                            <Label className="text-xs sm:sr-only">{cat.label} amounts</Label>
+                            <Label className="text-xs md:sr-only">{cat.label} amounts</Label>
                             <div className="space-y-2">
                               {items.map((item, index) => (
                                 <div key={index} className="flex min-w-0 items-center gap-1.5">
@@ -1377,13 +1390,13 @@ function Method1Page() {
                                     disabled={!hasInvoiceTotal}
                                     value={item.amount}
                                     onChange={(event) => updateItem(cat.id as CategoryId, index, { amount: event.target.value })}
-                                    className="h-9 min-w-0 flex-1 text-right font-mono tabular-nums"
+                                    className="h-10 min-w-0 flex-1 bg-zinc-950/[0.025] text-right font-mono tabular-nums focus-visible:bg-white"
                                   />
                                   <Button
                                     type="button"
                                     variant="ghost"
                                     size="icon"
-                                    className="size-8"
+                                    className="size-9 text-zinc-400 hover:bg-rose-50 hover:text-rose-700"
                                     onClick={() => removeItem(cat.id as CategoryId, index)}
                                     disabled={items.length <= 1}
                                     aria-label={`Remove ${cat.label} entry ${index + 1}`}
@@ -1392,20 +1405,24 @@ function Method1Page() {
                                   </Button>
                                 </div>
                               ))}
-                              <Button type="button" size="sm" className="h-8" onClick={() => addItem(cat.id as CategoryId)} disabled={!hasInvoiceTotal}>
-                                Add
+                              <Button type="button" variant="outline" size="sm" className="h-8 w-fit border-zinc-900/15 bg-white text-xs" onClick={() => addItem(cat.id as CategoryId)} disabled={!hasInvoiceTotal}>
+                                <Plus />
+                                Add entry
                               </Button>
                             </div>
                           </div>
 
-                          <p
-                            className={cn(
-                              'text-right font-mono text-sm tabular-nums md:pt-2',
-                              cat.textClass,
-                            )}
-                          >
-                            {cat.amount > 0 ? `${pct.toFixed(1)}%` : '—'}
-                          </p>
+                          <div className="flex items-center justify-between md:block">
+                            <span className="text-xs font-medium text-muted-foreground md:hidden">Share</span>
+                            <p
+                              className={cn(
+                                'font-mono text-sm font-semibold tabular-nums md:pt-2 md:text-right',
+                                cat.textClass,
+                              )}
+                            >
+                              {cat.amount > 0 ? `${pct.toFixed(1)}%` : '0.0%'}
+                            </p>
+                          </div>
 
                           <div className="min-w-0 space-y-1.5 md:col-start-4">
                             <Label className="text-xs md:sr-only">{cat.label} NAICS codes</Label>
@@ -1421,7 +1438,7 @@ function Method1Page() {
                                 />
                               ))}
                             </div>
-                            <p className="text-xs leading-snug text-muted-foreground">
+                            <p className="text-xs leading-5 text-muted-foreground">
                               Type a code or keyword to filter NAICS options.
                             </p>
                           </div>
@@ -1441,8 +1458,8 @@ function Method1Page() {
                     T
                   </span>
                   <div className="min-w-0">
-                    <CardTitle className="whitespace-nowrap">Transportation</CardTitle>
-                    <CardDescription className="whitespace-nowrap text-zinc-300">Estimate transport emissions (sea / land / air) from origin country.</CardDescription>
+                    <CardTitle>Transportation</CardTitle>
+                    <CardDescription className="text-zinc-300">Estimate transport emissions (sea / land / air) from origin country.</CardDescription>
                   </div>
                 </div>
               </CardHeader>
@@ -1451,6 +1468,11 @@ function Method1Page() {
                   <Label htmlFor="transport_weight">Shipment weight (kg)</Label>
                   <Input
                     id="transport_weight"
+                    type="number"
+                    min={0}
+                    step="any"
+                    inputMode="decimal"
+                    placeholder="0"
                     value={transportWeight}
                     onChange={(event) => {
                       setTransportWeight(event.target.value)
@@ -1460,22 +1482,24 @@ function Method1Page() {
                 </div>
                 <div className="space-y-2 sm:col-span-1">
                   <Label htmlFor="transport_origin">Origin country</Label>
-                  <Input
-                    id="transport_origin"
-                    list="transport_country_options"
+                  <Select
                     value={transportOrigin}
-                    onChange={(event) => {
-                      setTransportOrigin(event.target.value)
+                    onValueChange={(value) => {
+                      setTransportOrigin(value)
                       invalidateTransport()
                     }}
-                    className="font-mono"
-                    placeholder="Search country"
-                  />
-                  <datalist id="transport_country_options">
-                    {TRANSPORT_COUNTRIES.map((country) => (
-                      <option key={country} value={country} />
-                    ))}
-                  </datalist>
+                  >
+                    <SelectTrigger id="transport_origin" className="w-full font-mono">
+                      <SelectValue placeholder="Select country" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TRANSPORT_COUNTRIES.map((country) => (
+                        <SelectItem key={country} value={country} className="font-mono">
+                          {country}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <div className="grid gap-2 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3 text-xs">
                     <div>
                       <Label htmlFor="transport_port_loading" className="text-xs text-muted-foreground">Port of loading</Label>
@@ -1603,16 +1627,17 @@ function Method1Page() {
                   <CardContent>
                     <div className="divide-y divide-zinc-900/10 overflow-hidden rounded-md border border-zinc-900/10">
                       {historyItems.map((item, idx) => (
-                        <button
+                        <Button
                           key={`${item.invoiceId}-${item.year}-${idx}`}
                           type="button"
+                          variant="ghost"
                           onClick={() => {
                             setSelectedHistory(item)
                             setHistoryOpen(true)
                           }}
-                          className="w-full bg-white px-3 py-3 text-left transition-colors hover:bg-lime-50"
+                          className="h-auto w-full justify-start rounded-none bg-white px-3 py-3 text-left hover:bg-lime-50"
                         >
-                          <div className="flex items-center justify-between gap-3">
+                          <div className="flex w-full items-center justify-between gap-3">
                             <span className="min-w-0 truncate font-mono text-sm text-lime-800">
                               {item.invoiceId}
                             </span>
@@ -1620,7 +1645,7 @@ function Method1Page() {
                               {kg.format(item.totalKgCo2e)} kg CO₂e
                             </span>
                           </div>
-                        </button>
+                        </Button>
                       ))}
                     </div>
                   </CardContent>
@@ -1651,17 +1676,19 @@ function Method1Page() {
 
                       </div>
                     </div>
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="icon"
                       aria-label="Close calculation history"
-                      className="rounded-lg p-2 text-muted-foreground hover:bg-lime-50 hover:text-foreground"
+                      className="text-muted-foreground hover:bg-lime-50 hover:text-foreground"
                       onClick={() => {
                         setHistoryOpen(false)
                         setSelectedHistory(null)
                       }}
                     >
                       <X className="size-5" />
-                    </button>
+                    </Button>
                   </div>
 
                   <div className="space-y-4 px-4 py-4">
@@ -1806,7 +1833,7 @@ function Method1Page() {
           </div>
 
 
-          <aside className="space-y-4 lg:col-start-2 2xl:sticky 2xl:top-4 2xl:col-start-3 2xl:self-start">
+          <aside className="min-w-0 space-y-4 lg:col-start-2 2xl:sticky 2xl:top-4 2xl:col-start-3 2xl:self-start">
             <Card className="gap-0 overflow-hidden border-zinc-900/12 bg-white py-0 shadow-sm">
               <CardHeader className="border-b border-zinc-900/10 bg-zinc-950 px-5 py-4 text-white">
                 <div className="flex items-center gap-3">
