@@ -14,6 +14,7 @@ import Method1Page from '@/pages/Method1Page'
 import Method2Page from '@/pages/Method2Page'
 import NaicsMappingPage from '@/pages/NaicsMappingPage'
 import { AppBackground } from '@/components/AppBackground'
+import { CalculationHistorySidebar } from '@/components/CalculationHistorySidebar'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -146,6 +147,7 @@ function HomePage() {
 
 function App() {
   const [route, setRoute] = useState(() => window.location.hash)
+  const [historyRefreshToken, setHistoryRefreshToken] = useState(0)
 
   useEffect(() => {
     const updateRoute = () => setRoute(window.location.hash)
@@ -154,19 +156,19 @@ function App() {
     return () => window.removeEventListener('hashchange', updateRoute)
   }, [])
 
-  if (route === '#naics-mapping') {
-    return <NaicsMappingPage />
-  }
+  const refreshHistory = () => setHistoryRefreshToken((token) => token + 1)
 
-  if (route === '#method-1') {
-    return <Method1Page />
-  }
+  let page = <HomePage />
+  if (route === '#naics-mapping') page = <NaicsMappingPage />
+  if (route === '#method-1') page = <Method1Page onHistorySaved={refreshHistory} />
+  if (route === '#method-2') page = <Method2Page onHistorySaved={refreshHistory} />
 
-  if (route === '#method-2') {
-    return <Method2Page />
-  }
-
-  return <HomePage />
+  return (
+    <>
+      {page}
+      <CalculationHistorySidebar refreshToken={historyRefreshToken} />
+    </>
+  )
 }
 
 export default App

@@ -5,15 +5,43 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
 
 import { postCalculate } from './api-client'
+import { CalculationHistoryStore } from './calculation-history-store'
 import type { CalculateRequest } from '../shared/calculator-types'
+import type {
+  CalculationHistoryListOptions,
+  SaveCalculationHistoryInput,
+} from '../shared/calculation-history-types'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 let apiProcess: ChildProcess | null = null
+let calculationHistoryStore: CalculationHistoryStore | null = null
+
+function getCalculationHistoryStore(): CalculationHistoryStore {
+  if (!calculationHistoryStore) {
+    throw new Error(
+      'Calculation history is unavailable. Restart the app or check that its data folder is writable.',
+    )
+  }
+  return calculationHistoryStore
+}
 
 function registerApiHandlers() {
   ipcMain.handle('calculator:calculate', async (_event, payload: CalculateRequest) => {
     return postCalculate(payload)
   })
+
+  ipcMain.handle(
+    'calculation-history:save',
+    (_event, input: SaveCalculationHistoryInput) => getCalculationHistoryStore().save(input),
+  )
+  ipcMain.handle(
+    'calculation-history:list',
+    (_event, options?: CalculationHistoryListOptions) =>
+      getCalculationHistoryStore().list(options),
+  )
+  ipcMain.handle('calculation-history:get', (_event, id: string) =>
+    getCalculationHistoryStore().get(id),
+  )
 }
 
 function createWindow() {
@@ -148,6 +176,14 @@ function startApiServer() {
 }
 
 app.whenReady().then(() => {
+  try {
+    calculationHistoryStore = new CalculationHistoryStore(
+      path.join(app.getPath('userData'), 'calculation-history.sqlite3'),
+    )
+  } catch (error) {
+    console.error('Calculation history startup failed:', error)
+  }
+
   registerApiHandlers()
   startApiServer()
   createWindow()
@@ -157,6 +193,11 @@ app.whenReady().then(() => {
       createWindow()
     }
   })
+})
+
+app.on('before-quit', () => {
+  calculationHistoryStore?.close()
+  calculationHistoryStore = null
 })
 
 app.on('window-all-closed', () => {

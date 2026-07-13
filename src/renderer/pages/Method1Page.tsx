@@ -41,6 +41,7 @@ import {
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { toCalculationHistoryTransport } from '@/lib/calculation-history'
 import { cn } from '@/lib/utils'
 
 
@@ -213,18 +214,6 @@ const TRANSPORT_PORTS: TransportPort[] = [
 const TRANSPORT_COUNTRIES = TRANSPORT_PORTS
   .map((item) => item.country)
   .sort((a, b) => a.localeCompare(b))
-
-type HistoryItem = {
-  invoiceId: string
-  year: number
-  totalKgCo2e: number
-  calc: CalculateResponse['calculation']
-  naics: {
-    raw?: string
-    fabrication?: string
-    surface?: string
-  }
-}
 
 const categoryMetaByKey = {
   raw_material: { label: 'Raw material', icon: Layers, textClass: 'text-lime-700' },
@@ -752,16 +741,14 @@ function CalculationProcessPanel({
     </div>
   )
 }
-function Method1Page() {
+function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
   const [form, setForm] = useState(defaultForm)
   const [activeStep, setActiveStep] = useState(1)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [historyWarning, setHistoryWarning] = useState<string | null>(null)
   const [result, setResult] = useState<CalculateResponse | null>(null)
   const [naicsOptions, setNaicsOptions] = useState<NaicsOption[]>([])
-  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([])
-  const [historyOpen, setHistoryOpen] = useState(false)
-  const [selectedHistory, setSelectedHistory] = useState<HistoryItem | null>(null)
   const [rawItems, setRawItems] = useState<{ amount: string; naics: string }[]>([
     { amount: '', naics: '331110' },
   ])
@@ -850,6 +837,7 @@ function Method1Page() {
     setLoading(false)
     setResult(null)
     setError(null)
+    setHistoryWarning(null)
   }
 
   function invalidateTransport() {
@@ -1023,6 +1011,7 @@ function Method1Page() {
     })
     setActiveStep(1)
     setError(null)
+    setHistoryWarning(null)
     setResult(null)
   }
 
@@ -1043,12 +1032,14 @@ function Method1Page() {
     setTransportResult(null)
     setActiveStep(1)
     setError(null)
+    setHistoryWarning(null)
     setResult(null)
   }
 
   async function handleCalculate(event: React.FormEvent) {
     event.preventDefault()
     setError(null)
+    setHistoryWarning(null)
     setResult(null)
 
     if (!hasInvoiceTotal) {
@@ -1096,7 +1087,7 @@ function Method1Page() {
       const fabSum = fabItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.fabrication_sgd)
       const surfSum = surfaceItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.surface_treatment_sgd)
 
-      const response = await calculateEmissions({
+      const calculationRequest = {
         invoice_id: form.invoice_id.trim(),
         year,
         total_amount_sgd: totalSgd,
@@ -1116,24 +1107,30 @@ function Method1Page() {
           surface_treatment: (surfaceItems[0]?.naics ?? form.naics_surface_treatment).trim(),
         },
         line_items: lineItems,
-      })
+      }
+      const response = await calculateEmissions(calculationRequest)
       if (requestId !== calculationRequestId.current) return
       setResult(response)
       setActiveStep(2)
 
-      const item: HistoryItem = {
-        invoiceId: response.invoice_id,
-        year: response.calculation.year,
-        totalKgCo2e: response.emissions.total + (transportResult?.transport?.chosen_emissions_kg ?? 0),
-        calc: response.calculation,
-        naics: {
-          raw: rawItems[0]?.naics.trim() || undefined,
-          fabrication: fabItems[0]?.naics.trim() || undefined,
-          surface: surfaceItems[0]?.naics.trim() || undefined,
-        },
+      try {
+        if (!window.electronAPI?.saveCalculationHistory) {
+          throw new Error('Calculation history is only available in the desktop app.')
+        }
+        await window.electronAPI.saveCalculationHistory({
+          method: 'useeio',
+          request: calculationRequest,
+          result: response,
+          transport: toCalculationHistoryTransport(transportResult),
+        })
+        onHistorySaved?.()
+      } catch (historyError) {
+        setHistoryWarning(
+          historyError instanceof Error
+            ? `Calculation completed, but history was not saved: ${historyError.message}`
+            : 'Calculation completed, but history was not saved.',
+        )
       }
-
-      setHistoryItems((prev) => [item, ...prev].slice(0, 5))
 
     } catch (err) {
       if (requestId === calculationRequestId.current) {
@@ -1617,219 +1614,16 @@ function Method1Page() {
               )}
             </Button>
 
-            {historyItems.length > 0 ? (
-              <div className="mt-4">
-                <Card className="overflow-hidden border-zinc-900/12 bg-white shadow-sm">
-                  <CardHeader className="border-b border-zinc-900/10 bg-[#faf8f1] pb-3">
-                    <CardTitle>History</CardTitle>
-                    <CardDescription>Latest 5 calculations.</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="divide-y divide-zinc-900/10 overflow-hidden rounded-md border border-zinc-900/10">
-                      {historyItems.map((item, idx) => (
-                        <Button
-                          key={`${item.invoiceId}-${item.year}-${idx}`}
-                          type="button"
-                          variant="ghost"
-                          onClick={() => {
-                            setSelectedHistory(item)
-                            setHistoryOpen(true)
-                          }}
-                          className="h-auto w-full justify-start rounded-none bg-white px-3 py-3 text-left hover:bg-lime-50"
-                        >
-                          <div className="flex w-full items-center justify-between gap-3">
-                            <span className="min-w-0 truncate font-mono text-sm text-lime-800">
-                              {item.invoiceId}
-                            </span>
-                            <span className="shrink-0 font-mono text-sm text-lime-700">
-                              {kg.format(item.totalKgCo2e)} kg CO₂e
-                            </span>
-                          </div>
-                        </Button>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            ) : null}
-
-            {historyOpen && selectedHistory ? (
+            {historyWarning ? (
               <div
-                role="dialog"
-                aria-modal="true"
-                className="fixed inset-0 z-50 flex items-end justify-center bg-zinc-950/50 p-3 sm:items-center"
-                onMouseDown={(e) => {
-                  if (e.target === e.currentTarget) {
-                    setHistoryOpen(false)
-                    setSelectedHistory(null)
-                  }
-                }}
+                className="flex items-start gap-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2.5 text-sm text-amber-900"
+                role="status"
               >
-                <div className="w-full max-w-xl overflow-hidden rounded-lg border border-zinc-900/12 bg-white shadow-2xl">
-                  <div className="flex items-start justify-between gap-3 border-b border-zinc-900/12 bg-white/70 px-4 py-4">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-zinc-900">Invoice</p>
-                      <div className="mt-1 flex items-baseline gap-3">
-                        <p className="truncate font-mono text-lg font-semibold text-lime-800">
-                          {selectedHistory.invoiceId}
-                        </p>
-
-                      </div>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Close calculation history"
-                      className="text-muted-foreground hover:bg-lime-50 hover:text-foreground"
-                      onClick={() => {
-                        setHistoryOpen(false)
-                        setSelectedHistory(null)
-                      }}
-                    >
-                      <X className="size-5" />
-                    </Button>
-                  </div>
-
-                  <div className="space-y-4 px-4 py-4">
-                    <div className="rounded-lg border border-zinc-900/12 bg-white/70 p-4">
-                      <div className="mb-2 flex items-baseline justify-between gap-3">
-                        <p className="text-sm font-medium text-muted-foreground">Cost & FX</p>
-                        <p className="text-xs text-muted-foreground">
-                          FX rate: 1 SGD = {usd.format(selectedHistory.calc.fx_rate)} USD
-                        </p>
-                      </div>
-                      <div className="space-y-2 text-sm">
-                        {selectedHistory.calc.sgd_amounts.raw_material > 0 ? (
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground">Raw material : <span className="font-mono text-lime-700 tabular-nums">{selectedHistory.naics.raw}</span></span>
-                            <span className="font-mono text-lime-700 tabular-nums">
-                              {currency.format(selectedHistory.calc.sgd_amounts.raw_material)} * {selectedHistory.calc.fx_rate.toFixed(4)} = {usd.format(selectedHistory.calc.usd_amounts.raw_material)}
-                            </span>
-                          </div>
-                        ) : null}
-                        {selectedHistory.calc.sgd_amounts.fabrication > 0 ? (
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground">Fabrication :  <span className="font-mono text-teal-700 tabular-nums">{selectedHistory.naics.fabrication}</span></span>
-                            <span className="font-mono text-teal-700 tabular-nums">
-                              {currency.format(selectedHistory.calc.sgd_amounts.fabrication)} * {selectedHistory.calc.fx_rate.toFixed(4)} = {usd.format(selectedHistory.calc.usd_amounts.fabrication)}
-                            </span>
-                          </div>
-                        ) : null}
-                        {selectedHistory.calc.sgd_amounts.surface_treatment > 0 ? (
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground">Surface treatment :  <span className="font-mono text-rose-700 tabular-nums">{selectedHistory.naics.surface}</span></span>
-                            <span className="font-mono text-rose-700 tabular-nums">
-                              {currency.format(selectedHistory.calc.sgd_amounts.surface_treatment)} * {selectedHistory.calc.fx_rate.toFixed(4)} = {usd.format(selectedHistory.calc.usd_amounts.surface_treatment)}
-                            </span>
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div className="rounded-lg border border-zinc-900/12 bg-white/70 p-4">
-                      <div className="mb-2 flex items-baseline justify-between gap-3">
-                        <p className="text-sm font-medium text-muted-foreground">Year inflation adjustment</p>
-                        <p className="text-xs text-muted-foreground">
-                          Inflation index: {selectedHistory.calc.inflation_index.toFixed(2)} ({selectedHistory.calc.year} to 2022)
-                        </p>
-                      </div>
-                      <div className="space-y-2 text-sm">
-                        {selectedHistory.calc.sgd_amounts.raw_material > 0 ? (
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground">Raw material : <span className="font-mono text-lime-700 tabular-nums">{selectedHistory.naics.raw}</span></span>
-                            <span className="font-mono text-lime-700 tabular-nums">
-                              {usd.format(selectedHistory.calc.usd_amounts.raw_material)} * (100 / {selectedHistory.calc.inflation_index.toFixed(2)}) = {usd.format(selectedHistory.calc.usd2022_amounts.raw_material)}
-                            </span>
-                          </div>
-                        ) : null}
-                        {selectedHistory.calc.sgd_amounts.fabrication > 0 ? (
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground">Fabrication :  <span className="font-mono text-teal-700 tabular-nums">{selectedHistory.naics.fabrication}</span></span>
-                            <span className="font-mono text-teal-700 tabular-nums">
-                              {usd.format(selectedHistory.calc.usd_amounts.fabrication)} * (100 / {selectedHistory.calc.inflation_index.toFixed(2)}) = {usd.format(selectedHistory.calc.usd2022_amounts.fabrication)}
-                            </span>
-                          </div>
-                        ) : null}
-                        {selectedHistory.calc.sgd_amounts.surface_treatment > 0 ? (
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground">Surface treatment :  <span className="font-mono text-rose-700 tabular-nums">{selectedHistory.naics.surface}</span></span>
-                            <span className="font-mono text-rose-700 tabular-nums">
-                              {usd.format(selectedHistory.calc.usd_amounts.surface_treatment)} * (100 / {selectedHistory.calc.inflation_index.toFixed(2)}) = {usd.format(selectedHistory.calc.usd2022_amounts.surface_treatment)}
-                            </span>
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div className="rounded-lg border border-zinc-900/12 bg-white/70 p-4">
-                      <p className="mb-3 text-sm font-medium text-muted-foreground">NAICS & kg CO₂e</p>
-                      <div className="space-y-2 text-sm">
-                        {selectedHistory.calc.line_items?.map((item, index) => {
-                          const meta = categoryMetaByKey[item.category]
-                          return (
-                            <div key={`${item.category}-${item.naics_code}-${index}`} className="space-y-1 rounded-lg border border-zinc-900/10 bg-zinc-950/5 p-2.5">
-                              <div className="flex items-start justify-between gap-3">
-                                <span className="text-muted-foreground">
-                                  {getLineItemLabel(item, index, naicsByCode)}
-                                </span>
-                                <span className={cn('font-mono tabular-nums', meta.textClass)}>
-                                  {kg.format(item.emission)} kg CO2e
-                                </span>
-                              </div>
-                              <p className="font-mono text-xs text-muted-foreground">
-                                {usd.format(item.amount_usd2022)} * {item.factor.toFixed(4)}
-                              </p>
-                            </div>
-                          )
-                        })}
-                        {!selectedHistory.calc.line_items?.length && selectedHistory.naics.raw && selectedHistory.calc.sgd_amounts.raw_material > 0 ? (
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground">
-                              Raw material : <span className="font-mono text-lime-700 tabular-nums">{selectedHistory.naics.raw}</span>
-                            </span>
-                            <span className="font-mono text-lime-700 tabular-nums">
-                              {usd.format(selectedHistory.calc.usd2022_amounts.raw_material)} * {((naicsByCode.get(selectedHistory.naics.raw)?.kgco2e_per_usd ?? NaN)).toFixed(2)} = {kg.format(selectedHistory.calc.usd2022_amounts.raw_material * (naicsByCode.get(selectedHistory.naics.raw)?.kgco2e_per_usd ?? 0))} kg CO₂e
-                            </span>
-                          </div>
-                        ) : null}
-                        {!selectedHistory.calc.line_items?.length && selectedHistory.naics.fabrication && selectedHistory.calc.sgd_amounts.fabrication > 0 ? (
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground">
-                              Fabrication :  <span className="font-mono text-teal-700 tabular-nums">{selectedHistory.naics.fabrication}</span>
-                            </span>
-                            <span className="font-mono text-teal-700 tabular-nums">
-                              {usd.format(selectedHistory.calc.usd2022_amounts.fabrication)} * {(naicsByCode.get(selectedHistory.naics.fabrication)?.kgco2e_per_usd ?? NaN).toFixed(2)} = {kg.format(selectedHistory.calc.usd2022_amounts.fabrication * (naicsByCode.get(selectedHistory.naics.fabrication)?.kgco2e_per_usd ?? 0))} kg CO₂e
-                            </span>
-                          </div>
-                        ) : null}
-                        {!selectedHistory.calc.line_items?.length && selectedHistory.naics.surface && selectedHistory.calc.sgd_amounts.surface_treatment > 0 ? (
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground">
-                              Surface treatment :  <span className="font-mono text-rose-700 tabular-nums">{selectedHistory.naics.surface}</span>
-                            </span>
-                            <span className="font-mono text-rose-700 tabular-nums">
-                              {usd.format(selectedHistory.calc.usd2022_amounts.surface_treatment)} * {(naicsByCode.get(selectedHistory.naics.surface)?.kgco2e_per_usd ?? NaN).toFixed(2)} = {kg.format(selectedHistory.calc.usd2022_amounts.surface_treatment * (naicsByCode.get(selectedHistory.naics.surface)?.kgco2e_per_usd ?? 0))} kg CO₂e
-                            </span>
-                          </div>
-                        ) : null}
-                        {(!selectedHistory.calc.line_items?.length && !selectedHistory.naics.raw && !selectedHistory.naics.fabrication && !selectedHistory.naics.surface) ? (
-                          <p className="text-xs text-muted-foreground">No NAICS selections found.</p>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-900/12 bg-white/70 px-4 py-3">
-                    <span className="text-sm font-medium text-muted-foreground">Total</span>
-                    <span className="font-mono text-sm text-lime-700 tabular-nums">
-                      {kg.format(selectedHistory.totalKgCo2e)} kg CO₂e
-                    </span>
-                  </div>
-                  </div>
-
-                  
-                </div>
+                <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                <span>{historyWarning}</span>
               </div>
             ) : null}
+
           </div>
 
 

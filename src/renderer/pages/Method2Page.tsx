@@ -67,6 +67,7 @@ import {
   type Method1FormKey,
 } from '@/components/Method1SharedInputs'
 import { cn } from '@/lib/utils'
+import { toCalculationHistoryTransport } from '@/lib/calculation-history'
 import { naicsCatalogByCode } from '../../shared/naics-catalog'
 
 type Citation = {
@@ -305,7 +306,7 @@ function ResultsPanel({
   )
 }
 
-export default function Method2Page() {
+export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [chatOpen, setChatOpen] = useState(false)
@@ -336,6 +337,7 @@ export default function Method2Page() {
   const [transportError, setTransportError] = useState<string | null>(null)
   const [calculateLoading, setCalculateLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [historyWarning, setHistoryWarning] = useState<string | null>(null)
   const [result, setResult] = useState<Method2CalculateResponse | null>(null)
   const [documents, setDocuments] = useState<RagDocument[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(true)
@@ -428,6 +430,7 @@ export default function Method2Page() {
     setCalculateLoading(false)
     setResult(null)
     setError(null)
+    setHistoryWarning(null)
   }
 
   function invalidateTransport() {
@@ -680,6 +683,7 @@ export default function Method2Page() {
   async function handleCalculate() {
     setResult(null)
     setError(null)
+    setHistoryWarning(null)
 
     if (!allocationValid) {
       setError('Enter at least one raw material or surface treatment amount before calculating Method 2.')
@@ -704,7 +708,7 @@ export default function Method2Page() {
     const requestId = ++calculationRequestId.current
     setCalculateLoading(true)
     try {
-      const response = await calculateMethod2({
+      const calculationRequest = {
         part_id: form.invoice_id.trim() || demoPart.partId,
         year,
         raw_material_sgd: rawSum,
@@ -721,9 +725,29 @@ export default function Method2Page() {
           duty_level: row.dutyLevel,
           operating_hours: Number(row.operatingHours),
         })),
-      })
+      }
+      const response = await calculateMethod2(calculationRequest)
       if (requestId !== calculationRequestId.current) return
       setResult(response)
+
+      try {
+        if (!window.electronAPI?.saveCalculationHistory) {
+          throw new Error('Calculation history is only available in the desktop app.')
+        }
+        await window.electronAPI.saveCalculationHistory({
+          method: 'method2',
+          request: calculationRequest,
+          result: response,
+          transport: toCalculationHistoryTransport(transportResult),
+        })
+        onHistorySaved?.()
+      } catch (historyError) {
+        setHistoryWarning(
+          historyError instanceof Error
+            ? `Calculation completed, but history was not saved: ${historyError.message}`
+            : 'Calculation completed, but history was not saved.',
+        )
+      }
     } catch (err) {
       if (requestId === calculationRequestId.current) {
         setError(err instanceof Error ? err.message : String(err))
@@ -818,6 +842,15 @@ export default function Method2Page() {
                 </Button>
               </div>
               {error ? <p className="mt-3 text-sm text-rose-600">{error}</p> : null}
+              {historyWarning ? (
+                <div
+                  className="mt-3 flex items-start gap-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2.5 text-sm text-amber-900"
+                  role="status"
+                >
+                  <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                  <span>{historyWarning}</span>
+                </div>
+              ) : null}
             </div>
 
             <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.05fr)_minmax(21rem,0.95fr)]">
