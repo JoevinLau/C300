@@ -1,0 +1,39 @@
+appId: com.c300.carbonspend
+productName: C300 CarbonSpend Calculator
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - out/**/*
+  - package.json
+
+asar: true
+npmRebuild: false
+
+extraResources:
+  - from: dist/c300-api
+    to: backend
+    filter:
+      - "**/*"
+  - from: .playwright-browsers
+    to: playwright-browsers
+    filter:
+      - "**/*"
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  executableName: C300 CarbonSpend Calculator
+
+nsis:
+  artifactName: C300-CarbonSpend-Setup-${version}.${ext}
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: C300 CarbonSpend Calculator

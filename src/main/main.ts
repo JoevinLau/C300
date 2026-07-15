@@ -103,11 +103,70 @@ function resolvePythonExecutable(venvPythons: string[]) {
   return process.platform === 'win32' ? 'python' : 'python3'
 }
 
+function monitorApiProcess(
+  child: ChildProcess,
+  label: string,
+  onStartupFailure?: () => void,
+) {
+  apiProcess = child
+  let stderr = ''
+  let settled = false
+  const settleTimer = setTimeout(() => {
+    settled = true
+  }, 3000)
+
+  child.stderr?.on('data', (chunk) => {
+    stderr += chunk.toString()
+  })
+  child.on('error', (error) => {
+    clearTimeout(settleTimer)
+    if (apiProcess === child) apiProcess = null
+    console.error(`FastAPI startup failed with ${label}: ${error.message}`)
+    if (!settled) onStartupFailure?.()
+  })
+  child.on('exit', (code) => {
+    clearTimeout(settleTimer)
+    if (apiProcess === child) apiProcess = null
+    if (!settled) {
+      console.error(
+        `FastAPI exited during startup with ${label} (code ${code}). ${stderr.trim()}`,
+      )
+      onStartupFailure?.()
+    }
+  })
+}
+
 function startApiServer() {
   const projectRoot = path.join(__dirname, '..', '..')
-  const apiScript = path.join(projectRoot, 'api', 'main.py')
   const ragDataDir = path.join(app.getPath('userData'), 'rag-data')
-  const playwrightBrowsersDir = path.join(projectRoot, '.playwright-browsers')
+  const playwrightBrowsersDir = app.isPackaged
+    ? path.join(process.resourcesPath, 'playwright-browsers')
+    : path.join(projectRoot, '.playwright-browsers')
+  const env = {
+    ...process.env,
+    ELECTRON_RUN_AS_NODE: undefined,
+    PLAYWRIGHT_BROWSERS_PATH: playwrightBrowsersDir,
+    RAG_DATA_DIR: ragDataDir,
+  }
+
+  if (app.isPackaged) {
+    const apiExecutable = path.join(process.resourcesPath, 'backend', 'c300-api.exe')
+    if (!fs.existsSync(apiExecutable)) {
+      console.error(`FastAPI startup failed: bundled backend not found at ${apiExecutable}.`)
+      return
+    }
+
+    const child = spawn(apiExecutable, [], {
+      cwd: path.dirname(apiExecutable),
+      env,
+      windowsHide: true,
+      stdio: 'pipe',
+    })
+    monitorApiProcess(child, 'bundled backend')
+    return
+  }
+
+  const apiScript = path.join(projectRoot, 'api', 'main.py')
   const pythonName = process.platform === 'win32' ? 'python.exe' : 'python'
   const binDir = process.platform === 'win32' ? 'Scripts' : 'bin'
   const candidates = [
@@ -118,13 +177,6 @@ function startApiServer() {
     process.platform === 'win32' ? 'python' : 'python3',
     process.platform === 'win32' ? 'py' : undefined,
   ].filter((candidate): candidate is string => Boolean(candidate))
-
-  const env = {
-    ...process.env,
-    ELECTRON_RUN_AS_NODE: undefined,
-    PLAYWRIGHT_BROWSERS_PATH: playwrightBrowsersDir,
-    RAG_DATA_DIR: ragDataDir,
-  }
 
   const launch = (index: number) => {
     const pythonExecutable = candidates[index]
@@ -144,32 +196,7 @@ function startApiServer() {
       windowsHide: true,
       stdio: 'pipe',
     })
-
-    apiProcess = child
-    let stderr = ''
-    let settled = false
-    const settleTimer = setTimeout(() => {
-      settled = true
-    }, 3000)
-
-    child.stderr?.on('data', (chunk) => {
-      stderr += chunk.toString()
-    })
-    child.on('error', (error) => {
-      clearTimeout(settleTimer)
-      console.error(`FastAPI startup failed with ${pythonExecutable}: ${error.message}`)
-      if (!settled) launch(index + 1)
-    })
-    child.on('exit', (code) => {
-      clearTimeout(settleTimer)
-      if (apiProcess === child) apiProcess = null
-      if (!settled) {
-        console.error(
-          `FastAPI exited during startup with ${pythonExecutable} (code ${code}). ${stderr.trim()}`,
-        )
-        launch(index + 1)
-      }
-    })
+    monitorApiProcess(child, pythonExecutable, () => launch(index + 1))
   }
 
   launch(0)

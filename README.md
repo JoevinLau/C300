@@ -131,6 +131,33 @@ source venv/bin/activate          # Windows: venv\Scripts\activate
 python main.py
 ```
 
+### Windows installer
+
+The Windows distribution bundles the Electron application, a frozen FastAPI
+backend, and the Chromium runtime used for EcoTransit. Recipients do not need
+Node.js or Python installed.
+
+Build on a Windows machine from the repository root:
+
+```powershell
+pnpm install
+pnpm package:win
+```
+
+The installer is written to:
+
+```text
+release/C300-CarbonSpend-Setup-<version>.exe
+```
+
+From macOS or Linux, run the **Build Windows installer** workflow in GitHub
+Actions. Download the `C300-Windows-Installer` artifact when the workflow
+finishes. PyInstaller must create the bundled backend on Windows, so a complete
+installer cannot be produced directly on another operating system.
+
+The installer is unsigned by default. Windows may show a SmartScreen warning
+until a trusted code-signing certificate is configured.
+
 Open **Method 2** from the home screen, upload one or more PDF/XLSX supplier documents, wait for indexing to finish, and then ask questions in the assistant. Health check: `GET http://127.0.0.1:8000/` → `{"message":"API is running!"}`.
 
 ### API endpoints

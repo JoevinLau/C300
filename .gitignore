@@ -15,6 +15,7 @@ __pycache__/
 out/
 dist/
 release/
+/build/c300-api/
 graphify-out/
 rag-data/
 result.html
