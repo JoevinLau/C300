@@ -33,7 +33,7 @@ try {
   & pnpm build
   if ($LASTEXITCODE -ne 0) { throw "Failed to build the Electron application." }
 
-  & pnpm exec electron-builder --win nsis --x64
+  & pnpm exec electron-builder --win nsis --x64 --publish never
   if ($LASTEXITCODE -ne 0) { throw "Failed to create the Windows installer." }
 
   $installer = Get-ChildItem -Path release -Filter "*.exe" |
