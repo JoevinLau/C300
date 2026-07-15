@@ -42,7 +42,6 @@ export type TransportMode = 'sea' | 'land' | 'air'
 
 export interface MatchedTransportPort {
   country: string
-  loadingPort: string
 }
 
 export interface TransportCalculationFields {

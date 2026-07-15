@@ -116,63 +116,202 @@ export const METHOD1_STEPS = [
 
 export const PORT_OF_DISCHARGE = 'Singapore'
 
-export const TRANSPORT_PORTS = [
-  { country: 'Singapore', loadingPort: 'Port of Tuas / Singapore' },
-  { country: 'China', loadingPort: 'Port of Shanghai' },
-  { country: 'South Korea', loadingPort: 'Port of Busan' },
-  { country: 'Japan', loadingPort: 'Port of Nagoya / Tokyo / Yokohama' },
-  { country: 'India', loadingPort: 'JNPT (Nhava Sheva) / Mundra' },
-  { country: 'United States', loadingPort: 'Port of Los Angeles / Long Beach' },
-  { country: 'Germany', loadingPort: 'Port of Hamburg' },
-  { country: 'Netherlands', loadingPort: 'Port of Rotterdam' },
-  { country: 'Australia', loadingPort: 'Port of Melbourne / Hedland' },
-  { country: 'Brazil', loadingPort: 'Port of Santos' },
-  { country: 'Canada', loadingPort: 'Port of Vancouver' },
-  { country: 'Malaysia (Peninsular)', loadingPort: 'Port Klang' },
-  { country: 'Vietnam', loadingPort: 'Port of Hai Phong' },
-  { country: 'Indonesia (Java-Bali)', loadingPort: 'Port of Tanjung Priok (Jakarta)' },
-  { country: 'Thailand', loadingPort: 'Port of Laem Chabang' },
-  { country: 'Philippines', loadingPort: 'Port of Manila' },
-  { country: 'Cambodia', loadingPort: 'Port of Sihanoukville' },
-  { country: 'Laos', loadingPort: 'Via Port of Laem Chabang (Thailand)' },
-  { country: 'Brunei', loadingPort: 'Muara Port' },
-  { country: 'Myanmar', loadingPort: 'Port of Yangon' },
-  { country: 'Hong Kong', loadingPort: 'Port of Hong Kong' },
-  { country: 'Taiwan', loadingPort: 'Port of Kaohsiung' },
-  { country: 'Mongolia', loadingPort: 'Via Port of Tianjin (China)' },
-  { country: 'Bangladesh', loadingPort: 'Port of Chittagong' },
-  { country: 'Pakistan', loadingPort: 'Port of Karachi' },
-  { country: 'Sri Lanka', loadingPort: 'Port of Colombo' },
-  { country: 'Nepal', loadingPort: 'Via Port of Kolkata (India)' },
-  { country: 'Bhutan', loadingPort: 'Via Port of Kolkata (India)' },
-  { country: 'Saudi Arabia', loadingPort: 'Jeddah Islamic Port' },
-  { country: 'UAE', loadingPort: 'Jebel Ali Port' },
-  { country: 'Qatar', loadingPort: 'Hamad Port' },
-  { country: 'Oman', loadingPort: 'Port of Sohar' },
-  { country: 'Israel', loadingPort: 'Port of Haifa' },
-  { country: 'Belgium', loadingPort: 'Port of Antwerp-Bruges' },
-  { country: 'United Kingdom', loadingPort: 'Port of Felixstowe' },
-  { country: 'France', loadingPort: 'Port of Le Havre' },
-  { country: 'Italy', loadingPort: 'Port of Genoa' },
-  { country: 'Spain', loadingPort: 'Port of Valencia' },
-  { country: 'Mexico', loadingPort: 'Port of Manzanillo' },
-  { country: 'Argentina', loadingPort: 'Port of Buenos Aires' },
-  { country: 'Chile', loadingPort: 'Port of San Antonio' },
-  { country: 'Colombia', loadingPort: 'Port of Cartagena' },
-  { country: 'Peru', loadingPort: 'Port of Callao' },
-  { country: 'South Africa', loadingPort: 'Port of Durban' },
-  { country: 'Egypt', loadingPort: 'Port of Alexandria' },
-  { country: 'Morocco', loadingPort: 'Port of Tanger Med' },
-  { country: 'Kenya', loadingPort: 'Port of Mombasa' },
-  { country: 'Nigeria', loadingPort: 'Port of Lagos (Apapa)' },
-  { country: 'New Zealand', loadingPort: 'Port of Auckland' },
-  { country: 'Norway', loadingPort: 'Port of Oslo' },
-  { country: 'Sweden', loadingPort: 'Port of Gothenburg' },
+export type TransportPort = {
+  country: string
+  loadingPorts: string[]
+  intermediatePorts: string[]
+}
+
+export const TRANSPORT_PORTS: TransportPort[] = [
+  { country: 'Singapore', loadingPorts: ['Port of Tuas / Singapore', 'Port of Singapore'], intermediatePorts: [] },
+  { country: 'China', loadingPorts: ['Port of Shanghai', 'Port of Ningbo-Zhoushan', 'Port of Shenzhen', 'Port of Qingdao', 'Port of Tianjin', 'Port of Guangzhou', 'Port of Xiamen'], intermediatePorts: ['Hong Kong', 'Port Klang', 'Tanjung Pelepas'] },
+  { country: 'South Korea', loadingPorts: ['Port of Busan', 'Port of Incheon', 'Port of Gwangyang'], intermediatePorts: ['Shanghai', 'Kaohsiung', 'Hong Kong'] },
+  { country: 'Japan', loadingPorts: ['Port of Tokyo', 'Port of Yokohama', 'Port of Nagoya', 'Port of Osaka', 'Port of Kobe'], intermediatePorts: ['Busan', 'Shanghai', 'Kaohsiung'] },
+  { country: 'India', loadingPorts: ['JNPT (Nhava Sheva)', 'Mundra Port', 'Port of Chennai', 'Port of Kolkata', 'Port of Cochin', 'Port of Visakhapatnam'], intermediatePorts: ['Colombo', 'Port Klang', 'Tanjung Pelepas'] },
+  { country: 'United States', loadingPorts: ['Port of Los Angeles', 'Port of Long Beach', 'Port of New York and New Jersey', 'Port of Savannah', 'Port of Houston', 'Port of Seattle'], intermediatePorts: ['Kaohsiung', 'Busan', 'Port Klang'] },
+  { country: 'Germany', loadingPorts: ['Port of Hamburg', 'Port of Bremerhaven', 'Port of Wilhelmshaven'], intermediatePorts: ['Rotterdam', 'Colombo', 'Port Klang'] },
+  { country: 'Netherlands', loadingPorts: ['Port of Rotterdam', 'Port of Amsterdam'], intermediatePorts: ['Colombo', 'Port Klang'] },
+  { country: 'Australia', loadingPorts: ['Port of Melbourne', 'Port Botany (Sydney)', 'Port of Brisbane', 'Port of Fremantle', 'Port Hedland'], intermediatePorts: ['Tanjung Pelepas', 'Port Klang'] },
+  { country: 'Brazil', loadingPorts: ['Port of Santos', 'Port of Paranagua', 'Port of Rio de Janeiro'], intermediatePorts: ['Algeciras', 'Colombo', 'Port Klang'] },
+  { country: 'Canada', loadingPorts: ['Port of Vancouver', 'Port of Montreal', 'Port of Prince Rupert'], intermediatePorts: ['Busan', 'Kaohsiung', 'Port Klang'] },
+  { country: 'Malaysia (Peninsular)', loadingPorts: ['Port Klang', 'Port of Tanjung Pelepas', 'Penang Port', 'Johor Port'], intermediatePorts: [] },
+  { country: 'Vietnam', loadingPorts: ['Port of Hai Phong', 'Cat Lai Port (Ho Chi Minh City)', 'Cai Mep-Thi Vai Port', 'Da Nang Port'], intermediatePorts: ['Port Klang', 'Tanjung Pelepas'] },
+  { country: 'Indonesia (Java-Bali)', loadingPorts: ['Port of Tanjung Priok (Jakarta)', 'Port of Tanjung Perak (Surabaya)', 'Port of Semarang'], intermediatePorts: ['Port Klang', 'Tanjung Pelepas'] },
+  { country: 'Thailand', loadingPorts: ['Port of Laem Chabang', 'Bangkok Port', 'Map Ta Phut Port'], intermediatePorts: ['Port Klang', 'Tanjung Pelepas'] },
+  { country: 'Philippines', loadingPorts: ['Port of Manila', 'Port of Cebu', 'Port of Davao', 'Subic Bay Port'], intermediatePorts: ['Kaohsiung', 'Hong Kong', 'Port Klang'] },
+  { country: 'Cambodia', loadingPorts: ['Port of Sihanoukville', 'Phnom Penh Autonomous Port'], intermediatePorts: ['Laem Chabang', 'Port Klang'] },
+  { country: 'Laos', loadingPorts: ['Via Port of Laem Chabang (Thailand)', 'Via Port of Da Nang (Vietnam)', 'Via Port of Sihanoukville (Cambodia)'], intermediatePorts: ['Laem Chabang', 'Port Klang'] },
+  { country: 'Brunei', loadingPorts: ['Muara Port'], intermediatePorts: ['Port Klang', 'Tanjung Pelepas'] },
+  { country: 'Myanmar', loadingPorts: ['Port of Yangon', 'Thilawa Port'], intermediatePorts: ['Port Klang', 'Tanjung Pelepas'] },
+  { country: 'Hong Kong', loadingPorts: ['Port of Hong Kong'], intermediatePorts: ['Port Klang', 'Tanjung Pelepas'] },
+  { country: 'Taiwan', loadingPorts: ['Port of Kaohsiung', 'Port of Keelung', 'Port of Taichung'], intermediatePorts: ['Hong Kong', 'Port Klang'] },
+  { country: 'Mongolia', loadingPorts: ['Via Port of Tianjin (China)', 'Via Port of Qingdao (China)', 'Via Port of Dalian (China)'], intermediatePorts: ['Tianjin', 'Shanghai', 'Port Klang'] },
+  { country: 'Bangladesh', loadingPorts: ['Port of Chittagong', 'Port of Mongla'], intermediatePorts: ['Colombo', 'Port Klang'] },
+  { country: 'Pakistan', loadingPorts: ['Port of Karachi', 'Port Qasim', 'Gwadar Port'], intermediatePorts: ['Jebel Ali', 'Colombo', 'Port Klang'] },
+  { country: 'Sri Lanka', loadingPorts: ['Port of Colombo', 'Port of Hambantota'], intermediatePorts: ['Port Klang'] },
+  { country: 'Nepal', loadingPorts: ['Via Port of Kolkata (India)', 'Via Port of Visakhapatnam (India)', 'Via Port of Haldia (India)'], intermediatePorts: ['Colombo', 'Port Klang'] },
+  { country: 'Bhutan', loadingPorts: ['Via Port of Kolkata (India)', 'Via Port of Haldia (India)'], intermediatePorts: ['Colombo', 'Port Klang'] },
+  { country: 'Saudi Arabia', loadingPorts: ['Jeddah Islamic Port', 'King Abdul Aziz Port (Dammam)', 'King Abdullah Port'], intermediatePorts: ['Jebel Ali', 'Colombo', 'Port Klang'] },
+  { country: 'UAE', loadingPorts: ['Jebel Ali Port', 'Port Khalifa', 'Port Rashid'], intermediatePorts: ['Colombo', 'Port Klang'] },
+  { country: 'Qatar', loadingPorts: ['Hamad Port', 'Doha Port'], intermediatePorts: ['Jebel Ali', 'Colombo', 'Port Klang'] },
+  { country: 'Oman', loadingPorts: ['Port of Sohar', 'Port Sultan Qaboos', 'Port of Salalah'], intermediatePorts: ['Jebel Ali', 'Colombo', 'Port Klang'] },
+  { country: 'Israel', loadingPorts: ['Port of Haifa', 'Port of Ashdod'], intermediatePorts: ['Piraeus', 'Colombo', 'Port Klang'] },
+  { country: 'Belgium', loadingPorts: ['Port of Antwerp-Bruges', 'Port of Zeebrugge', 'Port of Ghent'], intermediatePorts: ['Rotterdam', 'Colombo', 'Port Klang'] },
+  { country: 'United Kingdom', loadingPorts: ['Port of Felixstowe', 'Port of Southampton', 'London Gateway', 'Port of Liverpool'], intermediatePorts: ['Rotterdam', 'Colombo', 'Port Klang'] },
+  { country: 'France', loadingPorts: ['Port of Le Havre', 'Port of Marseille Fos', 'Port of Dunkirk'], intermediatePorts: ['Rotterdam', 'Colombo', 'Port Klang'] },
+  { country: 'Italy', loadingPorts: ['Port of Genoa', 'Port of Trieste', 'Port of Gioia Tauro', 'Port of La Spezia'], intermediatePorts: ['Colombo', 'Port Klang'] },
+  { country: 'Spain', loadingPorts: ['Port of Valencia', 'Port of Barcelona', 'Port of Algeciras'], intermediatePorts: ['Colombo', 'Port Klang'] },
+  { country: 'Mexico', loadingPorts: ['Port of Manzanillo', 'Port of Veracruz', 'Port of Lazaro Cardenas'], intermediatePorts: ['Balboa', 'Kaohsiung', 'Port Klang'] },
+  { country: 'Argentina', loadingPorts: ['Port of Buenos Aires', 'Port of Rosario', 'Port of Bahia Blanca'], intermediatePorts: ['Santos', 'Algeciras', 'Port Klang'] },
+  { country: 'Chile', loadingPorts: ['Port of San Antonio', 'Port of Valparaiso', 'Port of Coronel'], intermediatePorts: ['Balboa', 'Kaohsiung', 'Port Klang'] },
+  { country: 'Colombia', loadingPorts: ['Port of Cartagena', 'Port of Buenaventura', 'Port of Barranquilla'], intermediatePorts: ['Balboa', 'Kingston', 'Port Klang'] },
+  { country: 'Peru', loadingPorts: ['Port of Callao', 'Port of Paita', 'Port of Matarani'], intermediatePorts: ['Balboa', 'Kaohsiung', 'Port Klang'] },
+  { country: 'South Africa', loadingPorts: ['Port of Durban', 'Port of Cape Town', 'Port of Ngqura'], intermediatePorts: ['Colombo', 'Port Klang'] },
+  { country: 'Egypt', loadingPorts: ['Port of Alexandria', 'Port Said', 'Port of Damietta', 'Sokhna Port'], intermediatePorts: ['Jeddah', 'Colombo', 'Port Klang'] },
+  { country: 'Morocco', loadingPorts: ['Port of Tanger Med', 'Port of Casablanca', 'Port of Agadir'], intermediatePorts: ['Algeciras', 'Colombo', 'Port Klang'] },
+  { country: 'Kenya', loadingPorts: ['Port of Mombasa', 'Lamu Port'], intermediatePorts: ['Colombo', 'Port Klang'] },
+  { country: 'Nigeria', loadingPorts: ['Port of Lagos (Apapa)', 'Tin Can Island Port', 'Onne Port'], intermediatePorts: ['Algeciras', 'Colombo', 'Port Klang'] },
+  { country: 'New Zealand', loadingPorts: ['Port of Auckland', 'Port of Tauranga', 'Lyttelton Port'], intermediatePorts: ['Brisbane', 'Tanjung Pelepas', 'Port Klang'] },
+  { country: 'Norway', loadingPorts: ['Port of Oslo', 'Port of Bergen', 'Port of Stavanger'], intermediatePorts: ['Rotterdam', 'Colombo', 'Port Klang'] },
+  { country: 'Sweden', loadingPorts: ['Port of Gothenburg', 'Port of Stockholm', 'Port of Helsingborg'], intermediatePorts: ['Rotterdam', 'Colombo', 'Port Klang'] },
 ]
 
 const TRANSPORT_COUNTRIES = TRANSPORT_PORTS
   .map((item) => item.country)
   .sort((a, b) => a.localeCompare(b))
+
+const TRANSPORT_EMISSION_FACTORS_KG_PER_TKM: Record<string, number> = {
+  sea: 0.015,
+  ship: 0.015,
+  vessel: 0.015,
+  land: 0.12,
+  truck: 0.12,
+  rail: 0.035,
+  air: 1.2,
+}
+
+type Coordinate = { lat: number; lon: number }
+
+const ROUTE_POINT_COORDINATES: Record<string, Coordinate> = {
+  singapore: { lat: 1.2644, lon: 103.8200 },
+  'port of singapore': { lat: 1.2644, lon: 103.8200 },
+  'port of tuas / singapore': { lat: 1.2858, lon: 103.6305 },
+  'port of shanghai': { lat: 31.2304, lon: 121.4737 },
+  shanghai: { lat: 31.2304, lon: 121.4737 },
+  'port of ningbo-zhoushan': { lat: 29.8683, lon: 121.5440 },
+  'port of shenzhen': { lat: 22.5431, lon: 114.0579 },
+  'port of qingdao': { lat: 36.0671, lon: 120.3826 },
+  'port of tianjin': { lat: 39.0090, lon: 117.7170 },
+  tianjin: { lat: 39.0090, lon: 117.7170 },
+  'port of guangzhou': { lat: 23.1291, lon: 113.2644 },
+  'port of xiamen': { lat: 24.4798, lon: 118.0894 },
+  'hong kong': { lat: 22.3193, lon: 114.1694 },
+  'port klang': { lat: 3.0000, lon: 101.4000 },
+  'tanjung pelepas': { lat: 1.3644, lon: 103.5485 },
+  'port of tanjung pelepas': { lat: 1.3644, lon: 103.5485 },
+  kaohsiung: { lat: 22.6273, lon: 120.3014 },
+  busan: { lat: 35.1796, lon: 129.0756 },
+  colombo: { lat: 6.9271, lon: 79.8612 },
+  rotterdam: { lat: 51.9244, lon: 4.4777 },
+  algeciras: { lat: 36.1408, lon: -5.4562 },
+  balboa: { lat: 8.95, lon: -79.5667 },
+  kingston: { lat: 17.9712, lon: -76.7936 },
+  'jebel ali': { lat: 25.0118, lon: 55.0611 },
+  jeddah: { lat: 21.4858, lon: 39.1925 },
+  piraeus: { lat: 37.9420, lon: 23.6469 },
+  brisbane: { lat: -27.4705, lon: 153.0260 },
+  santos: { lat: -23.9608, lon: -46.3336 },
+  'port of busan': { lat: 35.1796, lon: 129.0756 },
+  'port of tokyo': { lat: 35.6762, lon: 139.6503 },
+  'port of yokohama': { lat: 35.4437, lon: 139.6380 },
+  'port of nagoya': { lat: 35.1815, lon: 136.9066 },
+  'port of osaka': { lat: 34.6937, lon: 135.5023 },
+  'port of kobe': { lat: 34.6901, lon: 135.1955 },
+  'jnpt (nhava sheva)': { lat: 18.9490, lon: 72.9512 },
+  'mundra port': { lat: 22.8395, lon: 69.7213 },
+  'port of chennai': { lat: 13.0827, lon: 80.2707 },
+  'port of melbourne': { lat: -37.8136, lon: 144.9631 },
+  'port botany': { lat: -33.9667, lon: 151.2167 },
+  'port of los angeles': { lat: 33.7405, lon: -118.2775 },
+  'port of long beach': { lat: 33.7542, lon: -118.2165 },
+}
+
+export type RouteLegEmission = {
+  from: string
+  to: string
+  distanceKm: number | null
+  emissionsKg: number | null
+  estimated: boolean
+}
+
+function normalizeRoutePoint(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\s*\([^)]*\)/g, '')
+    .replace(/^via\s+/, '')
+    .trim()
+}
+
+function coordinateForRoutePoint(value: string): Coordinate | null {
+  const normalized = normalizeRoutePoint(value)
+  return ROUTE_POINT_COORDINATES[normalized] ?? ROUTE_POINT_COORDINATES[normalized.replace(/^port of\s+/, '')] ?? null
+}
+
+function distanceKmBetween(a: Coordinate, b: Coordinate): number {
+  const radiusKm = 6371
+  const lat1 = (a.lat * Math.PI) / 180
+  const lat2 = (b.lat * Math.PI) / 180
+  const deltaLat = ((b.lat - a.lat) * Math.PI) / 180
+  const deltaLon = ((b.lon - a.lon) * Math.PI) / 180
+  const haversine =
+    Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2
+  return 2 * radiusKm * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
+}
+
+export function buildRouteLegEmissions(
+  routeProcess: string[],
+  transportMode: string,
+  transportResult: EcoTransitResponse | null,
+): RouteLegEmission[] {
+  const routeLegs = routeProcess.slice(0, -1).map((from, index) => ({
+    from,
+    to: routeProcess[index + 1],
+  }))
+  const weightTonnes = (transportResult?.transport.weight_kg ?? 0) / 1000
+  const factor = TRANSPORT_EMISSION_FACTORS_KG_PER_TKM[transportMode.toLowerCase()] ?? TRANSPORT_EMISSION_FACTORS_KG_PER_TKM.sea
+  const coordinateLegs = routeLegs.map((leg) => {
+    const fromCoordinate = coordinateForRoutePoint(leg.from)
+    const toCoordinate = coordinateForRoutePoint(leg.to)
+    const distanceKm = fromCoordinate && toCoordinate ? distanceKmBetween(fromCoordinate, toCoordinate) : null
+    return {
+      ...leg,
+      distanceKm,
+      emissionsKg: distanceKm != null && weightTonnes > 0 ? distanceKm * weightTonnes * factor : null,
+      estimated: true,
+    }
+  })
+
+  if (coordinateLegs.every((leg) => leg.emissionsKg != null)) return coordinateLegs
+
+  const totalDistance = transportResult?.transport.distance_km
+  const knownDistance = coordinateLegs.reduce((sum, leg) => sum + (leg.distanceKm ?? 0), 0)
+  const missingLegs = coordinateLegs.filter((leg) => leg.distanceKm == null).length
+  const fallbackDistance =
+    totalDistance != null && missingLegs > 0
+      ? Math.max(totalDistance - knownDistance, 0) / missingLegs
+      : null
+
+  return coordinateLegs.map((leg) => {
+    if (leg.distanceKm != null) return leg
+    return {
+      ...leg,
+      distanceKm: fallbackDistance,
+      emissionsKg: fallbackDistance != null && weightTonnes > 0 ? fallbackDistance * weightTonnes * factor : null,
+      estimated: true,
+    }
+  })
+}
 
 function sortNaicsOptions(options: NaicsOption[], preferredCode: string): NaicsOption[] {
   return [...options].sort((a, b) => {
@@ -748,7 +887,7 @@ export function Method1TransportationSection({
   transportLoading: boolean
   transportError: string | null
   transportResult: EcoTransitResponse | null
-  selectedTransportPort?: { country: string; loadingPort: string }
+  selectedTransportPort?: TransportPort
   setTransportWeight: (value: string) => void
   setTransportOrigin: (value: string) => void
   setTransportPortOfLoading: (value: string) => void
@@ -758,6 +897,14 @@ export function Method1TransportationSection({
   setTransportError: (value: string | null) => void
   handleTransportCalculate: (event?: React.SyntheticEvent) => void
 }) {
+  const loadingPortOptions = selectedTransportPort?.loadingPorts ?? []
+  const routeProcess = [
+    transportPortOfLoading.trim() || 'Port of loading',
+    ...(selectedTransportPort?.intermediatePorts ?? []),
+    transportPortOfDischarge.trim() || PORT_OF_DISCHARGE,
+  ]
+  const routeLegs = buildRouteLegEmissions(routeProcess, transportMode, transportResult)
+
   return (
     <Card className="gap-0 overflow-hidden border-zinc-900/12 bg-white py-0 shadow-sm">
       <CardHeader className="border-b border-zinc-900/10 bg-zinc-950 px-5 py-4 text-white">
@@ -800,11 +947,40 @@ export function Method1TransportationSection({
           <div className="grid gap-2 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3 text-xs">
             <div>
               <Label htmlFor="transport_port_loading" className="text-xs text-muted-foreground">Port of loading</Label>
-              <Input id="transport_port_loading" value={transportPortOfLoading} onChange={(event) => setTransportPortOfLoading(event.target.value)} className="mt-1 h-9 bg-white text-xs" placeholder={selectedTransportPort?.loadingPort ?? 'Enter port of loading'} />
+              {loadingPortOptions.length > 0 ? (
+                <Select value={transportPortOfLoading} onValueChange={setTransportPortOfLoading}>
+                  <SelectTrigger id="transport_port_loading" className="mt-1 h-9 bg-white text-xs">
+                    <SelectValue placeholder="Choose port of loading" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {loadingPortOptions.map((port) => (
+                      <SelectItem key={port} value={port}>{port}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input id="transport_port_loading" value={transportPortOfLoading} onChange={(event) => setTransportPortOfLoading(event.target.value)} className="mt-1 h-9 bg-white text-xs" placeholder="Enter port of loading" />
+              )}
             </div>
             <div>
               <Label htmlFor="transport_port_discharge" className="text-xs text-muted-foreground">Port of discharge</Label>
               <Input id="transport_port_discharge" value={transportPortOfDischarge} onChange={(event) => setTransportPortOfDischarge(event.target.value)} className="mt-1 h-9 bg-white text-xs" />
+            </div>
+            <div className="rounded-md border border-zinc-900/10 bg-white px-3 py-2">
+              <div className="font-medium text-zinc-700">Process</div>
+              <div className="mt-2 grid gap-1.5">
+                {routeLegs.map((leg) => (
+                  <div key={`${leg.from}-${leg.to}`} className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground">
+                    <span>{leg.from} -&gt; {leg.to}</span>
+                    <span className="font-mono text-zinc-700">
+                      {leg.emissionsKg != null ? `${leg.emissionsKg.toFixed(2)} kg CO2e` : 'Calculate to show emission'}
+                    </span>
+                    {leg.distanceKm != null ? (
+                      <span className="basis-full font-mono text-[11px] text-muted-foreground">{leg.distanceKm.toFixed(0)} km</span>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>

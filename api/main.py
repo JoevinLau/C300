@@ -21,6 +21,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from ecotransit_scraper import calculate_ecotransit
 from calculator import compute_emissions
+from calculation.transport_data import DISTANCES_TO_SINGAPORE_KM, EMISSION_FACTORS_KG_PER_TKM
 from calculation.method2_calculations import compute_method2, list_machine_library
 from service import (
     calculate_batch_emissions,
@@ -53,6 +54,64 @@ load_dotenv(API_DIR / ".env", override=True)
 AI_KEY_ENV_NAMES = ("AI_KEY", "OPENAI_API_KEY")
 RAG_CHAT_MODEL = os.getenv("RAG_CHAT_MODEL", "gpt-4.1-mini")
 rag_service = RagService()
+
+COUNTRY_ALIASES = {
+    "malaysia (peninsular)": "Malaysia",
+    "indonesia (java-bali)": "Indonesia",
+    "south korea": "South Korea",
+    "united states": "United States",
+    "usa": "United States",
+    "u.s.": "United States",
+    "u.s.a.": "United States",
+    "uae": "United Arab Emirates",
+}
+
+DEFAULT_DISTANCE_TO_SINGAPORE_KM = 6500.0
+
+
+def _normalize_transport_country(value: str | None) -> str:
+    cleaned = (value or "").strip()
+    if not cleaned:
+        return ""
+    lowered = cleaned.lower()
+    if lowered in COUNTRY_ALIASES:
+        return COUNTRY_ALIASES[lowered]
+    cleaned = cleaned.split("(")[0].strip()
+    for prefix in ("Port of ", "Via Port of "):
+        if cleaned.lower().startswith(prefix.lower()):
+            cleaned = cleaned[len(prefix):].strip()
+    return cleaned
+
+
+def estimate_transport_response(data: "EcoTransitRequest", reason: str | None = None) -> dict[str, Any]:
+    origin = _normalize_transport_country(data.origin_country) or _normalize_transport_country(data.port_of_loading)
+    distance_km = float(DISTANCES_TO_SINGAPORE_KM.get(origin, DEFAULT_DISTANCE_TO_SINGAPORE_KM))
+    mode = data.transport_mode.lower().strip()
+    factor = EMISSION_FACTORS_KG_PER_TKM.get(mode, EMISSION_FACTORS_KG_PER_TKM["sea"])
+    weight_tonnes = data.weight_kg / 1000.0
+    emissions_kg = weight_tonnes * distance_km * factor
+
+    raw = {
+        "estimated": True,
+        "reason": reason or "EcoTransit API credentials are not configured.",
+        "factor_kgco2_per_tonne_km": factor,
+        "weight_tonnes": weight_tonnes,
+    }
+
+    return {
+        "transport": {
+            "origin": origin or data.origin_country or data.port_of_loading,
+            "port_of_loading": data.port_of_loading,
+            "port_of_discharge": data.port_of_discharge,
+            "weight_kg": data.weight_kg,
+            "chosen_mode": data.transport_mode,
+            "chosen_emissions_kg": emissions_kg,
+            "distance_km": distance_km,
+            "energy_mj": None,
+            "source": "Local transport estimate (EcoTransit sign-in/API unavailable)",
+            "raw": raw,
+        }
+    }
 
 
 def get_ai_key() -> str:
@@ -596,6 +655,12 @@ def ecotransit(data: EcoTransitRequest):
             origin_country=data.origin_country,
         )
 
+    if os.getenv("ECOTRANSIT_ENABLE_SCRAPER", "").strip().lower() not in {"1", "true", "yes"}:
+        return estimate_transport_response(
+            data,
+            "EcoTransit API credentials are not configured. The public web calculator requires sign-in, so a local estimate was used.",
+        )
+
     try:
         result = calculate_ecotransit(
             port_of_loading=data.port_of_loading,
@@ -606,17 +671,11 @@ def ecotransit(data: EcoTransitRequest):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
-        logger.warning("EcoTransit scraper unavailable; using local transport estimate: %s", exc)
-        return calculate_local_transport_estimate(
-            port_of_loading=data.port_of_loading,
-            port_of_discharge=data.port_of_discharge,
-            weight_kg=data.weight_kg,
-            transport_mode=data.transport_mode,
-            origin_country=data.origin_country,
-        )
+        logger.warning("EcoTransit scraper unavailable, using local estimate: %s", exc)
+        return estimate_transport_response(data, str(exc))
     except Exception as exc:
         logger.exception("EcoTransit scraper failed: %s", exc)
-        raise HTTPException(status_code=502, detail=f"EcoTransit scraper failed: {exc}") from exc
+        return estimate_transport_response(data, f"EcoTransit scraper failed: {exc}")
 
     return {
         "transport": {

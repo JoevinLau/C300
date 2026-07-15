@@ -380,7 +380,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
 
   useEffect(() => {
     if (selectedTransportPort) {
-      setTransportPortOfLoading(selectedTransportPort.loadingPort)
+      setTransportPortOfLoading(selectedTransportPort.loadingPorts[0])
     }
   }, [selectedTransportPort])
 

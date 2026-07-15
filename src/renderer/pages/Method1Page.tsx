@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { AppBackground } from '@/components/AppBackground'
 import {
+  buildRouteLegEmissions,
   METHOD1_CATEGORIES as CATEGORIES,
   METHOD1_STEPS as STEPS,
   PORT_OF_DISCHARGE,
@@ -215,9 +216,17 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
 
   useEffect(() => {
     if (selectedTransportPort) {
-      setTransportPortOfLoading(selectedTransportPort.loadingPort)
+      setTransportPortOfLoading(selectedTransportPort.loadingPorts[0])
     }
   }, [selectedTransportPort])
+
+  const loadingPortOptions = selectedTransportPort?.loadingPorts ?? []
+  const routeProcess = [
+    transportPortOfLoading.trim() || 'Port of loading',
+    ...(selectedTransportPort?.intermediatePorts ?? []),
+    transportPortOfDischarge.trim() || PORT_OF_DISCHARGE,
+  ]
+  const routeLegs = buildRouteLegEmissions(routeProcess, transportMode, transportResult)
 
   useEffect(() => {
 
@@ -894,16 +903,35 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
                   <div className="grid gap-2 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3 text-xs">
                     <div>
                       <Label htmlFor="transport_port_loading" className="text-xs text-muted-foreground">Port of loading</Label>
-                      <Input
-                        id="transport_port_loading"
-                        value={transportPortOfLoading}
-                        onChange={(event) => {
-                          setTransportPortOfLoading(event.target.value)
-                          invalidateTransport()
-                        }}
-                        className="mt-1 h-9 bg-white text-xs"
-                        placeholder={selectedTransportPort?.loadingPort ?? 'Enter port of loading'}
-                      />
+                      {loadingPortOptions.length > 0 ? (
+                        <Select
+                          value={transportPortOfLoading}
+                          onValueChange={(value) => {
+                            setTransportPortOfLoading(value)
+                            invalidateTransport()
+                          }}
+                        >
+                          <SelectTrigger id="transport_port_loading" className="mt-1 h-9 bg-white text-xs">
+                            <SelectValue placeholder="Choose port of loading" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {loadingPortOptions.map((port) => (
+                              <SelectItem key={port} value={port}>{port}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          id="transport_port_loading"
+                          value={transportPortOfLoading}
+                          onChange={(event) => {
+                            setTransportPortOfLoading(event.target.value)
+                            invalidateTransport()
+                          }}
+                          className="mt-1 h-9 bg-white text-xs"
+                          placeholder="Enter port of loading"
+                        />
+                      )}
                     </div>
                     <div>
                       <Label htmlFor="transport_port_discharge" className="text-xs text-muted-foreground">Port of discharge</Label>
@@ -916,6 +944,22 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
                         }}
                         className="mt-1 h-9 bg-white text-xs"
                       />
+                    </div>
+                    <div className="rounded-md border border-zinc-900/10 bg-white px-3 py-2">
+                      <div className="font-medium text-zinc-700">Process</div>
+                      <div className="mt-2 grid gap-1.5">
+                        {routeLegs.map((leg) => (
+                          <div key={`${leg.from}-${leg.to}`} className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground">
+                            <span>{leg.from} -&gt; {leg.to}</span>
+                            <span className="font-mono text-zinc-700">
+                              {leg.emissionsKg != null ? `${leg.emissionsKg.toFixed(2)} kg CO2e` : 'Calculate to show emission'}
+                            </span>
+                            {leg.distanceKm != null ? (
+                              <span className="basis-full font-mono text-[11px] text-muted-foreground">{leg.distanceKm.toFixed(0)} km</span>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>

@@ -66,6 +66,12 @@ def _click_if_visible(page: Any, selector: str, timeout: int = 1500) -> None:
 
 def _visible_location_input(page: Any, location_index: int) -> Any:
     page.wait_for_load_state("domcontentloaded")
+    current_url = page.url.lower()
+    if "openid-connect/auth" in current_url or "auth-1.ecotransit.org" in current_url:
+        raise RuntimeError(
+            "EcoTransit public calculator now requires sign-in, so the automated scraper cannot access the location fields. "
+            "Configure ECOTRANSIT_API_URL and ECOTRANSIT_API_TOKEN for licensed EcoTransit results."
+        )
 
     location_inputs = page.locator("input[placeholder='Location']")
     try:
