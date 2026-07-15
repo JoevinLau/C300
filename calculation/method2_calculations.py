@@ -16,6 +16,11 @@ class MachineReference:
     duty_level: str
     avg_kw: float
     hourly_emission: float
+    country_code: str = "SG"
+    grid_factor: float = 0.4168
+    grid_year: int = 2026
+    grid_source: str = "Static fallback"
+    data_source: str = "Static fallback"
 
 
 @dataclass(frozen=True)
@@ -61,10 +66,10 @@ class DatabaseMachineDataSource:
     def __init__(self, country_code: str = "SG") -> None:
         self.country_code = country_code
 
-    def _grid_factor(self, cursor: Any) -> float:
+    def _grid_factor(self, cursor: Any) -> dict[str, Any]:
         cursor.execute(
             """
-            SELECT kgco2e_per_kwh
+            SELECT country_code, year, kgco2e_per_kwh, data_source
             FROM method2_grid_electricity_factors
             WHERE country_code = %s
             ORDER BY year DESC, id DESC
@@ -75,7 +80,7 @@ class DatabaseMachineDataSource:
         row = cursor.fetchone()
         if not row:
             raise ValueError(f"No grid electricity factor found for {self.country_code}")
-        return float(row["kgco2e_per_kwh"])
+        return dict(row)
 
     def _rows(self) -> list[dict[str, Any]]:
         try:
@@ -90,7 +95,7 @@ class DatabaseMachineDataSource:
                 grid_factor = self._grid_factor(cursor)
                 cursor.execute(
                     """
-                    SELECT machine_name, duty_level, avg_operating_load_kw
+                    SELECT machine_name, duty_level, avg_operating_load_kw, country_code, data_source
                     FROM method2_machine_profiles
                     WHERE country_code = %s
                     ORDER BY machine_name, duty_level
@@ -107,7 +112,10 @@ class DatabaseMachineDataSource:
             raise ValueError(f"No machine profiles found for {self.country_code}")
 
         for row in rows:
-            row["hourly_emission"] = float(row["avg_operating_load_kw"]) * grid_factor
+            row["grid_factor"] = float(grid_factor["kgco2e_per_kwh"])
+            row["grid_year"] = int(grid_factor["year"])
+            row["grid_source"] = str(grid_factor["data_source"])
+            row["hourly_emission"] = float(row["avg_operating_load_kw"]) * row["grid_factor"]
         return rows
 
     def list_machines(self) -> list[MachineReference]:
@@ -117,6 +125,11 @@ class DatabaseMachineDataSource:
                 duty_level=str(row["duty_level"]),
                 avg_kw=float(row["avg_operating_load_kw"]),
                 hourly_emission=float(row["hourly_emission"]),
+                country_code=str(row["country_code"]),
+                grid_factor=float(row["grid_factor"]),
+                grid_year=int(row["grid_year"]),
+                grid_source=str(row["grid_source"]),
+                data_source=str(row["data_source"]),
             )
             for row in self._rows()
         ]
@@ -162,6 +175,11 @@ def serialize_machine(machine: MachineReference) -> dict[str, Any]:
         "dutyLevel": machine.duty_level,
         "avgKW": machine.avg_kw,
         "hourlyEmission": machine.hourly_emission,
+        "countryCode": machine.country_code,
+        "gridFactor": machine.grid_factor,
+        "gridYear": machine.grid_year,
+        "gridSource": machine.grid_source,
+        "dataSource": machine.data_source,
     }
 
 

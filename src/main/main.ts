@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
+import http from 'node:http'
 
 import { postCalculate } from './api-client'
 import { CalculationHistoryStore } from './calculation-history-store'
@@ -15,6 +16,8 @@ import type {
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 let apiProcess: ChildProcess | null = null
 let calculationHistoryStore: CalculationHistoryStore | null = null
+const API_HOST = '127.0.0.1'
+const API_PORT = 8000
 
 function getCalculationHistoryStore(): CalculationHistoryStore {
   if (!calculationHistoryStore) {
@@ -128,11 +131,60 @@ function monitorApiProcess(
     clearTimeout(settleTimer)
     if (apiProcess === child) apiProcess = null
     if (!settled) {
+      if (isPortInUseStartupError(stderr)) {
+        void isExistingApiHealthy().then((healthy) => {
+          if (healthy && process.env.C300_REUSE_EXISTING_API === '1') {
+            console.log(`FastAPI is already running on http://${API_HOST}:${API_PORT}; reusing it.`)
+            return
+          }
+
+          console.error(
+            healthy
+              ? `FastAPI is already running on http://${API_HOST}:${API_PORT}. Stop that process, then run npm run dev again so code changes are loaded. Set C300_REUSE_EXISTING_API=1 to reuse it intentionally.`
+              : `Port ${API_PORT} is already in use, but it does not look like the FastAPI service. Stop the process using that port, then run npm run dev again.`,
+          )
+        })
+        return
+      }
+
       console.error(
         `FastAPI exited during startup with ${label} (code ${code}). ${stderr.trim()}`,
       )
       onStartupFailure?.()
     }
+  })
+}
+
+function isPortInUseStartupError(stderr: string) {
+  const normalized = stderr.toLowerCase()
+  return (
+    normalized.includes('errno 10048') ||
+    normalized.includes('winerror 10048') ||
+    normalized.includes('eaddrinuse') ||
+    normalized.includes('address already in use')
+  )
+}
+
+function isExistingApiHealthy() {
+  return new Promise<boolean>((resolve) => {
+    const request = http.get(
+      {
+        hostname: API_HOST,
+        port: API_PORT,
+        path: '/',
+        timeout: 1000,
+      },
+      (response) => {
+        response.resume()
+        resolve(response.statusCode === 200)
+      },
+    )
+
+    request.on('error', () => resolve(false))
+    request.on('timeout', () => {
+      request.destroy()
+      resolve(false)
+    })
   })
 }
 

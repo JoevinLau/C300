@@ -121,6 +121,8 @@ def _with_retry(operation_name: str, fn: Any) -> T:
     for attempt in range(1, attempts + 1):
         try:
             return fn()
+        except DatabaseUnavailable:
+            raise
         except MySQLError as exc:
             last_exc = exc
             logger.error("%s failed on attempt %s/%s: %s", operation_name, attempt, attempts, exc)

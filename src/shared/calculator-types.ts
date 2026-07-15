@@ -113,6 +113,11 @@ export interface Method2MachineReference {
   dutyLevel: string
   avgKW: number
   hourlyEmission: number
+  countryCode?: string
+  gridFactor?: number
+  gridYear?: number
+  gridSource?: string
+  dataSource?: string
 }
 
 export interface Method2MachiningEntryRequest {

@@ -24,6 +24,34 @@ export type {
 
 const API_BASES = ['http://127.0.0.1:8000', 'http://localhost:8000']
 const API_BASE = API_BASES[0]
+const TRANSPORT_DISTANCES_TO_SINGAPORE_KM: Record<string, number> = {
+  Singapore: 50,
+  China: 3600,
+  Japan: 5300,
+  'South Korea': 3800,
+  Vietnam: 1700,
+  Indonesia: 1500,
+  Malaysia: 400,
+  Thailand: 1400,
+  Philippines: 1700,
+  Cambodia: 1500,
+  Laos: 1600,
+  'United States': 15300,
+  Germany: 10400,
+  India: 4300,
+  Brazil: 17500,
+  Australia: 3800,
+  Canada: 13800,
+}
+const TRANSPORT_FACTORS_KG_PER_TKM: Record<string, number> = {
+  sea: 0.016,
+  vessel: 0.016,
+  ship: 0.016,
+  land: 0.12,
+  truck: 0.12,
+  air: 1.2,
+  rail: 0.035,
+}
 
 function formatApiError(detail: unknown): string {
   if (typeof detail === 'string') return detail
@@ -94,6 +122,51 @@ async function fetchJsonFromApi(path: string, init?: RequestInit): Promise<unkno
   )
 }
 
+function isEcoTransitScraperLocationError(error: unknown) {
+  return error instanceof Error && error.message.includes('EcoTransit location field')
+}
+
+function calculateLocalTransportFallback(payload: EcoTransitRequest): EcoTransitResponse {
+  const origin = payload.origin_country?.trim() || payload.port_of_loading.trim()
+  const distanceKm = TRANSPORT_DISTANCES_TO_SINGAPORE_KM[origin]
+  const mode = payload.transport_mode === 'vessel'
+    ? 'sea'
+    : payload.transport_mode === 'truck'
+      ? 'land'
+      : payload.transport_mode
+  const factor = TRANSPORT_FACTORS_KG_PER_TKM[payload.transport_mode] ?? TRANSPORT_FACTORS_KG_PER_TKM[mode]
+
+  if (distanceKm == null || factor == null) {
+    throw new Error(
+      `EcoTransit is unavailable and no local transport estimate is configured for ${origin} / ${payload.transport_mode}.`,
+    )
+  }
+
+  const weightTonnes = payload.weight_kg / 1000
+  const emissions = weightTonnes * distanceKm * factor
+
+  return {
+    transport: {
+      origin,
+      port_of_loading: payload.port_of_loading,
+      port_of_discharge: payload.port_of_discharge,
+      weight_kg: payload.weight_kg,
+      chosen_mode: mode,
+      chosen_emissions_kg: emissions,
+      distance_km: distanceKm,
+      energy_mj: null,
+      source: 'Local estimate (EcoTransit unavailable)',
+      raw: {
+        method: 'weight_tonnes * distance_km * kgco2e_per_tonne_km',
+        weight_tonnes: weightTonnes,
+        distance_km: distanceKm,
+        kgco2e_per_tonne_km: factor,
+        reason: 'EcoTransit calculator redirected or did not expose location fields.',
+      },
+    },
+  }
+}
+
 export async function calculateEmissions(
   payload: CalculateRequest,
 ): Promise<CalculateResponse> {
@@ -107,11 +180,19 @@ export async function calculateEmissions(
 export async function calculateEcoTransitTransport(
   payload: EcoTransitRequest,
 ): Promise<EcoTransitResponse> {
-  const body = await fetchJsonFromApi('/ecotransit', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
+  let body: unknown
+  try {
+    body = await fetchJsonFromApi('/ecotransit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  } catch (error) {
+    if (isEcoTransitScraperLocationError(error)) {
+      return calculateLocalTransportFallback(payload)
+    }
+    throw error
+  }
 
   return body as EcoTransitResponse
 }

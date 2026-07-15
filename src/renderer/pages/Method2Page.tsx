@@ -18,7 +18,6 @@ import {
   Route,
   Send,
   ShieldCheck,
-  Sparkles,
   Trash2,
   X,
 } from 'lucide-react'
@@ -84,6 +83,19 @@ type MachiningRow = {
   machineType: string
   dutyLevel: string
   operatingHours: string
+}
+
+type MachiningElectricityResult = {
+  entries: Array<{
+    id: string
+    machineType: string
+    dutyLevel: string
+    operatingHours: number
+    avgKW: number
+    hourlyEmission: number
+    emissions: number
+  }>
+  total: number
 }
 
 type ComponentView = {
@@ -311,6 +323,8 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
   const [transportSummary, setTransportSummary] = useState('No transport calculation yet')
   const [transportLoading, setTransportLoading] = useState(false)
   const [transportError, setTransportError] = useState<string | null>(null)
+  const [machiningResult, setMachiningResult] = useState<MachiningElectricityResult | null>(null)
+  const [machiningError, setMachiningError] = useState<string | null>(null)
   const [calculateLoading, setCalculateLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<Method2CalculateResponse | null>(null)
@@ -329,6 +343,25 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
         setMachineLibrary(fallbackMachines)
       })
   }, [])
+
+  useEffect(() => {
+    if (machineLibrary.length === 0) return
+
+    setRows((current) =>
+      current.map((row) => {
+        const hasMachineType = machineLibrary.some((machine) => machine.machineType === row.machineType)
+        const machineType = hasMachineType ? row.machineType : machineLibrary[0].machineType
+        const dutyLevels = machineLibrary.filter((machine) => machine.machineType === machineType)
+        const hasDutyLevel = dutyLevels.some((machine) => machine.dutyLevel === row.dutyLevel)
+
+        return {
+          ...row,
+          machineType,
+          dutyLevel: hasDutyLevel ? row.dutyLevel : dutyLevels[0]?.dutyLevel ?? '',
+        }
+      }),
+    )
+  }, [machineLibrary])
 
   useEffect(() => {
     let cancelled = false
@@ -391,6 +424,11 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
     setResult(null)
     setError(null)
     clearHistoryWarning()
+  }
+
+  function invalidateMachiningResult() {
+    setMachiningResult(null)
+    setMachiningError(null)
   }
 
   function invalidateTransport() {
@@ -558,6 +596,39 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
     }
   }
 
+  function handleMachiningCalculate() {
+    setMachiningError(null)
+
+    const entries = rows.map((row, index) => {
+      const ref = machineLibrary.find(
+        (machine) => machine.machineType === row.machineType && machine.dutyLevel === row.dutyLevel,
+      )
+      if (!ref) {
+        throw new Error(`Select a machine and duty level for machining row ${index + 1}.`)
+      }
+
+      const operatingHours = Number(row.operatingHours)
+      if (!Number.isFinite(operatingHours) || operatingHours < 0) {
+        throw new Error(`Enter valid operating hours for machining row ${index + 1}.`)
+      }
+
+      return {
+        id: row.id,
+        machineType: row.machineType,
+        dutyLevel: row.dutyLevel,
+        operatingHours,
+        avgKW: ref.avgKW,
+        hourlyEmission: ref.hourlyEmission,
+        emissions: ref.hourlyEmission * operatingHours,
+      }
+    })
+
+    setMachiningResult({
+      entries,
+      total: entries.reduce((sum, entry) => sum + entry.emissions, 0),
+    })
+  }
+
   async function handleCalculate() {
     setResult(null)
     setError(null)
@@ -607,6 +678,19 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
       const response = await calculateMethod2(calculationRequest)
       if (requestId !== calculationRequestId.current) return
       setResult(response)
+      setMachiningResult({
+        entries: response.machining.entries.map((entry, index) => ({
+          id: rows[index]?.id ?? `machine-result-${index}`,
+          machineType: entry.machineType,
+          dutyLevel: entry.dutyLevel,
+          operatingHours: entry.operatingHours,
+          avgKW: entry.avgKW,
+          hourlyEmission: entry.hourlyEmission,
+          emissions: entry.emissions,
+        })),
+        total: response.machining.total,
+      })
+      setMachiningError(null)
 
       await saveCalculationHistory({
         method: 'method2',
@@ -765,17 +849,37 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
                           <CardDescription>Temporary fixed machine data, ready for database replacement.</CardDescription>
                         </div>
                       </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => {
-                          setRows((current) => [...current, { id: `machine-${Date.now()}`, machineType: 'CNC Milling', dutyLevel: 'Light', operatingHours: '1' }])
-                          invalidateResult()
-                        }}
-                      >
-                        <Plus />
-                        Add
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            try {
+                              handleMachiningCalculate()
+                            } catch (err) {
+                              setMachiningResult(null)
+                              setMachiningError(err instanceof Error ? err.message : String(err))
+                            }
+                          }}
+                        >
+                          <Calculator />
+                          Calculate
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => {
+                            const fallbackMachine = machineLibrary[0] ?? fallbackMachines[0]
+                            setRows((current) => [...current, { id: `machine-${Date.now()}`, machineType: fallbackMachine.machineType, dutyLevel: fallbackMachine.dutyLevel, operatingHours: '1' }])
+                            invalidateMachiningResult()
+                            invalidateResult()
+                          }}
+                        >
+                          <Plus />
+                          Add
+                        </Button>
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-3 px-5 py-6">
@@ -793,10 +897,11 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
                               value={row.machineType}
                               onValueChange={(value) => {
                                 setRows((current) => current.map((item) => item.id === row.id ? { ...item, machineType: value, dutyLevel: machineLibrary.find((machine) => machine.machineType === value)?.dutyLevel ?? '' } : item))
+                                invalidateMachiningResult()
                                 invalidateResult()
                               }}
                             >
-                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectTrigger><SelectValue placeholder="Select machine" /></SelectTrigger>
                               <SelectContent>
                                 {machineTypes.map((machineType) => <SelectItem key={machineType} value={machineType}>{machineType}</SelectItem>)}
                               </SelectContent>
@@ -808,10 +913,11 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
                               value={row.dutyLevel}
                               onValueChange={(value) => {
                                 setRows((current) => current.map((item) => item.id === row.id ? { ...item, dutyLevel: value } : item))
+                                invalidateMachiningResult()
                                 invalidateResult()
                               }}
                             >
-                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectTrigger><SelectValue placeholder="Select duty" /></SelectTrigger>
                               <SelectContent>
                                 {dutyLevels.map((dutyLevel) => <SelectItem key={dutyLevel} value={dutyLevel}>{dutyLevel}</SelectItem>)}
                               </SelectContent>
@@ -823,11 +929,14 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
                               value={row.operatingHours}
                               onChange={(event) => {
                                 setRows((current) => current.map((item) => item.id === row.id ? { ...item, operatingHours: event.target.value } : item))
+                                invalidateMachiningResult()
                                 invalidateResult()
                               }}
                             />
                             <p className="mt-1 text-xs text-muted-foreground">
-                              {ref ? `${ref.hourlyEmission} kg CO2e/hr, ${ref.avgKW} kW avg` : 'Select reference'}
+                              {ref
+                                ? `${kg.format(ref.hourlyEmission)} kg CO2e/hr, ${kg.format(ref.avgKW)} kW avg`
+                                : 'Select reference'}
                             </p>
                           </div>
                           <div className="flex items-end">
@@ -837,6 +946,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
                               variant="outline"
                               onClick={() => {
                                 setRows((current) => current.filter((item) => item.id !== row.id))
+                                invalidateMachiningResult()
                                 invalidateResult()
                               }}
                               disabled={rows.length === 1}
@@ -849,11 +959,47 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
                       )
                     })}
 
-                    <div className="rounded-lg border border-amber-400/25 bg-amber-50 p-4">
+                    {machiningError ? (
+                      <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                        {machiningError}
+                      </div>
+                    ) : null}
+
+                    {machiningResult ? (
+                      <div className="rounded-lg border border-zinc-900/12 bg-zinc-50 p-4">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Machining result</p>
+                            <p className="mt-1 text-2xl font-semibold text-zinc-950">{kg.format(machiningResult.total)} kg CO2e</p>
+                          </div>
+                          <p className="text-sm text-zinc-600">
+                            {machiningResult.entries.length} {machiningResult.entries.length === 1 ? 'entry' : 'entries'} calculated
+                          </p>
+                        </div>
+                        <div className="mt-3 divide-y divide-zinc-900/10 border-t border-zinc-900/10">
+                          {machiningResult.entries.map((entry) => (
+                            <div key={entry.id} className="grid gap-1 py-3 text-sm sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                              <div className="min-w-0">
+                                <p className="truncate font-medium text-zinc-950">{entry.machineType} / {entry.dutyLevel}</p>
+                                <p className="text-xs text-zinc-500">
+                                  {kg.format(entry.operatingHours)} hr x {kg.format(entry.hourlyEmission)} kg CO2e/hr, {kg.format(entry.avgKW)} kW avg
+                                </p>
+                              </div>
+                              <p className="font-semibold text-zinc-950">{kg.format(entry.emissions)} kg CO2e</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="rounded-lg border border-lime-500/25 bg-lime-50 p-4">
                       <div className="flex items-start gap-3">
-                        <Sparkles className="mt-0.5 size-5 shrink-0 text-amber-700" />
-                        <p className="text-sm leading-6 text-amber-900/80">
-                          Database replacement point: backend `StaticMachineDataSource` in `calculation/method2_calculations.py`.
+                        <Database className="mt-0.5 size-5 shrink-0 text-lime-700" />
+                        <p className="text-sm leading-6 text-lime-950/80">
+                          Machine equipment is loaded from the Method 2 database when available. Avg kW comes from `method2_machine_profiles`; kg CO2e/hr is avg kW multiplied by the latest SG grid factor from `method2_grid_electricity_factors`
+                          {machineLibrary[0]?.gridFactor
+                            ? ` (${kg.format(machineLibrary[0].gridFactor)} kg CO2e/kWh, ${machineLibrary[0].gridYear ?? 'latest'}).`
+                            : '.'}
                         </p>
                       </div>
                     </div>

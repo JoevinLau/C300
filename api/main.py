@@ -25,6 +25,7 @@ from calculation.method2_calculations import compute_method2, list_machine_libra
 from service import (
     calculate_batch_emissions,
     calculate_ecotransit_transport,
+    calculate_local_transport_estimate,
     confirm_naics_mapping,
     fetch_naics_for_material,
     get_naics_factor_by_code,
@@ -605,7 +606,14 @@ def ecotransit(data: EcoTransitRequest):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        logger.warning("EcoTransit scraper unavailable; using local transport estimate: %s", exc)
+        return calculate_local_transport_estimate(
+            port_of_loading=data.port_of_loading,
+            port_of_discharge=data.port_of_discharge,
+            weight_kg=data.weight_kg,
+            transport_mode=data.transport_mode,
+            origin_country=data.origin_country,
+        )
     except Exception as exc:
         logger.exception("EcoTransit scraper failed: %s", exc)
         raise HTTPException(status_code=502, detail=f"EcoTransit scraper failed: {exc}") from exc

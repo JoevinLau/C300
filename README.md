@@ -97,13 +97,18 @@ source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Configure MySQL in `api/db.py` (`host`, `user`, `password`, `database`). The app expects database name `carbon_emission_db` with tables used by `api/service.py`.
-
 Create `.env` in the project root:
 
 ```dotenv
 AI_KEY=your_openai_api_key_here
 # OPENAI_API_KEY can be used instead of AI_KEY.
+
+# Optional: configure MySQL/TiDB. Without these, the API uses api/dev_data.py fallbacks.
+DB_HOST=your_db_host
+DB_PORT=4000
+DB_USER=your_db_user
+DB_PASSWORD=your_db_password
+DB_NAME=carbon_emission_db
 
 RAG_EMBEDDING_MODEL=text-embedding-3-small
 RAG_CHAT_MODEL=gpt-4.1-mini

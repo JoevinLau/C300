@@ -16,13 +16,19 @@ AIRPORT_SEARCH_OVERRIDES = {
 
 
 def _local_chromium_executable() -> Path | None:
+    roots: list[Path] = []
     browsers_path = os.getenv("PLAYWRIGHT_BROWSERS_PATH")
-    if not browsers_path:
-        return None
+    if browsers_path:
+        roots.append(Path(browsers_path))
+    roots.append(Path(__file__).resolve().parent.parent / ".playwright-browsers")
 
-    root = Path(browsers_path)
-    candidates = sorted(root.glob("chromium-*/chrome-win64/chrome.exe"), reverse=True)
-    return candidates[0] if candidates else None
+    for root in roots:
+        if not root.exists():
+            continue
+        candidates = sorted(root.glob("chromium-*/chrome-win64/chrome.exe"), reverse=True)
+        if candidates:
+            return candidates[0]
+    return None
 
 
 def _to_float(value: str) -> float | None:

@@ -14,8 +14,9 @@ from urllib.request import Request, urlopen
 from fastapi import HTTPException
 from mysql.connector import Error as MySQLError
 
-from db import get_conn
+from db import DatabaseUnavailable, get_conn
 from dev_data import DEV_FX_INFLATION, DEV_NAICS_OPTIONS
+from calculation.transport_data import DISTANCES_TO_SINGAPORE_KM, EMISSION_FACTORS_KG_PER_TKM
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,10 @@ def _dev_option_to_factor(row: dict, source: str = "dev_data", confidence: str =
 
 
 def _log_db_error(message: str, exc: BaseException, **context: object) -> None:
+    if isinstance(exc, DatabaseUnavailable):
+        logger.info("%s; using local dev data. context=%s error=%s", message, context, exc)
+        return
+
     logger.exception("%s context=%s error=%s", message, context, exc)
     print(f"{message}: {exc} context={context}", flush=True)
 
@@ -1010,5 +1015,96 @@ def calculate_ecotransit_transport(
             "energy_mj": energy_mj,
             "source": "EcoTransit World",
             "raw": raw_response,
+        }
+    }
+
+
+def _normalized_transport_mode(transport_mode: str) -> str:
+    mode = transport_mode.lower().strip()
+    if mode in {"vessel", "ship"}:
+        return "sea"
+    if mode in {"truck", "road"}:
+        return "land"
+    return mode
+
+
+def _local_transport_factor(transport_mode: str) -> tuple[float, str]:
+    mode = _normalized_transport_mode(transport_mode)
+    db_modes = {
+        "sea": ("sea", "vessel", "ship"),
+        "land": ("land", "truck"),
+        "air": ("air",),
+        "rail": ("rail",),
+    }.get(mode, (mode,))
+
+    try:
+        conn = get_conn()
+        try:
+            cur = conn.cursor(dictionary=True)
+            try:
+                placeholders = ", ".join(["%s"] * len(db_modes))
+                cur.execute(
+                    f"""
+                    SELECT transport_mode, kgco2e_per_tonne_km, data_source
+                    FROM method2_transport_emission_factors
+                    WHERE transport_mode IN ({placeholders})
+                    ORDER BY valid_from DESC, id DESC
+                    LIMIT 1
+                    """,
+                    db_modes,
+                )
+                row = cur.fetchone()
+            finally:
+                cur.close()
+        finally:
+            conn.close()
+        if row:
+            return float(row["kgco2e_per_tonne_km"]), str(row["data_source"])
+    except MySQLError as exc:
+        _log_db_error("Database unavailable while loading transport factor", exc, transport_mode=mode)
+
+    factor = EMISSION_FACTORS_KG_PER_TKM.get(mode)
+    if factor is None:
+        raise HTTPException(status_code=400, detail=f"Unsupported transport mode: {transport_mode}")
+    return factor, "local transport reference data"
+
+
+def calculate_local_transport_estimate(
+    port_of_loading: str,
+    port_of_discharge: str,
+    weight_kg: float,
+    transport_mode: str,
+    origin_country: str | None = None,
+) -> dict:
+    origin = (origin_country or port_of_loading).strip()
+    distance_km = DISTANCES_TO_SINGAPORE_KM.get(origin)
+    if distance_km is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No local transport distance is available for '{origin}'.",
+        )
+
+    factor, factor_source = _local_transport_factor(transport_mode)
+    weight_tonnes = weight_kg / 1000.0
+    co2e_kg = weight_tonnes * distance_km * factor
+
+    return {
+        "transport": {
+            "origin": origin,
+            "port_of_loading": port_of_loading,
+            "port_of_discharge": port_of_discharge,
+            "weight_kg": weight_kg,
+            "chosen_mode": _normalized_transport_mode(transport_mode),
+            "chosen_emissions_kg": co2e_kg,
+            "distance_km": distance_km,
+            "energy_mj": None,
+            "source": f"Local estimate ({factor_source})",
+            "raw": {
+                "method": "weight_tonnes * distance_km * kgco2e_per_tonne_km",
+                "weight_tonnes": weight_tonnes,
+                "distance_km": distance_km,
+                "kgco2e_per_tonne_km": factor,
+                "factor_source": factor_source,
+            },
         }
     }
