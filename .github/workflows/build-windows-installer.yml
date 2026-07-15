@@ -48,10 +48,20 @@ jobs:
         shell: powershell
         run: |
           $backend = Resolve-Path "dist/c300-api/c300-api.exe"
-          $process = Start-Process -FilePath $backend -WorkingDirectory (Split-Path $backend) -PassThru
+          $stdout = Join-Path $env:RUNNER_TEMP "c300-api.stdout.log"
+          $stderr = Join-Path $env:RUNNER_TEMP "c300-api.stderr.log"
+          $process = Start-Process `
+            -FilePath $backend `
+            -WorkingDirectory (Split-Path $backend) `
+            -RedirectStandardOutput $stdout `
+            -RedirectStandardError $stderr `
+            -PassThru
           try {
             $ready = $false
             for ($attempt = 0; $attempt -lt 30; $attempt++) {
+              if ($process.HasExited) {
+                break
+              }
               try {
                 $response = Invoke-RestMethod -Uri "http://127.0.0.1:8000/" -TimeoutSec 2
                 if ($response.message -eq "API is running!") {
@@ -64,11 +74,17 @@ jobs:
               }
             }
             if (-not $ready) {
+              Write-Host "Bundled backend stdout:"
+              Get-Content $stdout -ErrorAction SilentlyContinue
+              Write-Host "Bundled backend stderr:"
+              Get-Content $stderr -ErrorAction SilentlyContinue
               throw "Bundled FastAPI backend did not become healthy."
             }
           }
           finally {
-            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            if (-not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            }
           }
 
       - name: Upload Windows installer
