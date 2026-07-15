@@ -61,39 +61,23 @@ import {
   TRANSPORT_PORTS,
   currency,
   parseAmount,
-  pctFromAmount,
   type CategoryId,
   type LineItem,
   type Method1FormKey,
 } from '@/components/Method1SharedInputs'
 import { cn } from '@/lib/utils'
 import { toCalculationHistoryTransport } from '@/lib/calculation-history'
+import {
+  addLineItem,
+  buildTransportCalculationRequest,
+  deriveAllocationState,
+  removeLineItem,
+  updateLineItem,
+} from '@/lib/calculation-workflow'
+import { useCalculationHistorySave } from '@/hooks/useCalculationHistorySave'
+import { useMethod2Chat } from '@/hooks/useMethod2Chat'
+import { useMethod2Documents } from '@/hooks/useMethod2Documents'
 import { naicsCatalogByCode } from '../../shared/naics-catalog'
-
-type Citation = {
-  document_id: string
-  filename: string
-  location: string
-  excerpt: string
-  score: number
-}
-
-type Message = {
-  role: 'user' | 'assistant'
-  content: string
-  citations?: Citation[]
-  grounded?: boolean
-}
-
-type RagDocument = {
-  document_id: string
-  filename: string
-  file_type: string
-  content_hash: string
-  chunk_count: number
-  status: string
-  error: string | null
-}
 
 type MachiningRow = {
   id: string
@@ -120,13 +104,6 @@ type ComponentView = {
 const kg = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 })
 const API_BASE = 'http://127.0.0.1:8000'
 const WORKSPACE_ID = 'method2-demo'
-
-function getDocumentRequestError(error: unknown) {
-  if (error instanceof TypeError && error.message === 'Failed to fetch') {
-    return 'Cannot connect to the local API on port 8000. Restart the app or start the FastAPI backend, then retry the upload.'
-  }
-  return error instanceof Error ? error.message : String(error)
-}
 
 const demoPart = {
   partId: 'M2-DEMO-001',
@@ -160,6 +137,9 @@ const fallbackMachines: Method2MachineReference[] = [
 ]
 
 const METHOD2_SPEND_CATEGORIES: CategoryId[] = ['raw', 'surface']
+const METHOD2_CATEGORIES = METHOD1_CATEGORIES.filter((category) =>
+  METHOD2_SPEND_CATEGORIES.includes(category.id),
+)
 
 const requiredDocuments = [
   'Supplier PCF, EPD, or raw material carbon factor',
@@ -307,10 +287,6 @@ function ResultsPanel({
 }
 
 export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
-  const [messages, setMessages] = useState<Message[]>([])
-  const [input, setInput] = useState('')
-  const [chatOpen, setChatOpen] = useState(false)
-  const [chatLoading, setChatLoading] = useState(false)
   const [form, setForm] = useState<Record<Method1FormKey, string>>(defaultSpendForm)
   const [naicsOptions, setNaicsOptions] = useState<NaicsOption[]>([])
   const [rawItems, setRawItems] = useState<LineItem[]>([
@@ -337,17 +313,14 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
   const [transportError, setTransportError] = useState<string | null>(null)
   const [calculateLoading, setCalculateLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [historyWarning, setHistoryWarning] = useState<string | null>(null)
   const [result, setResult] = useState<Method2CalculateResponse | null>(null)
-  const [documents, setDocuments] = useState<RagDocument[]>([])
-  const [documentsLoading, setDocumentsLoading] = useState(true)
-  const [uploading, setUploading] = useState(false)
-  const [documentError, setDocumentError] = useState('')
-  const [retryFiles, setRetryFiles] = useState<File[]>([])
-  const [expandedCitation, setExpandedCitation] = useState<string | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const calculationRequestId = useRef(0)
   const transportRequestId = useRef(0)
+  const {
+    historyWarning,
+    clearHistoryWarning,
+    saveCalculationHistory,
+  } = useCalculationHistorySave(onHistorySaved)
 
   useEffect(() => {
     void fetchMethod2Machines()
@@ -380,43 +353,30 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
 
   const naicsByCode = useMemo(() => naicsCatalogByCode(naicsOptions), [naicsOptions])
 
-  const categoryAmounts = useMemo(
+  const {
+    allocationSum,
+    totalAmount: totalSgd,
+    hasInvoiceTotal,
+    allocationValid,
+    remaining,
+    segments: allocationSegments,
+    percentages: allocationPercentages,
+  } = useMemo(
     () =>
-      METHOD1_CATEGORIES.filter((cat) => METHOD2_SPEND_CATEGORIES.includes(cat.id)).map((cat) => {
-        let amount = 0
-        if (cat.id === 'raw') amount = rawItems.reduce((sum, item) => sum + parseAmount(item.amount), 0)
-        if (cat.id === 'surface') amount = surfaceItems.reduce((sum, item) => sum + parseAmount(item.amount), 0)
-        if (amount === 0) amount = parseAmount(form[cat.amountKey])
-        return { ...cat, amount }
+      deriveAllocationState({
+        categories: METHOD2_CATEGORIES,
+        form,
+        lineItems: {
+          raw: rawItems,
+          fabrication: fabItems,
+          surface: surfaceItems,
+        },
+        totalAmountKey: 'total_amount_sgd',
+        requireInvoiceTotal: false,
+        reconcileAllocationToTotal: false,
       }),
-    [form, rawItems, fabItems, surfaceItems],
+    [fabItems, form, rawItems, surfaceItems],
   )
-
-  const allocationSum = useMemo(
-    () => categoryAmounts.reduce((sum, cat) => sum + cat.amount, 0),
-    [categoryAmounts],
-  )
-  const totalSgd = parseAmount(form.total_amount_sgd)
-  const hasInvoiceTotal = true
-  const allocationValid = allocationSum > 0
-  const remaining = hasInvoiceTotal ? totalSgd - allocationSum : 0
-
-  const allocationSegments = useMemo(() => {
-    const pctBase = allocationSum > 0 ? allocationSum : totalSgd
-    return categoryAmounts.map((cat) => ({
-      label: cat.label,
-      amount: cat.amount,
-      pct: pctFromAmount(cat.amount, pctBase),
-      className: cat.barClass,
-    }))
-  }, [allocationSum, categoryAmounts, totalSgd])
-
-  const allocationPercentages = useMemo(() => {
-    const pctBase = allocationSum > 0 ? allocationSum : totalSgd
-    return Object.fromEntries(
-      categoryAmounts.map((cat) => [cat.id, pctFromAmount(cat.amount, pctBase)]),
-    ) as Record<CategoryId, number>
-  }, [allocationSum, categoryAmounts, totalSgd])
 
   const machineTypes = useMemo(
     () => Array.from(new Set(machineLibrary.map((machine) => machine.machineType))),
@@ -430,7 +390,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
     setCalculateLoading(false)
     setResult(null)
     setError(null)
-    setHistoryWarning(null)
+    clearHistoryWarning()
   }
 
   function invalidateTransport() {
@@ -465,101 +425,37 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
     }
   }, [components, form.invoice_id, form.year, result, transportResult, transportWeight])
 
-  async function loadDocuments(clearExistingError = true) {
-    setDocumentsLoading(true)
-    if (clearExistingError) setDocumentError('')
-    try {
-      const response = await fetch(
-        `${API_BASE}/rag/documents?workspace_id=${encodeURIComponent(WORKSPACE_ID)}`,
-      )
-      const data = await response.json().catch(() => null)
-      if (!response.ok) {
-        throw new Error(
-          data && typeof data.detail === 'string' ? data.detail : 'Unable to load documents.',
-        )
-      }
-      setDocuments(Array.isArray(data) ? data : [])
-    } catch (loadError) {
-      setDocumentError(getDocumentRequestError(loadError))
-    } finally {
-      setDocumentsLoading(false)
-    }
-  }
+  const {
+    chatLoading,
+    chatOpen,
+    expandedCitation,
+    input,
+    messages,
+    removeDocumentCitations,
+    sendMessage,
+    setChatOpen,
+    setExpandedCitation,
+    setInput,
+  } = useMethod2Chat({
+    apiBase: API_BASE,
+    workspaceId: WORKSPACE_ID,
+    calculationContext: fixedContext,
+  })
 
-  useEffect(() => {
-    void loadDocuments()
-  }, [])
-
-  async function uploadDocuments(files: File[]) {
-    if (files.length === 0) return
-    setUploading(true)
-    setDocumentError('')
-    const formData = new FormData()
-    formData.append('workspace_id', WORKSPACE_ID)
-    files.forEach((file) => formData.append('files', file))
-
-    try {
-      const response = await fetch(`${API_BASE}/rag/documents`, {
-        method: 'POST',
-        body: formData,
-      })
-      const data = await response.json().catch(() => null)
-      if (!response.ok) {
-        throw new Error(
-          data && typeof data.detail === 'string' ? data.detail : 'Document indexing failed.',
-        )
-      }
-      const results = Array.isArray(data?.documents) ? (data.documents as RagDocument[]) : []
-      const failures = results.filter((document) => document.status === 'error')
-      if (failures.length > 0) {
-        setRetryFiles(
-          files.filter((file) => failures.some((failure) => failure.filename === file.name)),
-        )
-        setDocumentError(
-          failures.map((failure) => `${failure.filename}: ${failure.error}`).join(' '),
-        )
-      } else {
-        setRetryFiles([])
-      }
-      await loadDocuments(failures.length === 0)
-    } catch (uploadError) {
-      setRetryFiles(files)
-      setDocumentError(getDocumentRequestError(uploadError))
-    } finally {
-      setUploading(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
-  }
-
-  async function deleteDocument(documentId: string) {
-    setDocumentError('')
-    try {
-      const response = await fetch(
-        `${API_BASE}/rag/documents/${encodeURIComponent(documentId)}?workspace_id=${encodeURIComponent(WORKSPACE_ID)}`,
-        { method: 'DELETE' },
-      )
-      if (!response.ok) {
-        const data = await response.json().catch(() => null)
-        throw new Error(
-          data && typeof data.detail === 'string' ? data.detail : 'Unable to delete document.',
-        )
-      }
-      setDocuments((current) =>
-        current.filter((document) => document.document_id !== documentId),
-      )
-      setMessages((current) =>
-        current.map((message) => ({
-          ...message,
-          citations: message.citations?.filter(
-            (citation) => citation.document_id !== documentId,
-          ),
-        })),
-      )
-      setExpandedCitation(null)
-    } catch (deleteError) {
-      setDocumentError(getDocumentRequestError(deleteError))
-    }
-  }
+  const {
+    deleteDocument,
+    documentError,
+    documents,
+    documentsLoading,
+    fileInputRef,
+    retryFiles,
+    uploadDocuments,
+    uploading,
+  } = useMethod2Documents({
+    apiBase: API_BASE,
+    workspaceId: WORKSPACE_ID,
+    onDocumentDeleted: removeDocumentCitations,
+  })
 
   function updateField(key: Method1FormKey, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -567,23 +463,23 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
   }
 
   function updateItem(category: CategoryId, index: number, fields: Partial<LineItem>) {
-    if (category === 'raw') setRawItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...fields } : item)))
-    if (category === 'fabrication') setFabItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...fields } : item)))
-    if (category === 'surface') setSurfaceItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...fields } : item)))
+    if (category === 'raw') setRawItems((items) => updateLineItem(items, index, fields))
+    if (category === 'fabrication') setFabItems((items) => updateLineItem(items, index, fields))
+    if (category === 'surface') setSurfaceItems((items) => updateLineItem(items, index, fields))
     invalidateResult()
   }
 
   function addItem(category: CategoryId) {
-    if (category === 'raw') setRawItems((prev) => [...prev, { amount: '', naics: '331110' }])
-    if (category === 'fabrication') setFabItems((prev) => [...prev, { amount: '', naics: '332710' }])
-    if (category === 'surface') setSurfaceItems((prev) => [...prev, { amount: '', naics: '332812' }])
+    if (category === 'raw') setRawItems((items) => addLineItem(items, '331110'))
+    if (category === 'fabrication') setFabItems((items) => addLineItem(items, '332710'))
+    if (category === 'surface') setSurfaceItems((items) => addLineItem(items, '332812'))
     invalidateResult()
   }
 
   function removeItem(category: CategoryId, index: number) {
-    if (category === 'raw') setRawItems((prev) => prev.length <= 1 ? prev : prev.filter((_, i) => i !== index))
-    if (category === 'fabrication') setFabItems((prev) => prev.length <= 1 ? prev : prev.filter((_, i) => i !== index))
-    if (category === 'surface') setSurfaceItems((prev) => prev.length <= 1 ? prev : prev.filter((_, i) => i !== index))
+    if (category === 'raw') setRawItems((items) => removeLineItem(items, index))
+    if (category === 'fabrication') setFabItems((items) => removeLineItem(items, index))
+    if (category === 'surface') setSurfaceItems((items) => removeLineItem(items, index))
     invalidateResult()
   }
 
@@ -632,41 +528,23 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
     setTransportResult(null)
     setTransportSummary('No transport calculation yet')
     invalidateResult()
-    const weight = Number(transportWeight)
-    if (!Number.isFinite(weight) || weight <= 0) {
-      setTransportError('Enter a valid shipment weight in kg')
-      return
-    }
-
-    if (!transportOrigin || transportOrigin.trim().length === 0) {
-      setTransportError('Enter origin country')
-      return
-    }
-
-    if (!transportPortOfLoading.trim()) {
-      setTransportError('Enter port of loading')
-      return
-    }
-
-    if (!transportPortOfDischarge.trim()) {
-      setTransportError('Enter port of discharge')
+    const transportRequest = buildTransportCalculationRequest({
+      weight: transportWeight,
+      origin: transportOrigin,
+      portOfLoading: transportPortOfLoading,
+      portOfDischarge: transportPortOfDischarge,
+      mode: transportMode,
+      matchedPort: selectedTransportPort,
+    })
+    if (!transportRequest.ok) {
+      setTransportError(transportRequest.error)
       return
     }
 
     const requestId = ++transportRequestId.current
     setTransportLoading(true)
     try {
-      const matchedPort = TRANSPORT_PORTS.find(
-        (item) => item.country.toLowerCase() === transportOrigin.trim().toLowerCase(),
-      )
-      const origin = matchedPort?.country ?? transportOrigin.trim()
-      const response = await calculateEcoTransitTransport({
-        origin_country: origin,
-        port_of_loading: transportPortOfLoading.trim(),
-        port_of_discharge: transportPortOfDischarge.trim(),
-        weight_kg: weight,
-        transport_mode: transportMode,
-      })
+      const response = await calculateEcoTransitTransport(transportRequest.request)
       if (requestId !== transportRequestId.current) return
       const emissions = response.transport.chosen_emissions_kg ?? 0
       setTransportResult(response)
@@ -683,7 +561,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
   async function handleCalculate() {
     setResult(null)
     setError(null)
-    setHistoryWarning(null)
+    clearHistoryWarning()
 
     if (!allocationValid) {
       setError('Enter at least one raw material or surface treatment amount before calculating Method 2.')
@@ -730,68 +608,18 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
       if (requestId !== calculationRequestId.current) return
       setResult(response)
 
-      try {
-        if (!window.electronAPI?.saveCalculationHistory) {
-          throw new Error('Calculation history is only available in the desktop app.')
-        }
-        await window.electronAPI.saveCalculationHistory({
-          method: 'method2',
-          request: calculationRequest,
-          result: response,
-          transport: toCalculationHistoryTransport(transportResult),
-        })
-        onHistorySaved?.()
-      } catch (historyError) {
-        setHistoryWarning(
-          historyError instanceof Error
-            ? `Calculation completed, but history was not saved: ${historyError.message}`
-            : 'Calculation completed, but history was not saved.',
-        )
-      }
+      await saveCalculationHistory({
+        method: 'method2',
+        request: calculationRequest,
+        result: response,
+        transport: toCalculationHistoryTransport(transportResult),
+      })
     } catch (err) {
       if (requestId === calculationRequestId.current) {
         setError(err instanceof Error ? err.message : String(err))
       }
     } finally {
       if (requestId === calculationRequestId.current) setCalculateLoading(false)
-    }
-  }
-
-  async function sendMessage(e?: React.FormEvent, promptOverride?: string) {
-    if (e) e.preventDefault()
-    const message = (promptOverride ?? input).trim()
-    if (!message) return
-
-    setMessages((m) => [...m, { role: 'user', content: message }])
-    if (!promptOverride) setInput('')
-    setChatLoading(true)
-
-    try {
-      const res = await fetch(`${API_BASE}/method2-chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          workspace_id: WORKSPACE_ID,
-          message,
-          calculation_context: fixedContext,
-          messages: messages.slice(-6).map(({ role, content }) => ({ role, content })),
-        }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.detail ? String(data.detail) : res.statusText)
-      setMessages((m) => [
-        ...m,
-        {
-          role: 'assistant',
-          content: typeof data.reply === 'string' ? data.reply : 'No reply returned.',
-          citations: Array.isArray(data.citations) ? data.citations : [],
-          grounded: data.grounded === true,
-        },
-      ])
-    } catch (err) {
-      setMessages((m) => [...m, { role: 'assistant', content: `Error: ${err instanceof Error ? err.message : String(err)}` }])
-    } finally {
-      setChatLoading(false)
     }
   }
 

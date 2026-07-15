@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
@@ -10,9 +10,6 @@ import {
   Workflow,
 } from 'lucide-react'
 
-import Method1Page from '@/pages/Method1Page'
-import Method2Page from '@/pages/Method2Page'
-import NaicsMappingPage from '@/pages/NaicsMappingPage'
 import { AppBackground } from '@/components/AppBackground'
 import { CalculationHistorySidebar } from '@/components/CalculationHistorySidebar'
 import { Button } from '@/components/ui/button'
@@ -23,6 +20,10 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+
+const Method1Page = lazy(() => import('@/pages/Method1Page'))
+const Method2Page = lazy(() => import('@/pages/Method2Page'))
+const NaicsMappingPage = lazy(() => import('@/pages/NaicsMappingPage'))
 
 const modules = [
   {
@@ -144,6 +145,38 @@ function HomePage() {
   )
 }
 
+function RouteLoadingPage() {
+  return (
+    <AppBackground>
+      <main
+        className="relative z-10 mx-auto flex min-h-[calc(100vh-2rem)] w-full max-w-7xl items-center justify-center"
+        aria-busy="true"
+      >
+        <div
+          className="w-full max-w-md rounded-lg border border-zinc-900/12 bg-white p-6 shadow-sm"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex items-center gap-4">
+            <span
+              className="flex size-11 shrink-0 items-center justify-center rounded-md bg-zinc-950 text-lime-300"
+              aria-hidden="true"
+            >
+              <Workflow className="size-5 animate-pulse" />
+            </span>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                Loading workflow
+              </p>
+              <p className="mt-1 text-sm text-zinc-700">Preparing the calculation workspace…</p>
+            </div>
+          </div>
+        </div>
+      </main>
+    </AppBackground>
+  )
+}
+
 
 function App() {
   const [route, setRoute] = useState(() => window.location.hash)
@@ -165,7 +198,7 @@ function App() {
 
   return (
     <>
-      {page}
+      <Suspense fallback={<RouteLoadingPage />}>{page}</Suspense>
       <CalculationHistorySidebar refreshToken={historyRefreshToken} />
     </>
   )

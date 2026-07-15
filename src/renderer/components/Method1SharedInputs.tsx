@@ -28,6 +28,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  parseAmount,
+  pctFromAmount,
+  type LineItem,
+} from '@/lib/calculation-workflow'
 import { cn } from '@/lib/utils'
 import type { EcoTransitResponse, NaicsOption } from '../../shared/calculator-types'
 import { Layers } from 'lucide-react'
@@ -38,16 +43,8 @@ export const currency = new Intl.NumberFormat('en-SG', {
   maximumFractionDigits: 2,
 })
 
-export function parseAmount(value: string): number {
-  const normalized = String(value).trim().replace(/,/g, '')
-  const parsed = Number(normalized)
-  return Number.isFinite(parsed) ? parsed : 0
-}
-
-export function pctFromAmount(amount: number, total: number): number {
-  if (total <= 0) return 0
-  return (amount / total) * 100
-}
+export { parseAmount, pctFromAmount }
+export type { LineItem }
 
 export type Method1FormKey =
   | 'invoice_id'
@@ -61,7 +58,6 @@ export type Method1FormKey =
   | 'naics_surface_treatment'
 
 export type CategoryId = 'raw' | 'fabrication' | 'surface'
-export type LineItem = { amount: string; naics: string }
 
 export const METHOD1_CATEGORIES: {
   id: CategoryId

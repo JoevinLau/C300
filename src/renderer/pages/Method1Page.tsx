@@ -4,27 +4,30 @@ import {
   ArrowLeft,
   Calculator,
   CheckCircle2,
-  ChevronDown,
   CircleDollarSign,
-  Cog,
-  Download,
   FileSpreadsheet,
-  Layers,
   Loader2,
-  Paintbrush,
   Plus,
   Sparkles,
   X,
 } from 'lucide-react'
-import { PDFDownloadLink } from '@react-pdf/renderer'
-import type { LucideIcon } from 'lucide-react'
-
 import { AppBackground } from '@/components/AppBackground'
-import { SearchableNaicsSelect } from '@/components/Method1SharedInputs'
-import { UseeioResultsPdf } from '@/components/UseeioResultsPdf'
-import { calculateEcoTransitTransport, calculateEmissions, fetchNaicsOptions, type CalculateResponse, type EcoTransitResponse, type NaicsOption, type CalculationLineItemResult } from '@/lib/calculator-api'
+import {
+  METHOD1_CATEGORIES as CATEGORIES,
+  METHOD1_STEPS as STEPS,
+  PORT_OF_DISCHARGE,
+  TRANSPORT_PORTS,
+  SearchableNaicsSelect,
+  currency,
+  parseAmount,
+  type CategoryId,
+  type LineItem,
+  type Method1FormKey as FormKey,
+} from '@/components/Method1SharedInputs'
+import { CalculationProcessPanel, ResultsPanel } from '@/components/useeio/Method1ResultsPanels'
+import { calculateEcoTransitTransport, calculateEmissions, fetchNaicsOptions, type CalculateResponse, type EcoTransitResponse, type NaicsOption } from '@/lib/calculator-api'
 import { naicsCatalogByCode } from '../../shared/naics-catalog'
-import { Button, buttonVariants } from '@/components/ui/button'
+import { Button } from '@/components/ui/button'
 import {
   Card,
   CardContent,
@@ -42,92 +45,16 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toCalculationHistoryTransport } from '@/lib/calculation-history'
+import {
+  addLineItem,
+  buildTransportCalculationRequest,
+  deriveAllocationState,
+  removeLineItem,
+  updateLineItem,
+} from '@/lib/calculation-workflow'
+import { useCalculationHistorySave } from '@/hooks/useCalculationHistorySave'
 import { cn } from '@/lib/utils'
 
-
-const currency = new Intl.NumberFormat('en-SG', {
-  style: 'currency',
-  currency: 'SGD',
-  maximumFractionDigits: 2,
-})
-
-const usd = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-  maximumFractionDigits: 2,
-})
-
-const kg = new Intl.NumberFormat('en-US', {
-  maximumFractionDigits: 2,
-})
-
-type FormKey =
-  | 'invoice_id'
-  | 'year'
-  | 'total_amount_sgd'
-  | 'raw_material_sgd'
-  | 'fabrication_sgd'
-  | 'surface_treatment_sgd'
-  | 'naics_raw_material'
-  | 'naics_fabrication'
-  | 'naics_surface_treatment'
-
-type CategoryId = 'raw' | 'fabrication' | 'surface'
-
-const CATEGORIES: {
-  id: CategoryId
-  amountKey: FormKey
-  naicsKey: FormKey
-  label: string
-  sector: string
-  icon: LucideIcon
-  barClass: string
-  rowClass: string
-  textClass: string
-  defaultNaics: string
-}[] = [
-  {
-    id: 'raw',
-    amountKey: 'raw_material_sgd',
-    naicsKey: 'naics_raw_material',
-    label: 'Raw material',
-    sector: 'Machine Shops',
-    icon: Layers,
-    barClass: 'bg-lime-400',
-    rowClass: 'border-lime-400/20 bg-lime-400/[0.04]',
-    textClass: 'text-lime-700',
-    defaultNaics: '331110',
-  },
-  {
-    id: 'fabrication',
-    amountKey: 'fabrication_sgd',
-    naicsKey: 'naics_fabrication',
-    label: 'Fabrication',
-    sector: 'Machine Shops',
-    icon: Cog,
-    barClass: 'bg-teal-400',
-    rowClass: 'border-teal-400/20 bg-teal-400/[0.04]',
-    textClass: 'text-teal-700',
-    defaultNaics: '332710',
-  },
-  {
-    id: 'surface',
-    amountKey: 'surface_treatment_sgd',
-    naicsKey: 'naics_surface_treatment',
-    label: 'Surface treatment',
-    sector: 'Metal Coating',
-    icon: Paintbrush,
-    barClass: 'bg-rose-400',
-    rowClass: 'border-rose-400/20 bg-rose-400/[0.04]',
-    textClass: 'text-rose-700',
-    defaultNaics: '332812',
-  },
-]
-
-const STEPS = [
-  { id: 1, title: 'Invoice', description: 'Spend record' },
-  { id: 2, title: 'Allocation', description: 'Amounts & NAICS' },
-] as const
 
 const defaultForm: Record<FormKey, string> = {
   invoice_id: '',
@@ -150,94 +77,9 @@ const demoForm: Record<FormKey, string> = {
   surface_treatment_sgd: '392.1',
 }
 
-const PORT_OF_DISCHARGE = 'Singapore'
-
-type TransportPort = {
-  country: string
-  loadingPort: string
-}
-
-const TRANSPORT_PORTS: TransportPort[] = [
-  { country: 'Singapore', loadingPort: 'Port of Tuas / Singapore' },
-  { country: 'China', loadingPort: 'Port of Shanghai' },
-  { country: 'South Korea', loadingPort: 'Port of Busan' },
-  { country: 'Japan', loadingPort: 'Port of Nagoya / Tokyo / Yokohama' },
-  { country: 'India', loadingPort: 'JNPT (Nhava Sheva) / Mundra' },
-  { country: 'United States', loadingPort: 'Port of Los Angeles / Long Beach' },
-  { country: 'Germany', loadingPort: 'Port of Hamburg' },
-  { country: 'Netherlands', loadingPort: 'Port of Rotterdam' },
-  { country: 'Australia', loadingPort: 'Port of Melbourne / Hedland' },
-  { country: 'Brazil', loadingPort: 'Port of Santos' },
-  { country: 'Canada', loadingPort: 'Port of Vancouver' },
-  { country: 'Malaysia (Peninsular)', loadingPort: 'Port Klang' },
-  { country: 'Vietnam', loadingPort: 'Port of Hai Phong' },
-  { country: 'Indonesia (Java-Bali)', loadingPort: 'Port of Tanjung Priok (Jakarta)' },
-  { country: 'Thailand', loadingPort: 'Port of Laem Chabang' },
-  { country: 'Philippines', loadingPort: 'Port of Manila' },
-  { country: 'Cambodia', loadingPort: 'Port of Sihanoukville' },
-  { country: 'Laos', loadingPort: 'Via Port of Laem Chabang (Thailand)' },
-  { country: 'Brunei', loadingPort: 'Muara Port' },
-  { country: 'Myanmar', loadingPort: 'Port of Yangon' },
-  { country: 'Hong Kong', loadingPort: 'Port of Hong Kong' },
-  { country: 'Taiwan', loadingPort: 'Port of Kaohsiung' },
-  { country: 'Mongolia', loadingPort: 'Via Port of Tianjin (China)' },
-  { country: 'Bangladesh', loadingPort: 'Port of Chittagong' },
-  { country: 'Pakistan', loadingPort: 'Port of Karachi' },
-  { country: 'Sri Lanka', loadingPort: 'Port of Colombo' },
-  { country: 'Nepal', loadingPort: 'Via Port of Kolkata (India)' },
-  { country: 'Bhutan', loadingPort: 'Via Port of Kolkata (India)' },
-  { country: 'Saudi Arabia', loadingPort: 'Jeddah Islamic Port' },
-  { country: 'UAE', loadingPort: 'Jebel Ali Port' },
-  { country: 'Qatar', loadingPort: 'Hamad Port' },
-  { country: 'Oman', loadingPort: 'Port of Sohar' },
-  { country: 'Israel', loadingPort: 'Port of Haifa' },
-  { country: 'Belgium', loadingPort: 'Port of Antwerp-Bruges' },
-  { country: 'United Kingdom', loadingPort: 'Port of Felixstowe' },
-  { country: 'France', loadingPort: 'Port of Le Havre' },
-  { country: 'Italy', loadingPort: 'Port of Genoa' },
-  { country: 'Spain', loadingPort: 'Port of Valencia' },
-  { country: 'Mexico', loadingPort: 'Port of Manzanillo' },
-  { country: 'Argentina', loadingPort: 'Port of Buenos Aires' },
-  { country: 'Chile', loadingPort: 'Port of San Antonio' },
-  { country: 'Colombia', loadingPort: 'Port of Cartagena' },
-  { country: 'Peru', loadingPort: 'Port of Callao' },
-  { country: 'South Africa', loadingPort: 'Port of Durban' },
-  { country: 'Egypt', loadingPort: 'Port of Alexandria' },
-  { country: 'Morocco', loadingPort: 'Port of Tanger Med' },
-  { country: 'Kenya', loadingPort: 'Port of Mombasa' },
-  { country: 'Nigeria', loadingPort: 'Port of Lagos (Apapa)' },
-  { country: 'New Zealand', loadingPort: 'Port of Auckland' },
-  { country: 'Norway', loadingPort: 'Port of Oslo' },
-  { country: 'Sweden', loadingPort: 'Port of Gothenburg' },
-]
-
 const TRANSPORT_COUNTRIES = TRANSPORT_PORTS
   .map((item) => item.country)
   .sort((a, b) => a.localeCompare(b))
-
-const categoryMetaByKey = {
-  raw_material: { label: 'Raw material', icon: Layers, textClass: 'text-lime-700' },
-  fabrication: { label: 'Fabrication', icon: Cog, textClass: 'text-teal-700' },
-  surface_treatment: { label: 'Surface treatment', icon: Paintbrush, textClass: 'text-rose-700' },
-} as const
-
-function getLineItemLabel(item: CalculationLineItemResult, index: number, naicsByCode: Map<string, NaicsOption>) {
-  const meta = categoryMetaByKey[item.category]
-  const description = naicsByCode.get(item.naics_code)?.description
-  return `${meta.label} ${index + 1} - ${item.naics_code}${description ? ` ${description}` : ''}`
-}
-
-function parseAmount(value: string): number {
-  const normalized = String(value).trim().replace(/,/g, '')
-  const parsed = Number(normalized)
-  return Number.isFinite(parsed) ? parsed : 0
-}
-
-
-function pctFromAmount(amount: number, total: number): number {
-  if (total <= 0) return 0
-  return (amount / total) * 100
-}
 
 function StepIndicator({ activeStep }: { activeStep: number }) {
   return (
@@ -335,427 +177,20 @@ function AllocationBar({
   )
 }
 
-function EmissionsBreakdownChart({
-  result,
-}: {
-  result: CalculateResponse
-}) {
-  const items = CATEGORIES.map((cat) => {
-    const emissionKey =
-      cat.id === 'raw'
-        ? 'raw_material'
-        : cat.id === 'fabrication'
-          ? 'fabrication'
-          : 'surface_treatment'
-    const value = result.emissions[emissionKey]
-    return { ...cat, value }
-  })
-  const max = Math.max(...items.map((i) => i.value), 1)
-
-  return (
-    <div className="space-y-3">
-      {items.map((item) => {
-        const width = (item.value / max) * 100
-        return (
-          <div key={item.id} className="space-y-1.5">
-            <div className="flex items-center justify-between text-sm">
-              <span className="flex items-center gap-2">
-                <item.icon className={cn('size-4', item.textClass)} />
-                {item.label}
-              </span>
-              <span className={cn('font-mono tabular-nums', item.textClass)}>
-                {kg.format(item.value)} kg
-              </span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-zinc-900/10">
-              <div
-                className={cn('h-full rounded-full transition-all duration-500', item.barClass)}
-                style={{ width: `${width}%` }}
-              />
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function ResultsPanel({
-  result,
-  loading,
-  error,
-  totalSgd,
-  year,
-  transport,
-  naicsByCode,
-}: {
-  result: CalculateResponse | null
-  loading: boolean
-  error: string | null
-  totalSgd: number
-  year: string
-  transport?: EcoTransitResponse | null
-  naicsByCode: Map<string, NaicsOption>
-}) {
-  const [lineItemsOpen, setLineItemsOpen] = useState(false)
-
-  if (loading) {
-    return (
-      <div className="flex min-h-[280px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-zinc-900/15 bg-white/70 p-8 text-center">
-        <Loader2 className="size-10 animate-spin text-lime-700" />
-        <p className="text-sm text-muted-foreground">Running spend-based calculation…</p>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="flex gap-3 rounded-lg border border-red-400/30 bg-red-50 p-4">
-        <AlertCircle className="mt-0.5 size-5 shrink-0 text-red-600" />
-        <div>
-          <p className="font-medium text-red-900">Calculation failed</p>
-          <p className="mt-1 text-sm text-red-700">{error}</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (!result) {
-    return (
-      <div className="flex min-h-[280px] flex-col items-center justify-center gap-4 rounded-lg border border-dashed border-lime-300/25 bg-lime-300/[0.03] p-8 text-center">
-        <div className="flex size-14 items-center justify-center rounded-lg border border-lime-300/30 bg-lime-300/10">
-          <Calculator className="size-7 text-lime-700" />
-        </div>
-        <div className="max-w-xs space-y-1">
-          <p className="font-medium text-foreground">Results will appear here</p>
-          <p className="text-sm text-muted-foreground">
-            Complete the form and calculate to see 2022 USD costs and emissions by component.
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  const totalCostUsd =
-    result.costs.raw_material_usd2022 +
-    result.costs.fabrication_usd2022 +
-    result.costs.surface_treatment_usd2022
-  const transportEmissions = transport?.transport?.chosen_emissions_kg ?? 0
-  const combinedEmissions = result.emissions.total + transportEmissions
-
-  return (
-    <div className="space-y-5">
-      <div className="relative overflow-hidden rounded-lg border border-lime-300/30 bg-gradient-to-br from-lime-500/15 via-white/80 to-teal-500/10 p-5">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -right-8 -top-8 size-32 rounded-full bg-lime-400/20 blur-2xl"
-        />
-        <p className="text-xs font-medium uppercase tracking-wider text-lime-700/80">
-          Total emissions
-        </p>
-        <p className="mt-1 font-mono text-4xl font-semibold tracking-tight text-zinc-950 tabular-nums">
-          {kg.format(combinedEmissions)}
-          <span className="ml-2 text-lg font-normal text-lime-700/90">kg CO₂e</span>
-        </p>
-        <div className="mt-4 flex flex-wrap gap-2 text-xs">
-          <span className="rounded-full border border-zinc-900/12 bg-zinc-950/5 px-2.5 py-1 font-mono text-lime-800">
-            {result.invoice_id}
-          </span>
-          {totalSgd > 0 ? (
-            <span className="rounded-full border border-zinc-900/12 bg-zinc-950/5 px-2.5 py-1 text-muted-foreground">
-              {currency.format(totalSgd)} · {year}
-            </span>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-lg border border-zinc-900/12 bg-white/70 p-3">
-          <p className="text-xs text-muted-foreground">Spend (2022 USD)</p>
-          <p className="mt-1 font-mono text-lg text-teal-700 tabular-nums">{usd.format(totalCostUsd)}</p>
-        </div>
-        <div className="rounded-lg border border-zinc-900/12 bg-white/70 p-3">
-          <p className="text-xs text-muted-foreground">Intensity</p>
-          <p className="mt-1 font-mono text-lg text-lime-700 tabular-nums">
-            {totalCostUsd > 0
-              ? (result.emissions.total / totalCostUsd).toFixed(2)
-              : '-'}{' '}
-            <span className="text-xs font-sans text-muted-foreground">kg/USD</span>
-          </p>
-        </div>
-      </div>
-
-      <div className="space-y-2 border-t border-zinc-900/12 pt-4">
-        <p className="text-sm font-medium text-muted-foreground">2022 USD cost breakdown</p>
-        {CATEGORIES.map((cat) => {
-          const costKey =
-            cat.id === 'raw'
-              ? 'raw_material_usd2022'
-              : cat.id === 'fabrication'
-                ? 'fabrication_usd2022'
-                : 'surface_treatment_usd2022'
-          const value = result.costs[costKey]
-          return (
-            <div
-              key={cat.id}
-              className="flex items-center justify-between rounded-lg border border-zinc-900/12 bg-white/70 px-3 py-2.5 text-sm"
-            >
-              <span className="flex items-center gap-2">
-                <cat.icon className={cn('size-4', cat.textClass)} />
-                {cat.label}
-              </span>
-              <span className="font-mono text-teal-800/90 tabular-nums">{usd.format(value)}</span>
-            </div>
-          )
-        })}
-      </div>
-
-      <div className="border-t border-zinc-900/12 pt-4">
-        <p className="mb-3 text-sm font-medium text-muted-foreground">Emissions by component</p>
-        <EmissionsBreakdownChart result={result} />
-      </div>
-
-      {result.calculation.line_items?.length ? (
-        <div className="space-y-2 border-t border-zinc-900/12 pt-4">
-          <Button
-            type="button"
-            variant="ghost"
-            className="h-auto w-full justify-between px-0 py-1 text-left text-sm font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
-            onClick={() => setLineItemsOpen((open) => !open)}
-            aria-expanded={lineItemsOpen}
-          >
-            <span>Line item emission calculations</span>
-            <ChevronDown className={cn('size-4 transition-transform', lineItemsOpen && 'rotate-180')} />
-          </Button>
-          {lineItemsOpen ? (
-            <div className="space-y-2">
-              {result.calculation.line_items.map((item, index) => {
-                const meta = categoryMetaByKey[item.category]
-                const Icon = meta.icon
-                return (
-                  <div key={`${item.category}-${item.naics_code}-${index}`} className="rounded-lg border border-zinc-900/12 bg-white/70 px-3 py-2.5 text-sm">
-                    <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1">
-                      <Icon className={cn('mt-0.5 size-4 shrink-0', meta.textClass)} />
-                      <span className="min-w-0 font-medium">{getLineItemLabel(item, index, naicsByCode)}</span>
-                      <span className={cn('shrink-0 font-mono tabular-nums', meta.textClass)}>{kg.format(item.emission)} kg</span>
-                      <span />
-                      <p className="col-start-2 font-mono text-xs text-muted-foreground">
-                        {usd.format(item.amount_usd2022)} * {item.factor.toFixed(4)} kgCO2e/USD
-                      </p>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {transportEmissions > 0 ? (
-        <div className="mt-4">
-          <div className="flex items-center justify-between">
-            <div className="text-xs text-muted-foreground">Transport emissions</div>
-            <div className="font-mono text-sm text-foreground">{kg.format(transportEmissions)} kg CO₂e</div>
-          </div>
-          <div className="flex items-center justify-between border-t pt-2">
-            <div className="text-sm font-medium">Total including transport</div>
-            <div className="font-mono text-sm font-semibold text-foreground">{kg.format(combinedEmissions)} kg CO₂e</div>
-          </div>
-        </div>
-      ) : null}
-
-      <PDFDownloadLink
-        className={buttonVariants({ className: 'w-full' })}
-        document={
-          <UseeioResultsPdf
-            result={result}
-            totalSgd={totalSgd}
-            transport={transport}
-          />
-        }
-        fileName={`useeio-${result.invoice_id.replace(/[^a-z0-9_-]+/gi, '-')}.pdf`}
-      >
-        {({ loading: preparingPdf }: { loading: boolean }) => (
-          <>
-            {preparingPdf ? <Loader2 className="animate-spin" /> : <Download />}
-            {preparingPdf ? 'Preparing PDF…' : 'Download PDF'}
-          </>
-        )}
-      </PDFDownloadLink>
-    </div>
-  )
-}
-
-function CalculationProcessPanel({
-  result,
-  loading,
-  naicsByCode,
-}: {
-  result: CalculateResponse | null
-  loading: boolean
-  naicsByCode: Map<string, NaicsOption>
-}) {
-  if (loading || !result) {
-    return null
-  }
-
-  const { calculation } = result
-  const calc = calculation
-
-  return (
-    <div className="space-y-4">
-      <div className="rounded-lg border border-rose-400/25 bg-rose-400/5 p-4">
-        <p className="mb-3 font-medium text-rose-800">Step 1: SGD to USD</p>
-        <p className="mb-3 text-xs text-muted-foreground">
-          FX rate: 1 SGD = {usd.format(calc.fx_rate)} USD
-        </p>
-        <div className="space-y-3 text-sm">
-          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
-            <p className="flex items-center gap-2 text-muted-foreground">
-              <Layers className="text-lime-400" />
-              Raw material
-            </p>
-            <p className="font-mono tabular-nums text-rose-700">
-              {currency.format(calc.sgd_amounts.raw_material)} * {calc.fx_rate.toFixed(4)} = {usd.format(calc.usd_amounts.raw_material)}
-            </p>
-          </div>
-          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
-            <p className="flex items-center gap-2 text-muted-foreground">
-              <Cog className="text-teal-400" />
-              Fabrication
-            </p>
-            <p className="font-mono tabular-nums text-rose-700">
-              {currency.format(calc.sgd_amounts.fabrication)} * {calc.fx_rate.toFixed(4)} = {usd.format(calc.usd_amounts.fabrication)}
-            </p>
-          </div>
-          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
-            <p className="flex items-center gap-2 text-muted-foreground">
-              <Paintbrush className="text-rose-400" />
-              Surface treatment
-            </p>
-            <p className="font-mono tabular-nums text-rose-700">
-              {currency.format(calc.sgd_amounts.surface_treatment)} * {calc.fx_rate.toFixed(4)} = {usd.format(calc.usd_amounts.surface_treatment)}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-lg border border-teal-400/25 bg-teal-400/5 p-4">
-        <p className="mb-3 font-medium text-teal-800">Step 2: USD Inflation Adjustment</p>
-        <p className="mb-3 text-xs text-muted-foreground">
-          Inflation index: {calc.inflation_index.toFixed(2)} ({calc.year} to 2022)
-        </p>
-        <div className="space-y-3 text-sm">
-          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
-            <p className="flex items-center gap-2 text-muted-foreground">
-              <Layers className="text-lime-400" />
-              Raw material
-            </p>
-            <p className="font-mono tabular-nums text-teal-700">
-              {usd.format(calc.usd_amounts.raw_material)} * (100 / {calc.inflation_index.toFixed(2)}) = {usd.format(calc.usd2022_amounts.raw_material)}
-            </p>
-          </div>
-          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
-            <p className="flex items-center gap-2 text-muted-foreground">
-              <Cog className="text-teal-400" />
-              Fabrication
-            </p>
-            <p className="font-mono tabular-nums text-teal-700">
-              {usd.format(calc.usd_amounts.fabrication)} * (100 / {calc.inflation_index.toFixed(2)}) = {usd.format(calc.usd2022_amounts.fabrication)}
-            </p>
-          </div>
-          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
-            <p className="flex items-center gap-2 text-muted-foreground">
-              <Paintbrush className="text-rose-400" />
-              Surface treatment
-            </p>
-            <p className="font-mono tabular-nums text-teal-700">
-              {usd.format(calc.usd_amounts.surface_treatment)} * (100 / {calc.inflation_index.toFixed(2)}) = {usd.format(calc.usd2022_amounts.surface_treatment)}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-lg border border-lime-400/25 bg-lime-400/5 p-4">
-        <p className="mb-3 font-medium text-lime-800">Step 3: Calculate Emissions</p>
-        <p className="mb-3 text-xs text-muted-foreground">
-          Each line item uses its own NAICS factor (kg CO2e per USD), then totals are grouped by component.
-        </p>
-        <div className="space-y-3 text-sm">
-          {calc.line_items?.length ? (
-            calc.line_items.map((item, index) => {
-              const meta = categoryMetaByKey[item.category]
-              const Icon = meta.icon
-              return (
-                <div key={`${item.category}-${item.naics_code}-${index}`} className="rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
-                  <div className="grid grid-cols-[1.25rem_minmax(0,1fr)] items-start gap-x-2 gap-y-1">
-                    <Icon className={cn('mt-0.5 size-4 shrink-0', meta.textClass)} />
-                    <p className="text-muted-foreground">
-                      {getLineItemLabel(item, index, naicsByCode)}
-                    </p>
-                    <span />
-                    <p className="col-start-2 font-mono tabular-nums text-lime-700">
-                    {usd.format(item.amount_usd2022)} * {item.factor.toFixed(4)} = {kg.format(item.emission)} kg
-                    </p>
-                  </div>
-                </div>
-              )
-            })
-          ) : (
-            <>
-              <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
-                <p className="flex items-center gap-2 text-muted-foreground">
-                  <Layers className="text-lime-400" />
-                  Raw material
-                </p>
-                <p className="font-mono tabular-nums text-lime-700">
-                  {usd.format(calc.usd2022_amounts.raw_material)} * {calc.factors.raw_material.toFixed(4)} = {kg.format(result.emissions.raw_material)} kg
-                </p>
-              </div>
-              <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
-                <p className="flex items-center gap-2 text-muted-foreground">
-                  <Cog className="text-teal-400" />
-                  Fabrication
-                </p>
-                <p className="font-mono tabular-nums text-lime-700">
-                  {usd.format(calc.usd2022_amounts.fabrication)} * {calc.factors.fabrication.toFixed(4)} = {kg.format(result.emissions.fabrication)} kg
-                </p>
-              </div>
-              <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
-                <p className="flex items-center gap-2 text-muted-foreground">
-                  <Paintbrush className="text-rose-400" />
-                  Surface treatment
-                </p>
-                <p className="font-mono tabular-nums text-lime-700">
-                  {usd.format(calc.usd2022_amounts.surface_treatment)} * {calc.factors.surface_treatment.toFixed(4)} = {kg.format(result.emissions.surface_treatment)} kg
-                </p>
-              </div>
-            </>
-          )}
-          <div className="flex items-center justify-between rounded-lg border border-lime-400/30 bg-lime-500/10 px-3 py-2.5 text-sm font-medium">
-            <span className="text-lime-800">Total Emissions</span>
-            <span className="font-mono text-lime-700 tabular-nums">{kg.format(result.emissions.total)} kg CO2e</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
 function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
   const [form, setForm] = useState(defaultForm)
   const [activeStep, setActiveStep] = useState(1)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [historyWarning, setHistoryWarning] = useState<string | null>(null)
   const [result, setResult] = useState<CalculateResponse | null>(null)
   const [naicsOptions, setNaicsOptions] = useState<NaicsOption[]>([])
-  const [rawItems, setRawItems] = useState<{ amount: string; naics: string }[]>([
+  const [rawItems, setRawItems] = useState<LineItem[]>([
     { amount: '', naics: '331110' },
   ])
-  const [fabItems, setFabItems] = useState<{ amount: string; naics: string }[]>([
+  const [fabItems, setFabItems] = useState<LineItem[]>([
     { amount: '', naics: '332710' },
   ])
-  const [surfaceItems, setSurfaceItems] = useState<{ amount: string; naics: string }[]>([
+  const [surfaceItems, setSurfaceItems] = useState<LineItem[]>([
     { amount: '', naics: '332812' },
   ])
   const [transportWeight, setTransportWeight] = useState<string>('')
@@ -768,6 +203,11 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
   const [transportResult, setTransportResult] = useState<EcoTransitResponse | null>(null)
   const calculationRequestId = useRef(0)
   const transportRequestId = useRef(0)
+  const {
+    historyWarning,
+    clearHistoryWarning,
+    saveCalculationHistory,
+  } = useCalculationHistorySave(onHistorySaved)
   const selectedTransportPort = useMemo(
     () => TRANSPORT_PORTS.find((item) => item.country.toLowerCase() === transportOrigin.trim().toLowerCase()),
     [transportOrigin],
@@ -792,52 +232,36 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
 
   const naicsByCode = useMemo(() => naicsCatalogByCode(naicsOptions), [naicsOptions])
 
-  const categoryAmounts = useMemo(
+  const {
+    categoryAmounts,
+    allocationSum,
+    totalAmount: totalSgd,
+    hasInvoiceTotal,
+    allocationValid,
+    remaining,
+    segments: allocationSegments,
+    percentages: allocationPercentages,
+  } = useMemo(
     () =>
-      CATEGORIES.map((cat) => {
-        let amount = 0
-        if (cat.id === 'raw') amount = rawItems.reduce((sum, item) => sum + parseAmount(item.amount), 0)
-        if (cat.id === 'fabrication') amount = fabItems.reduce((sum, item) => sum + parseAmount(item.amount), 0)
-        if (cat.id === 'surface') amount = surfaceItems.reduce((sum, item) => sum + parseAmount(item.amount), 0)
-        if (amount === 0) amount = parseAmount(form[cat.amountKey])
-        return { ...cat, amount }
+      deriveAllocationState({
+        categories: CATEGORIES,
+        form,
+        lineItems: {
+          raw: rawItems,
+          fabrication: fabItems,
+          surface: surfaceItems,
+        },
+        totalAmountKey: 'total_amount_sgd',
       }),
-    [form, rawItems, fabItems, surfaceItems],
+    [fabItems, form, rawItems, surfaceItems],
   )
-
-  const allocationSum = useMemo(
-    () => categoryAmounts.reduce((sum, cat) => sum + cat.amount, 0),
-    [categoryAmounts],
-  )
-
-  const totalSgd = parseAmount(form.total_amount_sgd)
-  const hasInvoiceTotal = totalSgd > 0
-  const allocationValid = hasInvoiceTotal && Math.abs(allocationSum - totalSgd) < 0.01
-  const remaining = hasInvoiceTotal ? totalSgd - allocationSum : 0
-
-  const allocationSegments = useMemo(() => {
-    const pctBase = allocationSum > 0 ? allocationSum : totalSgd
-    return categoryAmounts.map((cat) => ({
-      label: cat.label,
-      amount: cat.amount,
-      pct: pctFromAmount(cat.amount, pctBase),
-      className: cat.barClass,
-    }))
-  }, [allocationSum, categoryAmounts, totalSgd])
-
-  const allocationPercentages = useMemo(() => {
-    const pctBase = allocationSum > 0 ? allocationSum : totalSgd
-    return Object.fromEntries(
-      categoryAmounts.map((cat) => [cat.id, pctFromAmount(cat.amount, pctBase)]),
-    ) as Record<CategoryId, number>
-  }, [allocationSum, categoryAmounts, totalSgd])
 
   function invalidateResult() {
     calculationRequestId.current += 1
     setLoading(false)
     setResult(null)
     setError(null)
-    setHistoryWarning(null)
+    clearHistoryWarning()
   }
 
   function invalidateTransport() {
@@ -848,24 +272,24 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
     invalidateResult()
   }
 
-  function updateItem(category: CategoryId, index: number, fields: Partial<{ amount: string; naics: string }>) {
-    if (category === 'raw') setRawItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...fields } : item)))
-    if (category === 'fabrication') setFabItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...fields } : item)))
-    if (category === 'surface') setSurfaceItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...fields } : item)))
+  function updateItem(category: CategoryId, index: number, fields: Partial<LineItem>) {
+    if (category === 'raw') setRawItems((prev) => updateLineItem(prev, index, fields))
+    if (category === 'fabrication') setFabItems((prev) => updateLineItem(prev, index, fields))
+    if (category === 'surface') setSurfaceItems((prev) => updateLineItem(prev, index, fields))
     invalidateResult()
   }
 
   function addItem(category: CategoryId) {
-    if (category === 'raw') setRawItems((prev) => [...prev, { amount: '', naics: '331110' }])
-    if (category === 'fabrication') setFabItems((prev) => [...prev, { amount: '', naics: '332710' }])
-    if (category === 'surface') setSurfaceItems((prev) => [...prev, { amount: '', naics: '332812' }])
+    if (category === 'raw') setRawItems((prev) => addLineItem(prev, '331110'))
+    if (category === 'fabrication') setFabItems((prev) => addLineItem(prev, '332710'))
+    if (category === 'surface') setSurfaceItems((prev) => addLineItem(prev, '332812'))
     invalidateResult()
   }
 
   function removeItem(category: CategoryId, index: number) {
-    if (category === 'raw') setRawItems((prev) => prev.length <= 1 ? prev : prev.filter((_, i) => i !== index))
-    if (category === 'fabrication') setFabItems((prev) => prev.length <= 1 ? prev : prev.filter((_, i) => i !== index))
-    if (category === 'surface') setSurfaceItems((prev) => prev.length <= 1 ? prev : prev.filter((_, i) => i !== index))
+    if (category === 'raw') setRawItems((prev) => removeLineItem(prev, index))
+    if (category === 'fabrication') setFabItems((prev) => removeLineItem(prev, index))
+    if (category === 'surface') setSurfaceItems((prev) => removeLineItem(prev, index))
     invalidateResult()
   }
 
@@ -875,41 +299,23 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
     setTransportResult(null)
     invalidateResult()
 
-    const weight = Number(transportWeight)
-    if (!Number.isFinite(weight) || weight <= 0) {
-      setTransportError('Enter a valid shipment weight in kg')
-      return
-    }
-
-    if (!transportOrigin || transportOrigin.trim().length === 0) {
-      setTransportError('Enter origin country')
-      return
-    }
-
-    if (!transportPortOfLoading.trim()) {
-      setTransportError('Enter port of loading')
-      return
-    }
-
-    if (!transportPortOfDischarge.trim()) {
-      setTransportError('Enter port of discharge')
+    const transportCalculation = buildTransportCalculationRequest({
+      weight: transportWeight,
+      origin: transportOrigin,
+      portOfLoading: transportPortOfLoading,
+      portOfDischarge: transportPortOfDischarge,
+      mode: transportMode,
+      matchedPort: selectedTransportPort,
+    })
+    if (!transportCalculation.ok) {
+      setTransportError(transportCalculation.error)
       return
     }
 
     const requestId = ++transportRequestId.current
     setTransportLoading(true)
     try {
-      const matchedPort = TRANSPORT_PORTS.find(
-        (item) => item.country.toLowerCase() === transportOrigin.trim().toLowerCase(),
-      )
-      const origin = matchedPort?.country ?? transportOrigin.trim()
-      const response = await calculateEcoTransitTransport({
-        origin_country: origin,
-        port_of_loading: transportPortOfLoading.trim(),
-        port_of_discharge: transportPortOfDischarge.trim(),
-        weight_kg: weight,
-        transport_mode: transportMode,
-      })
+      const response = await calculateEcoTransitTransport(transportCalculation.request)
 
       if (requestId === transportRequestId.current) setTransportResult(response)
     } catch (err) {
@@ -1011,7 +417,7 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
     })
     setActiveStep(1)
     setError(null)
-    setHistoryWarning(null)
+    clearHistoryWarning()
     setResult(null)
   }
 
@@ -1032,14 +438,14 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
     setTransportResult(null)
     setActiveStep(1)
     setError(null)
-    setHistoryWarning(null)
+    clearHistoryWarning()
     setResult(null)
   }
 
   async function handleCalculate(event: React.FormEvent) {
     event.preventDefault()
     setError(null)
-    setHistoryWarning(null)
+    clearHistoryWarning()
     setResult(null)
 
     if (!hasInvoiceTotal) {
@@ -1113,24 +519,12 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
       setResult(response)
       setActiveStep(2)
 
-      try {
-        if (!window.electronAPI?.saveCalculationHistory) {
-          throw new Error('Calculation history is only available in the desktop app.')
-        }
-        await window.electronAPI.saveCalculationHistory({
-          method: 'useeio',
-          request: calculationRequest,
-          result: response,
-          transport: toCalculationHistoryTransport(transportResult),
-        })
-        onHistorySaved?.()
-      } catch (historyError) {
-        setHistoryWarning(
-          historyError instanceof Error
-            ? `Calculation completed, but history was not saved: ${historyError.message}`
-            : 'Calculation completed, but history was not saved.',
-        )
-      }
+      await saveCalculationHistory({
+        method: 'useeio',
+        request: calculationRequest,
+        result: response,
+        transport: toCalculationHistoryTransport(transportResult),
+      })
 
     } catch (err) {
       if (requestId === calculationRequestId.current) {
