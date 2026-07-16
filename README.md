@@ -140,7 +140,24 @@ python main.py
 
 The Windows distribution bundles the Electron application, a frozen FastAPI
 backend, and the Chromium runtime used for EcoTransit. Recipients do not need
-Node.js or Python installed.
+Node.js or Python installed. Generated installers are build artifacts and are
+not committed to the repository.
+
+#### Download a prebuilt installer
+
+1. Open the
+   [Build Windows installer workflow](https://github.com/JoevinLau/C300/actions/workflows/build-windows-installer.yml).
+2. Select the latest successful run on `main`.
+3. In the **Artifacts** section, download `C300-Windows-Installer`.
+4. Extract the downloaded ZIP file to obtain
+   `C300-CarbonSpend-Setup-<version>.exe`.
+5. Send the extracted `.exe` to the recipient. They can double-click it and
+   follow the installation wizard.
+
+Workflow artifacts are retained for 14 days. Run the workflow again when the
+artifact has expired or when a new installer is required.
+
+#### Build locally
 
 Build on a Windows machine from the repository root:
 
@@ -155,13 +172,15 @@ The installer is written to:
 release/C300-CarbonSpend-Setup-<version>.exe
 ```
 
-From macOS or Linux, run the **Build Windows installer** workflow in GitHub
-Actions. Download the `C300-Windows-Installer` artifact when the workflow
-finishes. PyInstaller must create the bundled backend on Windows, so a complete
-installer cannot be produced directly on another operating system.
+PyInstaller must create the bundled backend on Windows, so macOS and Linux
+users should use the GitHub Actions workflow instead of building locally. The
+workflow builds the installer, launches the frozen FastAPI backend, verifies
+its health endpoint, and uploads the installer only when those checks pass.
 
 The installer is unsigned by default. Windows may show a SmartScreen warning
-until a trusted code-signing certificate is configured.
+until a trusted code-signing certificate is configured. Only choose **More
+info** and **Run anyway** when the installer came from a trusted build or
+sender.
 
 Open **Method 2** from the home screen, upload one or more PDF/XLSX supplier documents, wait for indexing to finish, and then ask questions in the assistant. Health check: `GET http://127.0.0.1:8000/` → `{"message":"API is running!"}`.
 
@@ -200,6 +219,7 @@ The response contains `reply`, `grounded`, and `citations`. Each citation includ
 |---------|-------------|
 | `pnpm dev` | Vite renderer + Electron (runs `scripts/predev.cjs` first) |
 | `pnpm build` | Production build to `out/` |
+| `pnpm package:win` | Build the self-contained Windows installer (Windows only) |
 | `pnpm preview` | Preview the built app |
 | `pnpm typecheck` | TypeScript check (`tsc --noEmit`) |
 
