@@ -21,6 +21,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from ecotransit_scraper import calculate_ecotransit
 from calculator import compute_emissions
+from dev_data import MAX_CALCULATION_YEAR, MIN_CALCULATION_YEAR
 from calculation.transport_data import DISTANCES_TO_SINGAPORE_KM, EMISSION_FACTORS_KG_PER_TKM
 from calculation.method2_calculations import compute_method2, list_machine_library
 from service import (
@@ -199,7 +200,7 @@ class Method1LineItemInput(BaseModel):
 
 class InputData(BaseModel):
     invoice_id: str = Field(..., min_length=1)
-    year: int = Field(..., ge=2020, le=2030)
+    year: int = Field(..., ge=MIN_CALCULATION_YEAR, le=MAX_CALCULATION_YEAR)
     total_amount_sgd: float = Field(..., gt=0)
     sgd_amounts: SgdAmountsInput | None = None
     allocation: Allocation | None = None
@@ -355,7 +356,7 @@ class Method2MachiningEntry(BaseModel):
 
 class Method2InputData(BaseModel):
     part_id: str = Field(..., min_length=1)
-    year: int = Field(..., ge=2020, le=2030)
+    year: int = Field(..., ge=MIN_CALCULATION_YEAR, le=MAX_CALCULATION_YEAR)
     raw_material_sgd: float = Field(..., ge=0)
     surface_treatment_sgd: float = Field(..., ge=0)
     naics: Method2Naics

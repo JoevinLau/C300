@@ -70,6 +70,9 @@ import {
   addLineItem,
   buildTransportCalculationRequest,
   deriveAllocationState,
+  isSupportedCalculationYear,
+  MAX_CALCULATION_YEAR,
+  MIN_CALCULATION_YEAR,
   removeLineItem,
   updateLineItem,
 } from '@/lib/calculation-workflow'
@@ -647,8 +650,10 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
     const rawSum = rawItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.raw_material_sgd)
     const surfSum = surfaceItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.surface_treatment_sgd)
     const year = Number(form.year)
-    if (!Number.isInteger(year) || year < 2020 || year > 2030) {
-      setError('Enter a valid assessment year from 2020 to 2030.')
+    if (!isSupportedCalculationYear(year)) {
+      setError(
+        `Enter a valid assessment year from ${MIN_CALCULATION_YEAR} to ${MAX_CALCULATION_YEAR}.`,
+      )
       return
     }
 

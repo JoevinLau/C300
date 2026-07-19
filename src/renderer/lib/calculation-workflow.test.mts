@@ -5,6 +5,7 @@ import {
   addLineItem,
   buildTransportCalculationRequest,
   deriveAllocationState,
+  isSupportedCalculationYear,
   parseAmount,
   pctFromAmount,
   removeLineItem,
@@ -16,6 +17,14 @@ const categories = [
   { id: 'fabrication', amountKey: 'fab_amount', label: 'Fabrication', barClass: 'bg-teal-400' },
   { id: 'surface', amountKey: 'surface_amount', label: 'Surface treatment', barClass: 'bg-rose-400' },
 ] as const
+
+test('accepts only calculation years backed by shipped reference data', () => {
+  assert.equal(isSupportedCalculationYear(2022), true)
+  assert.equal(isSupportedCalculationYear(2026), true)
+  assert.equal(isSupportedCalculationYear(2021), false)
+  assert.equal(isSupportedCalculationYear(2030), false)
+  assert.equal(isSupportedCalculationYear(2024.5), false)
+})
 
 test('parses display amounts and safely handles invalid values', () => {
   assert.equal(parseAmount(' 1,307.25 '), 1_307.25)

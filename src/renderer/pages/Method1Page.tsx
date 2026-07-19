@@ -50,6 +50,9 @@ import {
   addLineItem,
   buildTransportCalculationRequest,
   deriveAllocationState,
+  isSupportedCalculationYear,
+  MAX_CALCULATION_YEAR,
+  MIN_CALCULATION_YEAR,
   removeLineItem,
   updateLineItem,
 } from '@/lib/calculation-workflow'
@@ -484,8 +487,8 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
     }
 
     const year = Number(form.year)
-    if (!Number.isInteger(year) || year < 2020 || year > 2030) {
-      setError('Year must be between 2020 and 2030.')
+    if (!isSupportedCalculationYear(year)) {
+      setError(`Year must be between ${MIN_CALCULATION_YEAR} and ${MAX_CALCULATION_YEAR}.`)
       setActiveStep(1)
       return
     }
@@ -638,8 +641,8 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
                   <Input
                     id="year"
                     type="number"
-                    min={2020}
-                    max={2030}
+                    min={MIN_CALCULATION_YEAR}
+                    max={MAX_CALCULATION_YEAR}
                     value={form.year}
                     onChange={(e) => updateField('year', e.target.value)}
                   />

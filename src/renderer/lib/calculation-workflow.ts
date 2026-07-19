@@ -40,6 +40,17 @@ export interface DerivedAllocationState<
 
 export type TransportMode = 'sea' | 'land' | 'air'
 
+export const MIN_CALCULATION_YEAR = 2022
+export const MAX_CALCULATION_YEAR = 2026
+
+export function isSupportedCalculationYear(year: number): boolean {
+  return (
+    Number.isInteger(year) &&
+    year >= MIN_CALCULATION_YEAR &&
+    year <= MAX_CALCULATION_YEAR
+  )
+}
+
 export interface MatchedTransportPort {
   country: string
 }

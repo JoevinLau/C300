@@ -47,6 +47,40 @@ def calculation_payload() -> dict:
     }
 
 
+def calculation_result(year: int) -> dict:
+    category_amounts = {
+        "raw_material": 60.0,
+        "fabrication": 25.0,
+        "surface_treatment": 15.0,
+    }
+    return {
+        "calculation": {
+            "fx_rate": 1.0,
+            "inflation_index": 100.0,
+            "year": year,
+            "sgd_amounts": category_amounts,
+            "usd_amounts": category_amounts,
+            "usd2022_amounts": category_amounts,
+            "factors": {
+                "raw_material": 0.25,
+                "fabrication": 0.50,
+                "surface_treatment": 0.75,
+            },
+        },
+        "costs": {
+            "raw_material_usd2022": 60.0,
+            "fabrication_usd2022": 25.0,
+            "surface_treatment_usd2022": 15.0,
+        },
+        "emissions": {
+            "raw_material": 15.0,
+            "fabrication": 12.5,
+            "surface_treatment": 11.25,
+            "total": 38.75,
+        },
+    }
+
+
 class CalculationApiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -118,6 +152,43 @@ class CalculationApiTests(unittest.TestCase):
         self.assertEqual(body["emissions"]["raw_material"], 35.0)
         self.assertEqual(body["calculation"]["factors"]["raw_material"], 35.0 / 60.0)
         self.assertEqual(body["emissions"]["total"], 70.0)
+
+    def test_rejects_years_without_shipped_fx_and_inflation_data(self):
+        payload = calculation_payload()
+        payload["year"] = 2030
+
+        with patch.object(
+            main,
+            "compute_emissions",
+            return_value=calculation_result(payload["year"]),
+        ) as calculate:
+            response = self.client.post("/calculate", json=payload)
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("less than or equal to 2026", response.text)
+        calculate.assert_not_called()
+
+    def test_method2_rejects_years_without_shipped_fx_and_inflation_data(self):
+        payload = {
+            "part_id": "METHOD2-YEAR-TEST",
+            "year": 2021,
+            "raw_material_sgd": 100.0,
+            "surface_treatment_sgd": 50.0,
+            "naics": {
+                "raw_material": "331110",
+                "fabrication": "332710",
+                "surface_treatment": "332812",
+            },
+            "transport_emissions_kg": 0.0,
+            "machining_entries": [],
+        }
+
+        with patch.object(main, "compute_method2") as calculate:
+            response = self.client.post("/method2/calculate", json=payload)
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("greater than or equal to 2022", response.text)
+        calculate.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -4,6 +4,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+try:
+    from dev_data import MAX_CALCULATION_YEAR, MIN_CALCULATION_YEAR
+except ModuleNotFoundError:
+    from api.dev_data import MAX_CALCULATION_YEAR, MIN_CALCULATION_YEAR
+
 
 class StrictApiModel(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
@@ -42,7 +47,7 @@ class Method1LineItemInput(StrictApiModel):
 
 class InputData(StrictApiModel):
     invoice_id: str = Field(..., min_length=1, max_length=128)
-    year: int = Field(..., ge=2020, le=2030)
+    year: int = Field(..., ge=MIN_CALCULATION_YEAR, le=MAX_CALCULATION_YEAR)
     total_amount_sgd: float = Field(..., gt=0)
     sgd_amounts: SgdAmountsInput | None = None
     allocation: Allocation | None = None
@@ -239,7 +244,7 @@ class Method2ActivityInput(StrictApiModel):
     part_id: str = Field(..., min_length=1, max_length=128)
     part_name: str | None = None
     supplier: str | None = None
-    year: int = Field(..., ge=2020, le=2030)
+    year: int = Field(..., ge=MIN_CALCULATION_YEAR, le=MAX_CALCULATION_YEAR)
     material: str = Field(..., min_length=1)
     weight_kg: float = Field(..., gt=0)
     raw_material_cost_sgd: float = Field(0, ge=0)

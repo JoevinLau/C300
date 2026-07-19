@@ -196,7 +196,7 @@ Open **Method 2** from the home screen, upload one or more PDF/XLSX supplier doc
 | `DELETE` | `/rag/documents/{document_id}?workspace_id=...` | Delete a document and its vectors |
 | `POST` | `/method2-chat` | Retrieve supplier evidence and return a grounded answer with citations |
 
-`POST /calculate` body (summary): `invoice_id`, `year` (2020–2030), `total_amount_sgd`, `allocation` (three percentages summing to 100), `naics` (three 6-digit codes for raw material, fabrication, surface treatment). Shared TypeScript types live in `src/shared/calculator-types.ts`.
+`POST /calculate` body (summary): `invoice_id`, `year` (2022–2026), `total_amount_sgd`, `allocation` (three percentages summing to 100), `naics` (three 6-digit codes for raw material, fabrication, surface treatment). Shared TypeScript types live in `src/shared/calculator-types.ts`.
 
 `POST /rag/documents` is multipart form data with `workspace_id` and one or more `files` fields. Supported file types are PDF and XLSX.
 

@@ -29,6 +29,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
+  MAX_CALCULATION_YEAR,
+  MIN_CALCULATION_YEAR,
   parseAmount,
   pctFromAmount,
   type LineItem,
@@ -666,7 +668,7 @@ export function Method1SpendInputSections({
             </div>
             <div className="space-y-2">
               <Label htmlFor="year">Year</Label>
-              <Input id="year" type="number" min={2020} max={2030} value={form.year} onChange={(e) => updateField('year', e.target.value)} />
+              <Input id="year" type="number" min={MIN_CALCULATION_YEAR} max={MAX_CALCULATION_YEAR} value={form.year} onChange={(e) => updateField('year', e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="total_amount_sgd" className="flex items-center gap-1.5">
@@ -706,7 +708,7 @@ export function Method1SpendInputSections({
             <div className={cn('grid gap-4', showTotalAmount && 'sm:grid-cols-2')}>
               <div className="space-y-2">
                 <Label htmlFor="year">Year</Label>
-                <Input id="year" type="number" min={2020} max={2030} value={form.year} onChange={(e) => updateField('year', e.target.value)} />
+                <Input id="year" type="number" min={MIN_CALCULATION_YEAR} max={MAX_CALCULATION_YEAR} value={form.year} onChange={(e) => updateField('year', e.target.value)} />
               </div>
               {showTotalAmount ? (
                 <div className="space-y-2">
@@ -817,7 +819,7 @@ export function Method1SpendInputSections({
                     {showYearColumn ? (
                       <div className="space-y-1">
                         <Label className="text-xs md:sr-only">{cat.label} year</Label>
-                        <Input type="number" min={2020} max={2030} value={form.year} onChange={(event) => updateField('year', event.target.value)} className="h-9 font-mono tabular-nums" />
+                        <Input type="number" min={MIN_CALCULATION_YEAR} max={MAX_CALCULATION_YEAR} value={form.year} onChange={(event) => updateField('year', event.target.value)} className="h-9 font-mono tabular-nums" />
                       </div>
                     ) : null}
                     {showShareColumn ? (
