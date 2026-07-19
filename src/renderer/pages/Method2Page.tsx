@@ -109,7 +109,7 @@ type ComponentView = {
   source: string
   formula: string
   valueKg: number
-  confidence: 'Primary' | 'Estimated' | 'Fallback'
+  confidence: 'Primary' | 'Estimated'
   rowClass: string
   barClass: string
   textClass: string
@@ -144,12 +144,6 @@ const defaultSpendForm: Record<Method1FormKey, string> = {
   naics_surface_treatment: demoPart.surfaceTreatmentNaics,
 }
 
-const fallbackMachines: Method2MachineReference[] = [
-  { machineType: 'CNC Milling', dutyLevel: 'Light', avgKW: 7.15, hourlyEmission: 2.98 },
-  { machineType: 'CNC Milling', dutyLevel: 'Medium', avgKW: 14.3, hourlyEmission: 5.96 },
-  { machineType: 'CNC Milling', dutyLevel: 'Heavy', avgKW: 29.25, hourlyEmission: 12.19 },
-]
-
 const METHOD2_SPEND_CATEGORIES: CategoryId[] = ['raw', 'surface']
 const METHOD2_CATEGORIES = METHOD1_CATEGORIES.filter((category) =>
   METHOD2_SPEND_CATEGORIES.includes(category.id),
@@ -165,6 +159,8 @@ const requiredDocuments = [
 function buildComponents(result: Method2CalculateResponse | null, transportSummary: string): ComponentView[] {
   const emissions = result?.emissions
   const machiningEntry = result?.machining.entries[0]
+  const transportSource = result?.transport.source ?? 'Not calculated'
+  const transportEstimated = transportSource.toLowerCase().includes('estimate')
 
   return [
     {
@@ -172,10 +168,10 @@ function buildComponents(result: Method2CalculateResponse | null, transportSumma
       label: 'Raw material',
       description: 'Upstream metal or block production before machining.',
       icon: Layers,
-      source: 'Method 1 spend pipeline',
+      source: 'Authoritative NAICS reference database',
       formula: 'Cost -> FX -> GDP deflator -> NAICS factor -> emissions',
       valueKg: emissions?.raw_material ?? 0,
-      confidence: 'Fallback',
+      confidence: 'Primary',
       rowClass: 'border-lime-400/20 bg-lime-400/[0.04]',
       barClass: 'bg-lime-400',
       textClass: 'text-lime-700',
@@ -190,10 +186,10 @@ function buildComponents(result: Method2CalculateResponse | null, transportSumma
       label: 'Transportation',
       description: 'EcoTransit transport emissions copied from Method 1 behavior.',
       icon: Route,
-      source: 'EcoTransit World',
+      source: transportSource,
       formula: 'Existing Method 1 /ecotransit implementation',
       valueKg: emissions?.transportation ?? 0,
-      confidence: 'Estimated',
+      confidence: transportEstimated ? 'Estimated' : 'Primary',
       rowClass: 'border-sky-400/20 bg-sky-400/[0.04]',
       barClass: 'bg-sky-400',
       textClass: 'text-sky-700',
@@ -208,7 +204,7 @@ function buildComponents(result: Method2CalculateResponse | null, transportSumma
       label: 'Machining electricity',
       description: 'Machine hourly emission factor multiplied by operating hours.',
       icon: Factory,
-      source: 'Temporary machine library',
+      source: machiningEntry?.dataSource ?? 'Method 2 reference database',
       formula: 'Hourly emission factor x operating hours',
       valueKg: emissions?.machining ?? 0,
       confidence: 'Primary',
@@ -218,7 +214,7 @@ function buildComponents(result: Method2CalculateResponse | null, transportSumma
       details: [
         { label: 'Machine', value: machiningEntry ? `${machiningEntry.machineType} / ${machiningEntry.dutyLevel}` : 'Not calculated' },
         { label: 'Hourly factor', value: machiningEntry ? `${machiningEntry.hourlyEmission} kg CO2e/hr` : 'Select machine' },
-        { label: 'Future source', value: 'Machine database replaces static library' },
+        { label: 'Grid source', value: machiningEntry?.gridSource ?? 'Not calculated' },
       ],
     },
     {
@@ -226,10 +222,10 @@ function buildComponents(result: Method2CalculateResponse | null, transportSumma
       label: 'Surface treatment',
       description: 'Anodizing, plating, heat treatment, polishing, or coating.',
       icon: Paintbrush,
-      source: 'Method 1 spend pipeline',
+      source: 'Authoritative NAICS reference database',
       formula: 'Cost -> FX -> GDP deflator -> NAICS factor -> emissions',
       valueKg: emissions?.surface_treatment ?? 0,
-      confidence: 'Fallback',
+      confidence: 'Primary',
       rowClass: 'border-rose-400/20 bg-rose-400/[0.04]',
       barClass: 'bg-rose-400',
       textClass: 'text-rose-700',
@@ -303,6 +299,7 @@ function ResultsPanel({
 export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
   const [form, setForm] = useState<Record<Method1FormKey, string>>(defaultSpendForm)
   const [naicsOptions, setNaicsOptions] = useState<NaicsOption[]>([])
+  const [naicsError, setNaicsError] = useState<string | null>(null)
   const [rawItems, setRawItems] = useState<LineItem[]>([
     { amount: defaultSpendForm.raw_material_sgd, naics: defaultSpendForm.naics_raw_material },
   ])
@@ -312,7 +309,8 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
   const [surfaceItems, setSurfaceItems] = useState<LineItem[]>([
     { amount: defaultSpendForm.surface_treatment_sgd, naics: defaultSpendForm.naics_surface_treatment },
   ])
-  const [machineLibrary, setMachineLibrary] = useState<Method2MachineReference[]>(fallbackMachines)
+  const [machineLibrary, setMachineLibrary] = useState<Method2MachineReference[]>([])
+  const [machineLibraryError, setMachineLibraryError] = useState<string | null>(null)
   const [rows, setRows] = useState<MachiningRow[]>([
     { id: 'machine-1', machineType: 'CNC Milling', dutyLevel: 'Medium', operatingHours: '5' },
   ])
@@ -321,6 +319,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
   const [transportPortOfLoading, setTransportPortOfLoading] = useState('Port Klang')
   const [transportPortOfDischarge, setTransportPortOfDischarge] = useState(PORT_OF_DISCHARGE)
   const [transportMode, setTransportMode] = useState<'sea' | 'land' | 'air'>('sea')
+  const [allowTransportEstimate, setAllowTransportEstimate] = useState(false)
   const [transportResult, setTransportResult] = useState<EcoTransitResponse | null>(null)
   const [transportSummary, setTransportSummary] = useState('No transport calculation yet')
   const [transportLoading, setTransportLoading] = useState(false)
@@ -340,9 +339,13 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
 
   useEffect(() => {
     void fetchMethod2Machines()
-      .then(setMachineLibrary)
-      .catch(() => {
-        setMachineLibrary(fallbackMachines)
+      .then((machines) => {
+        setMachineLibrary(machines)
+        setMachineLibraryError(null)
+      })
+      .catch((error) => {
+        setMachineLibrary([])
+        setMachineLibraryError(error instanceof Error ? error.message : String(error))
       })
   }, [])
 
@@ -367,9 +370,19 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
 
   useEffect(() => {
     let cancelled = false
-    void fetchNaicsOptions().then((options) => {
-      if (!cancelled) setNaicsOptions(options)
-    })
+    void fetchNaicsOptions()
+      .then((options) => {
+        if (!cancelled) {
+          setNaicsOptions(options)
+          setNaicsError(null)
+        }
+      })
+      .catch((fetchError) => {
+        if (!cancelled) {
+          setNaicsOptions([])
+          setNaicsError(fetchError instanceof Error ? fetchError.message : String(fetchError))
+        }
+      })
     return () => {
       cancelled = true
     }
@@ -573,6 +586,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
       portOfDischarge: transportPortOfDischarge,
       mode: transportMode,
       matchedPort: selectedTransportPort,
+      allowEstimate: allowTransportEstimate,
     })
     if (!transportRequest.ok) {
       setTransportError(transportRequest.error)
@@ -670,7 +684,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
           surface_treatment: (surfaceItems[0]?.naics ?? form.naics_surface_treatment).trim(),
         },
         transport_emissions_kg: transportEmissions,
-        transport_source: 'EcoTransit World',
+        transport_source: transportResult.transport.source,
         machining_entries: rows.map((row) => ({
           machine_type: row.machineType,
           duty_level: row.dutyLevel,
@@ -756,6 +770,11 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
                 </Button>
               </div>
               {error ? <p className="mt-3 text-sm text-rose-600">{error}</p> : null}
+              {naicsError ? (
+                <div className="mt-3 rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                  NAICS reference data unavailable: {naicsError}
+                </div>
+              ) : null}
               {historyWarning ? (
                 <div
                   className="mt-3 flex items-start gap-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2.5 text-sm text-amber-900"
@@ -813,6 +832,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
                   transportLoading={transportLoading}
                   transportError={transportError}
                   transportResult={transportResult}
+                  allowTransportEstimate={allowTransportEstimate}
                   selectedTransportPort={selectedTransportPort}
                   setTransportWeight={(value) => {
                     setTransportWeight(value)
@@ -836,6 +856,10 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
                   }}
                   setTransportResult={setTransportResult}
                   setTransportError={setTransportError}
+                  setAllowTransportEstimate={(value) => {
+                    setAllowTransportEstimate(value)
+                    invalidateTransport()
+                  }}
                   handleTransportCalculate={handleTransportCalculate}
                 />
 
@@ -848,7 +872,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
                         </span>
                         <div>
                           <CardTitle>Machining electricity</CardTitle>
-                          <CardDescription>Temporary fixed machine data, ready for database replacement.</CardDescription>
+                          <CardDescription>Machine and grid factors loaded from the Method 2 reference database.</CardDescription>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -872,11 +896,13 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
                           type="button"
                           size="sm"
                           onClick={() => {
-                            const fallbackMachine = machineLibrary[0] ?? fallbackMachines[0]
-                            setRows((current) => [...current, { id: `machine-${Date.now()}`, machineType: fallbackMachine.machineType, dutyLevel: fallbackMachine.dutyLevel, operatingHours: '1' }])
+                            const machine = machineLibrary[0]
+                            if (!machine) return
+                            setRows((current) => [...current, { id: `machine-${Date.now()}`, machineType: machine.machineType, dutyLevel: machine.dutyLevel, operatingHours: '1' }])
                             invalidateMachiningResult()
                             invalidateResult()
                           }}
+                          disabled={machineLibrary.length === 0}
                         >
                           <Plus />
                           Add
@@ -885,6 +911,11 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-3 px-5 py-6">
+                    {machineLibraryError ? (
+                      <div className="rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                        Machine reference data unavailable: {machineLibraryError}
+                      </div>
+                    ) : null}
                     {rows.map((row) => {
                       const dutyLevels = machineLibrary
                         .filter((machine) => machine.machineType === row.machineType)

@@ -1,8 +1,4 @@
-"""Method 2 calculation engine.
-
-The machine library uses the Method 2 database when available and falls back to
-small development defaults when the database is unavailable.
-"""
+"""Method 2 calculation engine backed by authoritative reference tables."""
 
 from __future__ import annotations
 
@@ -16,11 +12,11 @@ class MachineReference:
     duty_level: str
     avg_kw: float
     hourly_emission: float
-    country_code: str = "SG"
-    grid_factor: float = 0.4168
-    grid_year: int = 2026
-    grid_source: str = "Static fallback"
-    data_source: str = "Static fallback"
+    country_code: str
+    grid_factor: float
+    grid_year: int
+    grid_source: str
+    data_source: str
 
 
 @dataclass(frozen=True)
@@ -36,28 +32,6 @@ class MachineDataSource(Protocol):
 
     def get_machine(self, machine_type: str, duty_level: str) -> MachineReference:
         ...
-
-
-class StaticMachineDataSource:
-    """Development fallback used when the database is unavailable."""
-
-    _machines = [
-        MachineReference("CNC Milling", "Light", 7.15, 7.15 * 0.4168),
-        MachineReference("CNC Milling", "Medium", 14.30, 14.30 * 0.4168),
-        MachineReference("CNC Milling", "Heavy", 29.25, 29.25 * 0.4168),
-    ]
-
-    def list_machines(self) -> list[MachineReference]:
-        return list(self._machines)
-
-    def get_machine(self, machine_type: str, duty_level: str) -> MachineReference:
-        for machine in self._machines:
-            if (
-                machine.machine_type.casefold() == machine_type.casefold()
-                and machine.duty_level.casefold() == duty_level.casefold()
-            ):
-                return machine
-        raise ValueError(f"No machine reference found for {machine_type} / {duty_level}")
 
 
 class DatabaseMachineDataSource:
@@ -146,9 +120,12 @@ class DatabaseMachineDataSource:
         raise ValueError(f"No machine reference found for {machine_type} / {duty_level}")
 
 
-FALLBACK_MACHINE_SOURCE = StaticMachineDataSource()
 DEFAULT_MACHINE_SOURCE: MachineDataSource = DatabaseMachineDataSource()
 SpendCalculator = Callable[[dict[str, Any]], dict[str, Any]]
+
+
+class MachineReferenceDataUnavailable(RuntimeError):
+    """Raised when Method 2 cannot load authoritative machine or grid data."""
 
 
 def _is_database_error(exc: BaseException) -> bool:
@@ -160,12 +137,14 @@ def _is_missing_reference_data(exc: BaseException) -> bool:
     return message.startswith("No machine profiles found") or message.startswith("No grid electricity factor found")
 
 
-def _with_static_fallback(fn: Callable[[MachineDataSource], Any]) -> Any:
+def _with_authoritative_source(fn: Callable[[MachineDataSource], Any]) -> Any:
     try:
         return fn(DEFAULT_MACHINE_SOURCE)
     except Exception as exc:
         if _is_database_error(exc) or _is_missing_reference_data(exc):
-            return fn(FALLBACK_MACHINE_SOURCE)
+            raise MachineReferenceDataUnavailable(
+                "Authoritative Method 2 machine and grid reference data is unavailable."
+            ) from exc
         raise
 
 
@@ -185,7 +164,7 @@ def serialize_machine(machine: MachineReference) -> dict[str, Any]:
 
 def list_machine_library(data_source: MachineDataSource = DEFAULT_MACHINE_SOURCE) -> list[dict[str, Any]]:
     if data_source is DEFAULT_MACHINE_SOURCE:
-        return _with_static_fallback(
+        return _with_authoritative_source(
             lambda source: [serialize_machine(machine) for machine in source.list_machines()]
         )
     return [serialize_machine(machine) for machine in data_source.list_machines()]
@@ -203,7 +182,7 @@ def compute_machining_emissions(
             raise ValueError("Operating hours cannot be negative")
 
         if data_source is DEFAULT_MACHINE_SOURCE:
-            machine = _with_static_fallback(
+            machine = _with_authoritative_source(
                 lambda source: source.get_machine(entry.machine_type, entry.duty_level)
             )
         else:
@@ -216,6 +195,11 @@ def compute_machining_emissions(
                 "dutyLevel": machine.duty_level,
                 "avgKW": machine.avg_kw,
                 "hourlyEmission": machine.hourly_emission,
+                "countryCode": machine.country_code,
+                "gridFactor": machine.grid_factor,
+                "gridYear": machine.grid_year,
+                "gridSource": machine.grid_source,
+                "dataSource": machine.data_source,
                 "operatingHours": entry.operating_hours,
                 "emissions": emissions,
             }

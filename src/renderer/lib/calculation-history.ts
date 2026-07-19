@@ -17,5 +17,6 @@ export function toCalculationHistoryTransport(
     distance_km: transport.distance_km,
     energy_mj: transport.energy_mj,
     source: transport.source,
+    estimated: transport.estimated,
   }
 }

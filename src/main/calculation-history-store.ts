@@ -275,6 +275,7 @@ function normalizeTransport(transport: unknown): CalculationHistoryTransport | n
   if (transport == null) return null
 
   const record = requireRecord(transport, 'transport')
+  const source = requireNonEmptyString(record.source, 'transport.source')
 
   // Reconstruct the snapshot field by field so large/raw provider responses never
   // enter the history database, even if a caller passes an object containing `raw`.
@@ -296,7 +297,11 @@ function normalizeTransport(transport: unknown): CalculationHistoryTransport | n
     ),
     distance_km: normalizeNullableNumber(record.distance_km, 'transport.distance_km'),
     energy_mj: normalizeNullableNumber(record.energy_mj, 'transport.energy_mj'),
-    source: requireNonEmptyString(record.source, 'transport.source'),
+    source,
+    estimated:
+      typeof record.estimated === 'boolean'
+        ? record.estimated
+        : source.toLowerCase().includes('estimate'),
   }
 }
 

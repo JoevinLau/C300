@@ -871,6 +871,7 @@ export function Method1TransportationSection({
   transportLoading,
   transportError,
   transportResult,
+  allowTransportEstimate,
   selectedTransportPort,
   setTransportWeight,
   setTransportOrigin,
@@ -879,6 +880,7 @@ export function Method1TransportationSection({
   setTransportMode,
   setTransportResult,
   setTransportError,
+  setAllowTransportEstimate,
   handleTransportCalculate,
 }: {
   transportWeight: string
@@ -889,6 +891,7 @@ export function Method1TransportationSection({
   transportLoading: boolean
   transportError: string | null
   transportResult: EcoTransitResponse | null
+  allowTransportEstimate: boolean
   selectedTransportPort?: TransportPort
   setTransportWeight: (value: string) => void
   setTransportOrigin: (value: string) => void
@@ -897,6 +900,7 @@ export function Method1TransportationSection({
   setTransportMode: (value: 'sea' | 'land' | 'air') => void
   setTransportResult: (value: EcoTransitResponse | null) => void
   setTransportError: (value: string | null) => void
+  setAllowTransportEstimate: (value: boolean) => void
   handleTransportCalculate: (event?: React.SyntheticEvent) => void
 }) {
   const loadingPortOptions = selectedTransportPort?.loadingPorts ?? []
@@ -1013,6 +1017,7 @@ export function Method1TransportationSection({
                 setTransportPortOfLoading('Port of Shanghai')
                 setTransportPortOfDischarge(PORT_OF_DISCHARGE)
                 setTransportMode('sea')
+                setAllowTransportEstimate(false)
                 setTransportResult(null)
                 setTransportError(null)
               }}
@@ -1020,6 +1025,16 @@ export function Method1TransportationSection({
               Reset
             </Button>
           </div>
+
+          <label className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              className="mt-0.5 size-4 accent-lime-600"
+              checked={allowTransportEstimate}
+              onChange={(event) => setAllowTransportEstimate(event.target.checked)}
+            />
+            <span>Allow a clearly marked local estimate if EcoTransit is unavailable.</span>
+          </label>
 
           {transportError ? <div className="mt-3 text-rose-600">{transportError}</div> : null}
 
@@ -1036,6 +1051,11 @@ export function Method1TransportationSection({
                   EcoTransit ({transportResult.transport.chosen_mode}): {transportResult.transport.chosen_emissions_kg != null ? `${Number(transportResult.transport.chosen_emissions_kg).toFixed(2)} kg CO2e` : 'No emissions value found in EcoTransit response'}
                 </div>
                 <div className="mt-2 text-xs text-muted-foreground">Source: {transportResult.transport.source}</div>
+                {transportResult.transport.estimated ? (
+                  <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    Estimated result — verify it before using it for reporting.
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}

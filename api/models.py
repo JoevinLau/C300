@@ -264,6 +264,7 @@ class EcoTransitRequest(StrictApiModel):
     weight_kg: float = Field(..., gt=0)
     transport_mode: Literal["sea", "land", "air", "rail", "truck", "vessel", "ship"] = "sea"
     origin_country: str | None = None
+    allow_estimate: bool = False
 
 
 class EcoTransitTransport(StrictApiModel):
@@ -276,6 +277,7 @@ class EcoTransitTransport(StrictApiModel):
     distance_km: float | None = None
     energy_mj: float | None = None
     source: str
+    estimated: bool
     raw: dict[str, Any]
 
 

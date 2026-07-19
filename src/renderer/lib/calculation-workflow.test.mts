@@ -170,6 +170,7 @@ test('validates transport fields in the current order and normalizes the request
       port_of_discharge: 'Singapore',
       weight_kg: 12.5,
       transport_mode: 'sea',
+      allow_estimate: false,
     },
   })
 
@@ -183,7 +184,20 @@ test('validates transport fields in the current order and normalizes the request
         port_of_discharge: 'Singapore',
         weight_kg: 12.5,
         transport_mode: 'sea',
+        allow_estimate: false,
       },
     },
   )
+
+  assert.deepEqual(buildTransportCalculationRequest({ ...base, allowEstimate: true }), {
+    ok: true,
+    request: {
+      origin_country: 'China',
+      port_of_loading: 'Port of Shanghai',
+      port_of_discharge: 'Singapore',
+      weight_kg: 12.5,
+      transport_mode: 'sea',
+      allow_estimate: true,
+    },
+  })
 })

@@ -15,7 +15,6 @@ from fastapi import HTTPException
 from mysql.connector import Error as MySQLError
 
 from db import DatabaseUnavailable, get_conn
-from dev_data import DEV_FX_INFLATION, DEV_NAICS_OPTIONS
 from calculation.transport_data import DISTANCES_TO_SINGAPORE_KM, EMISSION_FACTORS_KG_PER_TKM
 
 logger = logging.getLogger(__name__)
@@ -24,48 +23,9 @@ DEFAULT_USER_ID = os.getenv("DEFAULT_USER_ID", "default")
 OPENAI_MODEL = os.getenv("OPENAI_NAICS_MODEL", "gpt-4o-mini")
 
 
-def _dev_naics_rows(category: Optional[str] = None) -> list[dict]:
-    rows = [dict(row) for row in DEV_NAICS_OPTIONS]
-    if category:
-        rows = [row for row in rows if row.get("category") == category]
-    return rows
-
-
-def _dev_naics_by_code(naics_code: str) -> dict | None:
-    code = str(naics_code or "").strip()
-    return next((dict(row) for row in DEV_NAICS_OPTIONS if row.get("code") == code), None)
-
-
-def _dev_naics_matches(token: str, limit: int = 10) -> list[dict]:
-    search_terms = [part for part in re.split(r"\s+", token.upper()) if len(part) >= 2] or [token.upper()]
-    matches: list[dict] = []
-
-    for row in DEV_NAICS_OPTIONS:
-        code = str(row.get("code", ""))
-        description = str(row.get("description", "")).upper()
-        if token == code or token == description or any(term in description for term in search_terms):
-            matches.append(dict(row))
-        if len(matches) >= limit:
-            break
-
-    return matches
-
-
-def _dev_option_to_factor(row: dict, source: str = "dev_data", confidence: str = "fallback") -> dict:
-    return {
-        "code": str(row.get("code", "") or "").strip(),
-        "description": str(row.get("description", "") or "").strip(),
-        "kgco2e_per_usd": float(row["kgco2e_per_usd"]) if row.get("kgco2e_per_usd") is not None else None,
-        "category": row.get("category"),
-        "data_source": row.get("data_source", "dev_data"),
-        "source": source,
-        "confidence": confidence,
-    }
-
-
 def _log_db_error(message: str, exc: BaseException, **context: object) -> None:
     if isinstance(exc, DatabaseUnavailable):
-        logger.info("%s; using local dev data. context=%s error=%s", message, context, exc)
+        logger.warning("%s. context=%s error=%s", message, context, exc)
         return
 
     logger.exception("%s context=%s error=%s", message, context, exc)
@@ -75,16 +35,15 @@ def _log_db_error(message: str, exc: BaseException, **context: object) -> None:
 def get_fx_and_inflation(year: int) -> Tuple[float, float]:
     """
     Read SGD->USD and inflation/CPI values from the unified schema.
-    Falls back to local dev data only when the database is unavailable.
     """
     try:
         conn = get_conn()
     except MySQLError as exc:
         _log_db_error("Database unavailable while loading FX/inflation", exc, year=year)
-        values = DEV_FX_INFLATION.get(year)
-        if values:
-            return values
-        raise HTTPException(status_code=400, detail=f"No exchange rate for year {year}") from exc
+        raise HTTPException(
+            status_code=503,
+            detail="Authoritative FX and inflation reference data is unavailable.",
+        ) from exc
 
     try:
         cur = conn.cursor(dictionary=True)
@@ -377,14 +336,10 @@ def search_naics_mappings(keyword: str, user_id: str = DEFAULT_USER_ID) -> dict:
             token=token,
             user_id=user_id,
         )
-        fallback_matches = _dev_naics_matches(token)
-        return {
-            "query": keyword,
-            "material_token": token,
-            "tier": 2 if fallback_matches else 3,
-            "matches": [_dev_option_to_factor(row) for row in fallback_matches],
-            "error": f"Database search failed: {exc}",
-        }
+        raise HTTPException(
+            status_code=503,
+            detail="Authoritative NAICS reference data is unavailable.",
+        ) from exc
     finally:
         if "cur" in locals() and cur:
             cur.close()
@@ -571,10 +526,10 @@ def get_naics_factor_by_code(naics_code: str) -> dict:
         raise
     except MySQLError as exc:
         _log_db_error("Failed to fetch NAICS factor by code", exc, naics_code=code)
-        fallback = _dev_naics_by_code(code)
-        if fallback:
-            return _dev_option_to_factor(fallback, source="dev_data", confidence="fallback")
-        raise HTTPException(status_code=503, detail=f"Failed to fetch NAICS factor: {exc}") from exc
+        raise HTTPException(
+            status_code=503,
+            detail="Authoritative NAICS reference data is unavailable.",
+        ) from exc
     finally:
         if "cur" in locals() and cur:
             cur.close()
@@ -607,7 +562,10 @@ def list_naics_options(category: Optional[str] = None) -> list[dict]:
         conn = get_conn()
     except MySQLError as exc:
         _log_db_error("Database unavailable while listing NAICS options", exc)
-        return _dev_naics_rows(category)
+        raise HTTPException(
+            status_code=503,
+            detail="Authoritative NAICS reference data is unavailable.",
+        ) from exc
 
     try:
         cur = conn.cursor(dictionary=True)
@@ -646,7 +604,10 @@ def list_naics_options(category: Optional[str] = None) -> list[dict]:
         return options
     except MySQLError as exc:
         _log_db_error("Failed to list NAICS options from official_naics_factors", exc, category=category)
-        return _dev_naics_rows(category)
+        raise HTTPException(
+            status_code=503,
+            detail="Authoritative NAICS reference data is unavailable.",
+        ) from exc
     finally:
         if "cur" in locals() and cur:
             cur.close()
@@ -662,10 +623,10 @@ def get_kgco2e_per_usd(naics_code: str) -> float:
         conn = get_conn()
     except MySQLError as exc:
         _log_db_error("Database unavailable while loading NAICS factor", exc, naics_code=code)
-        fallback = _dev_naics_by_code(code)
-        if fallback and fallback.get("kgco2e_per_usd") is not None:
-            return float(fallback["kgco2e_per_usd"])
-        raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}") from exc
+        raise HTTPException(
+            status_code=503,
+            detail="Authoritative NAICS reference data is unavailable.",
+        ) from exc
 
     try:
         cur = conn.cursor(dictionary=True)
@@ -686,10 +647,10 @@ def get_kgco2e_per_usd(naics_code: str) -> float:
         raise
     except MySQLError as exc:
         _log_db_error("Failed to load kgCO2e factor", exc, naics_code=code)
-        fallback = _dev_naics_by_code(code)
-        if fallback and fallback.get("kgco2e_per_usd") is not None:
-            return float(fallback["kgco2e_per_usd"])
-        raise HTTPException(status_code=503, detail=f"Failed to load NAICS factor: {exc}") from exc
+        raise HTTPException(
+            status_code=503,
+            detail="Authoritative NAICS reference data is unavailable.",
+        ) from exc
     finally:
         if "cur" in locals() and cur:
             cur.close()
@@ -749,15 +710,10 @@ def calculate_batch_emissions(rows: list[dict]) -> list[dict]:
         conn = get_conn()
     except MySQLError as exc:
         _log_db_error("Database unavailable during batch calculation", exc, naics_codes=naics_codes)
-        return _calculate_batch_emissions_with_factors(rows, {
-            code: {
-                "description": fallback.get("description"),
-                "kgco2e_per_usd": float(fallback["kgco2e_per_usd"]),
-                "data_source": fallback.get("data_source", "dev_data"),
-            }
-            for code in naics_codes
-            if (fallback := _dev_naics_by_code(code)) and fallback.get("kgco2e_per_usd") is not None
-        }, naics_codes)
+        raise HTTPException(
+            status_code=503,
+            detail="Authoritative NAICS reference data is unavailable.",
+        ) from exc
 
     try:
         cur = conn.cursor(dictionary=True)
@@ -784,15 +740,10 @@ def calculate_batch_emissions(rows: list[dict]) -> list[dict]:
         raise
     except MySQLError as exc:
         _log_db_error("Batch calculation database failure", exc, naics_codes=naics_codes)
-        return _calculate_batch_emissions_with_factors(rows, {
-            code: {
-                "description": fallback.get("description"),
-                "kgco2e_per_usd": float(fallback["kgco2e_per_usd"]),
-                "data_source": fallback.get("data_source", "dev_data"),
-            }
-            for code in naics_codes
-            if (fallback := _dev_naics_by_code(code)) and fallback.get("kgco2e_per_usd") is not None
-        }, naics_codes)
+        raise HTTPException(
+            status_code=503,
+            detail="Authoritative NAICS reference data is unavailable.",
+        ) from exc
     finally:
         if "cur" in locals() and cur:
             cur.close()
@@ -809,11 +760,7 @@ def compute_emissions(payload: dict) -> dict:
     line_items = payload.get("line_items") or []
 
     fx_rate, inflation_index = get_fx_and_inflation(year)
-    try:
-        _, index_2022 = get_fx_and_inflation(2022)
-    except Exception as exc:
-        logger.exception("Failed to load 2022 inflation baseline; using default 118.012: %s", exc)
-        index_2022 = 118.012
+    _, index_2022 = get_fx_and_inflation(2022)
 
     inflation_ratio = index_2022 / inflation_index
 
@@ -1014,6 +961,7 @@ def calculate_ecotransit_transport(
             "distance_km": distance_km,
             "energy_mj": energy_mj,
             "source": "EcoTransit World",
+            "estimated": False,
             "raw": raw_response,
         }
     }
@@ -1099,6 +1047,7 @@ def calculate_local_transport_estimate(
             "distance_km": distance_km,
             "energy_mj": None,
             "source": f"Local estimate ({factor_source})",
+            "estimated": True,
             "raw": {
                 "method": "weight_tonnes * distance_km * kgco2e_per_tonne_km",
                 "weight_tonnes": weight_tonnes,

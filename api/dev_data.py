@@ -1,5 +1,5 @@
-#dev_data.py
-# Fallback reference data when cloud database is unavailable
+# Development fixtures and supported-year bounds. Active calculations do not
+# substitute these values when the authoritative database is unavailable.
 
 DEV_NAICS_OPTIONS = [
     {"code": "325220", "description": "Artificial and Synthetic Fibers,Manufacturing", "category": "raw_material", "kgco2e_per_usd": 0.902},

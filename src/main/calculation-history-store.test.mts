@@ -77,6 +77,7 @@ function createUseeioInput() {
       distance_km: 3_800,
       energy_mj: 730,
       source: 'EcoTransit World',
+      estimated: true,
       raw: { providerPayload: 'must not be stored' },
     },
   }
@@ -164,6 +165,7 @@ test('persists immutable calculation snapshots and supports method pagination', 
   assert.equal(savedUseeio.totalEmissionsKgCo2e, 1_000)
   assert.equal(savedUseeio.totalAmountSgd, 1_750)
   assert.equal(Object.hasOwn(savedUseeio.transport, 'raw'), false)
+  assert.equal(savedUseeio.transport?.estimated, true)
 
   useeioInput.request.invoice_id = 'MUTATED'
   useeioInput.result.emissions.total = 0
@@ -194,6 +196,7 @@ test('persists immutable calculation snapshots and supports method pagination', 
   assert.equal(persisted?.request.invoice_id, 'INV-001')
   assert.equal(persisted?.result.emissions.total, 955.4)
   assert.equal(persisted?.transport?.origin, 'China')
+  assert.equal(persisted?.transport?.estimated, true)
   assert.equal(store.get('missing-id'), null)
 })
 

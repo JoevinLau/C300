@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 
@@ -13,6 +14,9 @@ if str(API_DIR) not in sys.path:
     sys.path.insert(0, str(API_DIR))
 
 import main
+import service
+from db import DatabaseUnavailable
+from calculation import method2_calculations
 
 
 FACTOR_BY_NAICS = {
@@ -189,6 +193,133 @@ class CalculationApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertIn("greater than or equal to 2022", response.text)
         calculate.assert_not_called()
+
+    def test_calculation_fails_closed_when_reference_database_is_unavailable(self):
+        with patch.object(
+            service,
+            "get_conn",
+            side_effect=DatabaseUnavailable("reference database offline"),
+        ):
+            response = self.client.post("/calculate", json=calculation_payload())
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("authoritative", response.text.lower())
+
+    def test_calculation_does_not_substitute_a_constant_inflation_baseline(self):
+        with (
+            patch.object(
+                service,
+                "get_fx_and_inflation",
+                side_effect=[
+                    (1.0, 100.0),
+                    HTTPException(status_code=503, detail="2022 baseline unavailable"),
+                ],
+            ),
+            patch.object(service, "get_kgco2e_per_usd") as factor_lookup,
+        ):
+            response = self.client.post("/calculate", json=calculation_payload())
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("2022 baseline unavailable", response.text)
+        factor_lookup.assert_not_called()
+
+    def test_naics_options_fail_closed_when_reference_database_is_unavailable(self):
+        with patch.object(
+            service,
+            "get_conn",
+            side_effect=DatabaseUnavailable("reference database offline"),
+        ):
+            response = self.client.get("/naics")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("authoritative", response.text.lower())
+
+    def test_method2_machine_library_fails_closed_when_database_is_unavailable(self):
+        with patch.object(
+            method2_calculations.DEFAULT_MACHINE_SOURCE,
+            "list_machines",
+            side_effect=DatabaseUnavailable("machine database offline"),
+        ):
+            response = self.client.get("/method2/machines")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("machine", response.text.lower())
+
+    def test_method2_calculation_does_not_use_static_machine_factors(self):
+        payload = {
+            "part_id": "METHOD2-FALLBACK-TEST",
+            "year": 2024,
+            "raw_material_sgd": 100.0,
+            "surface_treatment_sgd": 50.0,
+            "naics": {
+                "raw_material": "331110",
+                "fabrication": "332710",
+                "surface_treatment": "332812",
+            },
+            "transport_emissions_kg": 0.0,
+            "machining_entries": [
+                {
+                    "machine_type": "CNC Milling",
+                    "duty_level": "Medium",
+                    "operating_hours": 1.0,
+                }
+            ],
+        }
+
+        with (
+            patch.object(main, "compute_emissions", return_value=calculation_result(2024)),
+            patch.object(
+                method2_calculations.DEFAULT_MACHINE_SOURCE,
+                "get_machine",
+                side_effect=DatabaseUnavailable("machine database offline"),
+            ),
+        ):
+            response = self.client.post("/method2/calculate", json=payload)
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("machine", response.text.lower())
+
+    def test_transport_estimate_requires_explicit_request_consent(self):
+        payload = {
+            "port_of_loading": "Port Klang",
+            "port_of_discharge": "Singapore",
+            "weight_kg": 100.0,
+            "transport_mode": "sea",
+            "origin_country": "Malaysia",
+        }
+        environment = {
+            "ECOTRANSIT_API_URL": "",
+            "ECOTRANSIT_API_TOKEN": "",
+            "ECOTRANSIT_ENABLE_SCRAPER": "",
+        }
+
+        with patch.dict(main.os.environ, environment, clear=False):
+            response = self.client.post("/ecotransit", json=payload)
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("estimate", response.text.lower())
+
+    def test_transport_estimate_is_marked_when_explicitly_requested(self):
+        payload = {
+            "port_of_loading": "Port Klang",
+            "port_of_discharge": "Singapore",
+            "weight_kg": 100.0,
+            "transport_mode": "sea",
+            "origin_country": "Malaysia",
+            "allow_estimate": True,
+        }
+        environment = {
+            "ECOTRANSIT_API_URL": "",
+            "ECOTRANSIT_API_TOKEN": "",
+            "ECOTRANSIT_ENABLE_SCRAPER": "",
+        }
+
+        with patch.dict(main.os.environ, environment, clear=False):
+            response = self.client.post("/ecotransit", json=payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["transport"]["estimated"])
+        self.assertIn("Local transport estimate", response.json()["transport"]["source"])
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # C300
 
-Desktop app for **carbon emissions estimation** from supplier and portfolio spend. The UI is an Electron + React workbench; calculations run in a local **FastAPI** service backed by **MySQL** with built-in development fallbacks when the database is unavailable.
+Desktop app for **carbon emissions estimation** from supplier and portfolio spend. The UI is an Electron + React workbench; calculations run in a local **FastAPI** service backed by authoritative reference data in **MySQL**. Reference-data failures stop calculations instead of silently substituting development constants.
 
 ## What it does
 
@@ -41,7 +41,7 @@ The renderer is organized as a workflow dashboard:
                            │
           ┌────────────────┼─────────────────┐
           ▼                ▼                 ▼
- MySQL + dev_data     Local JSON        OpenAI API
+       MySQL          Local JSON        OpenAI API
  calculation data    vector index        embeddings + answer
 ```
 
@@ -68,7 +68,7 @@ The vector database is local, but document text is sent to OpenAI to create embe
 
 - **Node.js** and **pnpm** (`pnpm@10.33.2` via `packageManager` in `package.json`)
 - **Python 3.10+** for the API
-- **MySQL** (optional) — `Exchange_Inflation_Table` and `USEEIO_Factors_Table` in `carbon_emission_db`. If MySQL is down or misconfigured, the API uses `api/dev_data.py`.
+- **MySQL** — required for authoritative FX, inflation, NAICS, machine, grid, and transport reference data. If it is unavailable, affected calculations return an error.
 - **OpenAI API key** for Method 2 document indexing and grounded answers.
 
 Enable pnpm with Corepack if needed:
@@ -103,12 +103,17 @@ Create `.env` in the project root:
 AI_KEY=your_openai_api_key_here
 # OPENAI_API_KEY can be used instead of AI_KEY.
 
-# Optional: configure MySQL/TiDB. Without these, the API uses api/dev_data.py fallbacks.
+# Required for calculation workflows. Missing reference data fails closed.
 DB_HOST=your_db_host
 DB_PORT=4000
 DB_USER=your_db_user
 DB_PASSWORD=your_db_password
 DB_NAME=carbon_emission_db
+
+# Optional licensed provider. Without these, transport requires explicit
+# per-request consent before a clearly marked local estimate is produced.
+ECOTRANSIT_API_URL=https://your-licensed-endpoint.example/calculate
+ECOTRANSIT_API_TOKEN=your_token
 
 RAG_EMBEDDING_MODEL=text-embedding-3-small
 RAG_CHAT_MODEL=gpt-4.1-mini
@@ -116,7 +121,7 @@ RAG_TOP_K=6
 RAG_SCORE_THRESHOLD=0.25
 ```
 
-The model and retrieval settings are optional and use the values shown above by default.
+The model and retrieval settings are optional and use the values shown above by default. EcoTransit credentials are also optional, but a local transport estimate is used only when the user explicitly enables it for that request; estimated results are marked in the UI and saved history.
 
 ## Development
 
@@ -223,10 +228,10 @@ The response contains `reply`, `grounded`, and `citations`. Each citation includ
 | `pnpm preview` | Preview the built app |
 | `pnpm typecheck` | TypeScript check (`tsc --noEmit`) |
 
-Backend RAG tests:
+Backend calculation and RAG tests:
 
 ```sh
-python3 -m unittest api.test_rag -v
+python3 -m unittest api.test_calculation api.test_rag -v
 ```
 
 ## Project structure
@@ -234,11 +239,12 @@ python3 -m unittest api.test_rag -v
 ```text
 api/
   main.py           FastAPI app and routes
-  service.py        MySQL access + dev_data fallback
+  service.py        Authoritative MySQL reference-data access
   calculator.py     SGD → USD 2022 and emissions math
   rag_service.py    Extraction, chunking, embeddings, local vector persistence, retrieval
   db.py             MySQL connection settings
-  dev_data.py       Fallback NAICS / FX when DB is unavailable
+  dev_data.py       Supported-year constants and development fixtures
+  test_calculation.py  Calculation and fallback-policy tests
   test_rag.py       RAG service and API tests
   requirements.txt
 
@@ -270,7 +276,7 @@ Ensure the FastAPI process is running before using Method 1 or Method 2. `pnpm d
 
 ### MySQL connection
 
-If calculations fail with missing FX or NAICS data, check `api/db.py` and that MySQL is running. With no DB, only years and NAICS codes present in `dev_data.py` work.
+If calculations fail with missing FX, NAICS, machine, or grid data, check `api/db.py`, confirm MySQL is running, and verify the reference tables are seeded. The API deliberately does not replace unavailable authoritative data with development constants.
 
 ### `Error: Electron uninstall`
 

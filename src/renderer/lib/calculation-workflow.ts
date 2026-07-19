@@ -62,6 +62,7 @@ export interface TransportCalculationFields {
   portOfDischarge: string
   mode: TransportMode
   matchedPort?: MatchedTransportPort | null
+  allowEstimate?: boolean
 }
 
 export interface TransportCalculationRequest {
@@ -70,6 +71,7 @@ export interface TransportCalculationRequest {
   port_of_discharge: string
   weight_kg: number
   transport_mode: TransportMode
+  allow_estimate: boolean
 }
 
 export const TRANSPORT_VALIDATION_ERRORS = {
@@ -181,6 +183,7 @@ export function buildTransportCalculationRequest({
   portOfDischarge,
   mode,
   matchedPort,
+  allowEstimate = false,
 }: TransportCalculationFields): TransportCalculationValidation {
   const normalizedWeight = Number(weight)
   if (!Number.isFinite(normalizedWeight) || normalizedWeight <= 0) {
@@ -210,6 +213,7 @@ export function buildTransportCalculationRequest({
       port_of_discharge: normalizedDischargePort,
       weight_kg: normalizedWeight,
       transport_mode: mode,
+      allow_estimate: allowEstimate,
     },
   }
 }

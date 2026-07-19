@@ -91,6 +91,7 @@ export interface EcoTransitRequest {
   weight_kg: number
   transport_mode: 'sea' | 'land' | 'air' | 'rail' | 'truck' | 'vessel'
   origin_country?: string
+  allow_estimate?: boolean
 }
 
 export interface EcoTransitResponse {
@@ -104,6 +105,7 @@ export interface EcoTransitResponse {
     distance_km: number | null
     energy_mj: number | null
     source: string
+    estimated: boolean
     raw: Record<string, unknown>
   }
 }
@@ -154,6 +156,11 @@ export interface Method2CalculateResponse {
       dutyLevel: string
       avgKW: number
       hourlyEmission: number
+      countryCode: string
+      gridFactor: number
+      gridYear: number
+      gridSource: string
+      dataSource: string
       operatingHours: number
       emissions: number
     }>

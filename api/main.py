@@ -23,11 +23,14 @@ from ecotransit_scraper import calculate_ecotransit
 from calculator import compute_emissions
 from dev_data import MAX_CALCULATION_YEAR, MIN_CALCULATION_YEAR
 from calculation.transport_data import DISTANCES_TO_SINGAPORE_KM, EMISSION_FACTORS_KG_PER_TKM
-from calculation.method2_calculations import compute_method2, list_machine_library
+from calculation.method2_calculations import (
+    MachineReferenceDataUnavailable,
+    compute_method2,
+    list_machine_library,
+)
 from service import (
     calculate_batch_emissions,
     calculate_ecotransit_transport,
-    calculate_local_transport_estimate,
     confirm_naics_mapping,
     fetch_naics_for_material,
     get_naics_factor_by_code,
@@ -67,9 +70,6 @@ COUNTRY_ALIASES = {
     "uae": "United Arab Emirates",
 }
 
-DEFAULT_DISTANCE_TO_SINGAPORE_KM = 6500.0
-
-
 def _normalize_transport_country(value: str | None) -> str:
     cleaned = (value or "").strip()
     if not cleaned:
@@ -86,9 +86,19 @@ def _normalize_transport_country(value: str | None) -> str:
 
 def estimate_transport_response(data: "EcoTransitRequest", reason: str | None = None) -> dict[str, Any]:
     origin = _normalize_transport_country(data.origin_country) or _normalize_transport_country(data.port_of_loading)
-    distance_km = float(DISTANCES_TO_SINGAPORE_KM.get(origin, DEFAULT_DISTANCE_TO_SINGAPORE_KM))
+    distance_km = DISTANCES_TO_SINGAPORE_KM.get(origin)
+    if distance_km is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No local transport estimate is available for '{origin}'.",
+        )
     mode = data.transport_mode.lower().strip()
-    factor = EMISSION_FACTORS_KG_PER_TKM.get(mode, EMISSION_FACTORS_KG_PER_TKM["sea"])
+    factor = EMISSION_FACTORS_KG_PER_TKM.get(mode)
+    if factor is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No local transport factor is available for '{mode}'.",
+        )
     weight_tonnes = data.weight_kg / 1000.0
     emissions_kg = weight_tonnes * distance_km * factor
 
@@ -110,6 +120,7 @@ def estimate_transport_response(data: "EcoTransitRequest", reason: str | None = 
             "distance_km": distance_km,
             "energy_mj": None,
             "source": "Local transport estimate (EcoTransit sign-in/API unavailable)",
+            "estimated": True,
             "raw": raw,
         }
     }
@@ -340,6 +351,7 @@ class EcoTransitRequest(BaseModel):
         "sea", pattern="^(sea|land|air|rail|truck|vessel|ship)$"
     )
     origin_country: str | None = None
+    allow_estimate: bool = False
 
 
 class Method2Naics(BaseModel):
@@ -657,9 +669,17 @@ def ecotransit(data: EcoTransitRequest):
         )
 
     if os.getenv("ECOTRANSIT_ENABLE_SCRAPER", "").strip().lower() not in {"1", "true", "yes"}:
-        return estimate_transport_response(
-            data,
-            "EcoTransit API credentials are not configured. The public web calculator requires sign-in, so a local estimate was used.",
+        if data.allow_estimate:
+            return estimate_transport_response(
+                data,
+                "EcoTransit API credentials are not configured. The caller explicitly requested a local estimate.",
+            )
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "EcoTransit is unavailable. Configure its API or explicitly allow a local "
+                "transport estimate for this request."
+            ),
         )
 
     try:
@@ -672,11 +692,21 @@ def ecotransit(data: EcoTransitRequest):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
-        logger.warning("EcoTransit scraper unavailable, using local estimate: %s", exc)
-        return estimate_transport_response(data, str(exc))
+        logger.warning("EcoTransit scraper unavailable: %s", exc)
+        if data.allow_estimate:
+            return estimate_transport_response(data, str(exc))
+        raise HTTPException(
+            status_code=502,
+            detail="EcoTransit could not calculate this route; no estimate was authorized.",
+        ) from exc
     except Exception as exc:
         logger.exception("EcoTransit scraper failed: %s", exc)
-        return estimate_transport_response(data, f"EcoTransit scraper failed: {exc}")
+        if data.allow_estimate:
+            return estimate_transport_response(data, "EcoTransit scraper failed.")
+        raise HTTPException(
+            status_code=502,
+            detail="EcoTransit could not calculate this route; no estimate was authorized.",
+        ) from exc
 
     return {
         "transport": {
@@ -689,6 +719,7 @@ def ecotransit(data: EcoTransitRequest):
             "distance_km": result.get("distance_km"),
             "energy_mj": result.get("energy_mj"),
             "source": "EcoTransit World",
+            "estimated": False,
             "raw": result,
         }
     }
@@ -696,7 +727,10 @@ def ecotransit(data: EcoTransitRequest):
 
 @app.get("/method2/machines")
 def method2_machines():
-    return {"machines": list_machine_library()}
+    try:
+        return {"machines": list_machine_library()}
+    except MachineReferenceDataUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.post("/method2/calculate")
@@ -721,6 +755,8 @@ def calculate_method2(data: Method2InputData):
 
     try:
         return compute_method2(payload, spend_calculator=compute_emissions)
+    except MachineReferenceDataUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

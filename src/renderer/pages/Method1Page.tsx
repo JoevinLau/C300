@@ -188,6 +188,7 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<CalculateResponse | null>(null)
   const [naicsOptions, setNaicsOptions] = useState<NaicsOption[]>([])
+  const [naicsError, setNaicsError] = useState<string | null>(null)
   const [rawItems, setRawItems] = useState<LineItem[]>([
     { amount: '', naics: '331110' },
   ])
@@ -202,6 +203,7 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
   const [transportPortOfLoading, setTransportPortOfLoading] = useState<string>('Port of Shanghai')
   const [transportPortOfDischarge, setTransportPortOfDischarge] = useState<string>(PORT_OF_DISCHARGE)
   const [transportMode, setTransportMode] = useState<'sea' | 'land' | 'air'>('sea')
+  const [allowTransportEstimate, setAllowTransportEstimate] = useState(false)
   const [transportLoading, setTransportLoading] = useState(false)
   const [transportError, setTransportError] = useState<string | null>(null)
   const [transportResult, setTransportResult] = useState<EcoTransitResponse | null>(null)
@@ -234,9 +236,19 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
   useEffect(() => {
 
     let cancelled = false
-    void fetchNaicsOptions().then((options) => {
-      if (!cancelled) setNaicsOptions(options)
-    })
+    void fetchNaicsOptions()
+      .then((options) => {
+        if (!cancelled) {
+          setNaicsOptions(options)
+          setNaicsError(null)
+        }
+      })
+      .catch((fetchError) => {
+        if (!cancelled) {
+          setNaicsOptions([])
+          setNaicsError(fetchError instanceof Error ? fetchError.message : String(fetchError))
+        }
+      })
     return () => {
       cancelled = true
     }
@@ -318,6 +330,7 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
       portOfDischarge: transportPortOfDischarge,
       mode: transportMode,
       matchedPort: selectedTransportPort,
+      allowEstimate: allowTransportEstimate,
     })
     if (!transportCalculation.ok) {
       setTransportError(transportCalculation.error)
@@ -412,6 +425,7 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
     setTransportPortOfLoading('Port of Shanghai')
     setTransportPortOfDischarge(PORT_OF_DISCHARGE)
     setTransportMode(demoTransportMode)
+    setAllowTransportEstimate(false)
     setTransportError(null)
     setTransportResult({
       transport: {
@@ -424,6 +438,7 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
         chosen_emissions_kg: null,
         energy_mj: null,
         source: 'EcoTransit World',
+        estimated: false,
         raw: {},
       },
     })
@@ -445,6 +460,7 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
     setTransportPortOfLoading('Port of Shanghai')
     setTransportPortOfDischarge(PORT_OF_DISCHARGE)
     setTransportMode('sea')
+    setAllowTransportEstimate(false)
     setTransportLoading(false)
     setTransportError(null)
     setTransportResult(null)
@@ -613,6 +629,12 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
                 </div>
               </div>
             </div>
+
+            {naicsError ? (
+              <div className="rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                NAICS reference data unavailable: {naicsError}
+              </div>
+            ) : null}
 
             <Card className="gap-0 overflow-hidden border-zinc-900/12 bg-white py-0 shadow-sm">
               <CardHeader className="border-b border-zinc-900/10 bg-zinc-950 px-5 py-4 text-white">
@@ -1001,12 +1023,26 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
                         setTransportPortOfLoading('Port of Shanghai')
                         setTransportPortOfDischarge(PORT_OF_DISCHARGE)
                         setTransportMode('sea')
+                        setAllowTransportEstimate(false)
                         invalidateTransport()
                       }}
                     >
                       Reset
                     </Button>
                   </div>
+
+                  <label className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 size-4 accent-lime-600"
+                      checked={allowTransportEstimate}
+                      onChange={(event) => {
+                        setAllowTransportEstimate(event.target.checked)
+                        invalidateTransport()
+                      }}
+                    />
+                    <span>Allow a clearly marked local estimate if EcoTransit is unavailable.</span>
+                  </label>
 
                   {transportError ? (
                     <div className="mt-3 text-rose-600">{transportError}</div>
@@ -1028,6 +1064,11 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
                             : 'No emissions value found in EcoTransit response'}
                         </div>
                         <div className="mt-2 text-xs text-muted-foreground">Source: {transportResult.transport.source}</div>
+                        {transportResult.transport.estimated ? (
+                          <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                            Estimated result — verify it before using it for reporting.
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   ) : null}
