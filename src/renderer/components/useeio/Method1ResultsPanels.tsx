@@ -16,9 +16,12 @@ import {
 } from '@/components/Method1SharedInputs'
 import { UseeioResultsPdf } from '@/components/UseeioResultsPdf'
 import { Button, buttonVariants } from '@/components/ui/button'
+import {
+  createUseeioResultProjection,
+  type UseeioResultProjection,
+} from '@/features/result-projection/result-projection'
 import type {
   CalculateResponse,
-  CalculationLineItemResult,
   EcoTransitResponse,
   NaicsOption,
 } from '@/lib/calculator-api'
@@ -40,26 +43,26 @@ const categoryMetaByKey = {
   surface_treatment: { label: 'Surface treatment', icon: Paintbrush, textClass: 'text-rose-700' },
 } as const
 
-function getLineItemLabel(item: CalculationLineItemResult, index: number, naicsByCode: Map<string, NaicsOption>) {
-  const meta = categoryMetaByKey[item.category]
-  const description = naicsByCode.get(item.naics_code)?.description
-  return `${meta.label} ${index + 1} - ${item.naics_code}${description ? ` ${description}` : ''}`
+function getLineItemLabel(
+  category: UseeioResultProjection['categories'][number],
+  line: UseeioResultProjection['categories'][number]['lines'][number],
+  index: number,
+  naicsByCode: Map<string, NaicsOption>,
+) {
+  const description = line.naicsCode ? naicsByCode.get(line.naicsCode)?.description : null
+  const code = line.naicsCode ?? 'Category aggregate'
+  return `${category.label} ${index + 1} - ${code}${description ? ` ${description}` : ''}`
 }
 
 export function EmissionsBreakdownChart({
-  result,
+  projection,
 }: {
-  result: CalculateResponse
+  projection: UseeioResultProjection
 }) {
-  const items = CATEGORIES.map((cat) => {
-    const emissionKey =
-      cat.id === 'raw'
-        ? 'raw_material'
-        : cat.id === 'fabrication'
-          ? 'fabrication'
-          : 'surface_treatment'
-    const value = result.emissions[emissionKey]
-    return { ...cat, value }
+  const items = projection.categories.map((category) => {
+    const style = categoryMetaByKey[category.key]
+    const inputCategory = CATEGORIES.find((item) => item.label === category.label)!
+    return { ...inputCategory, ...style, value: category.emissions }
   })
   const max = Math.max(...items.map((i) => i.value), 1)
 
@@ -146,12 +149,14 @@ export function ResultsPanel({
     )
   }
 
-  const totalCostUsd =
-    result.costs.raw_material_usd2022 +
-    result.costs.fabrication_usd2022 +
-    result.costs.surface_treatment_usd2022
-  const transportEmissions = transport?.transport?.chosen_emissions_kg ?? 0
-  const combinedEmissions = result.emissions.total + transportEmissions
+  const projection = createUseeioResultProjection({
+    result,
+    totalAmountSgd: totalSgd,
+    transport: transport?.transport,
+  })
+  const totalCostUsd = projection.totals.usd2022
+  const transportEmissions = projection.totals.transportEmissions ?? 0
+  const combinedEmissions = projection.totals.reportedEmissions
 
   return (
     <div className="space-y-5">
@@ -169,7 +174,7 @@ export function ResultsPanel({
         </p>
         <div className="mt-4 flex flex-wrap gap-2 text-xs">
           <span className="rounded-full border border-zinc-900/12 bg-zinc-950/5 px-2.5 py-1 font-mono text-lime-800">
-            {result.invoice_id}
+            {projection.documentId}
           </span>
           {totalSgd > 0 ? (
             <span className="rounded-full border border-zinc-900/12 bg-zinc-950/5 px-2.5 py-1 text-muted-foreground">
@@ -188,7 +193,7 @@ export function ResultsPanel({
           <p className="text-xs text-muted-foreground">Intensity</p>
           <p className="mt-1 font-mono text-lg text-lime-700 tabular-nums">
             {totalCostUsd > 0
-              ? (result.emissions.total / totalCostUsd).toFixed(2)
+              ? projection.totals.intensityKgPerUsd2022?.toFixed(2)
               : '-'}{' '}
             <span className="text-xs font-sans text-muted-foreground">kg/USD</span>
           </p>
@@ -197,24 +202,19 @@ export function ResultsPanel({
 
       <div className="space-y-2 border-t border-zinc-900/12 pt-4">
         <p className="text-sm font-medium text-muted-foreground">2022 USD cost breakdown</p>
-        {CATEGORIES.map((cat) => {
-          const costKey =
-            cat.id === 'raw'
-              ? 'raw_material_usd2022'
-              : cat.id === 'fabrication'
-                ? 'fabrication_usd2022'
-                : 'surface_treatment_usd2022'
-          const value = result.costs[costKey]
+        {projection.categories.map((category) => {
+          const meta = categoryMetaByKey[category.key]
+          const Icon = meta.icon
           return (
             <div
-              key={cat.id}
+              key={category.key}
               className="flex items-center justify-between rounded-lg border border-zinc-900/12 bg-white/70 px-3 py-2.5 text-sm"
             >
               <span className="flex items-center gap-2">
-                <cat.icon className={cn('size-4', cat.textClass)} />
-                {cat.label}
+                <Icon className={cn('size-4', meta.textClass)} />
+                {category.label}
               </span>
-              <span className="font-mono text-teal-800/90 tabular-nums">{usd.format(value)}</span>
+              <span className="font-mono text-teal-800/90 tabular-nums">{usd.format(category.amountUsd2022)}</span>
             </div>
           )
         })}
@@ -222,10 +222,10 @@ export function ResultsPanel({
 
       <div className="border-t border-zinc-900/12 pt-4">
         <p className="mb-3 text-sm font-medium text-muted-foreground">Emissions by component</p>
-        <EmissionsBreakdownChart result={result} />
+        <EmissionsBreakdownChart projection={projection} />
       </div>
 
-      {result.calculation.line_items?.length ? (
+      {projection.categories.some((category) => category.lines.some((line) => line.naicsCode)) ? (
         <div className="space-y-2 border-t border-zinc-900/12 pt-4">
           <Button
             type="button"
@@ -239,23 +239,25 @@ export function ResultsPanel({
           </Button>
           {lineItemsOpen ? (
             <div className="space-y-2">
-              {result.calculation.line_items.map((item, index) => {
-                const meta = categoryMetaByKey[item.category]
-                const Icon = meta.icon
-                return (
-                  <div key={`${item.category}-${item.naics_code}-${index}`} className="rounded-lg border border-zinc-900/12 bg-white/70 px-3 py-2.5 text-sm">
+              {projection.categories.flatMap((category) =>
+                category.lines.map((line, index) => {
+                  const meta = categoryMetaByKey[category.key]
+                  const Icon = meta.icon
+                  return (
+                  <div key={`${category.key}-${line.naicsCode ?? 'aggregate'}-${index}`} className="rounded-lg border border-zinc-900/12 bg-white/70 px-3 py-2.5 text-sm">
                     <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1">
                       <Icon className={cn('mt-0.5 size-4 shrink-0', meta.textClass)} />
-                      <span className="min-w-0 font-medium">{getLineItemLabel(item, index, naicsByCode)}</span>
-                      <span className={cn('shrink-0 font-mono tabular-nums', meta.textClass)}>{kg.format(item.emission)} kg</span>
+                      <span className="min-w-0 font-medium">{getLineItemLabel(category, line, index, naicsByCode)}</span>
+                      <span className={cn('shrink-0 font-mono tabular-nums', meta.textClass)}>{kg.format(line.emissions)} kg</span>
                       <span />
                       <p className="col-start-2 font-mono text-xs text-muted-foreground">
-                        {usd.format(item.amount_usd2022)} * {item.factor.toFixed(4)} kgCO2e/USD
+                        {usd.format(line.amountUsd2022)} * {line.factor.toFixed(4)} kgCO2e/USD
                       </p>
                     </div>
                   </div>
-                )
-              })}
+                  )
+                }),
+              )}
             </div>
           ) : null}
         </div>
@@ -278,8 +280,7 @@ export function ResultsPanel({
         className={buttonVariants({ className: 'w-full' })}
         document={
           <UseeioResultsPdf
-            result={result}
-            totalSgd={totalSgd}
+            projection={projection}
             transport={transport}
           />
         }
@@ -299,90 +300,67 @@ export function ResultsPanel({
 export function CalculationProcessPanel({
   result,
   loading,
+  totalSgd,
   naicsByCode,
 }: {
   result: CalculateResponse | null
   loading: boolean
+  totalSgd: number
   naicsByCode: Map<string, NaicsOption>
 }) {
   if (loading || !result) {
     return null
   }
 
-  const { calculation } = result
-  const calc = calculation
+  const projection = createUseeioResultProjection({ result, totalAmountSgd: totalSgd })
 
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-rose-400/25 bg-rose-400/5 p-4">
         <p className="mb-3 font-medium text-rose-800">Step 1: SGD to USD</p>
         <p className="mb-3 text-xs text-muted-foreground">
-          FX rate: 1 SGD = {usd.format(calc.fx_rate)} USD
+          FX rate: 1 SGD = {usd.format(projection.fxRate)} USD
         </p>
         <div className="space-y-3 text-sm">
-          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
-            <p className="flex items-center gap-2 text-muted-foreground">
-              <Layers className="text-lime-400" />
-              Raw material
-            </p>
-            <p className="font-mono tabular-nums text-rose-700">
-              {currency.format(calc.sgd_amounts.raw_material)} * {calc.fx_rate.toFixed(4)} = {usd.format(calc.usd_amounts.raw_material)}
-            </p>
-          </div>
-          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
-            <p className="flex items-center gap-2 text-muted-foreground">
-              <Cog className="text-teal-400" />
-              Fabrication
-            </p>
-            <p className="font-mono tabular-nums text-rose-700">
-              {currency.format(calc.sgd_amounts.fabrication)} * {calc.fx_rate.toFixed(4)} = {usd.format(calc.usd_amounts.fabrication)}
-            </p>
-          </div>
-          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
-            <p className="flex items-center gap-2 text-muted-foreground">
-              <Paintbrush className="text-rose-400" />
-              Surface treatment
-            </p>
-            <p className="font-mono tabular-nums text-rose-700">
-              {currency.format(calc.sgd_amounts.surface_treatment)} * {calc.fx_rate.toFixed(4)} = {usd.format(calc.usd_amounts.surface_treatment)}
-            </p>
-          </div>
+          {projection.categories.map((category) => {
+            const meta = categoryMetaByKey[category.key]
+            const Icon = meta.icon
+            return (
+              <div key={category.key} className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
+                <p className="flex items-center gap-2 text-muted-foreground">
+                  <Icon className={meta.textClass} />
+                  {category.label}
+                </p>
+                <p className="font-mono tabular-nums text-rose-700">
+                  {currency.format(category.amountSgd)} * {projection.fxRate.toFixed(4)} = {usd.format(category.amountUsd)}
+                </p>
+              </div>
+            )
+          })}
         </div>
       </div>
 
       <div className="rounded-lg border border-teal-400/25 bg-teal-400/5 p-4">
         <p className="mb-3 font-medium text-teal-800">Step 2: USD Inflation Adjustment</p>
         <p className="mb-3 text-xs text-muted-foreground">
-          Inflation index: {calc.inflation_index.toFixed(2)} ({calc.year} to 2022)
+          Inflation index: {projection.inflationIndex.toFixed(2)} ({projection.year} to 2022)
         </p>
         <div className="space-y-3 text-sm">
-          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
-            <p className="flex items-center gap-2 text-muted-foreground">
-              <Layers className="text-lime-400" />
-              Raw material
-            </p>
-            <p className="font-mono tabular-nums text-teal-700">
-              {usd.format(calc.usd_amounts.raw_material)} * (100 / {calc.inflation_index.toFixed(2)}) = {usd.format(calc.usd2022_amounts.raw_material)}
-            </p>
-          </div>
-          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
-            <p className="flex items-center gap-2 text-muted-foreground">
-              <Cog className="text-teal-400" />
-              Fabrication
-            </p>
-            <p className="font-mono tabular-nums text-teal-700">
-              {usd.format(calc.usd_amounts.fabrication)} * (100 / {calc.inflation_index.toFixed(2)}) = {usd.format(calc.usd2022_amounts.fabrication)}
-            </p>
-          </div>
-          <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
-            <p className="flex items-center gap-2 text-muted-foreground">
-              <Paintbrush className="text-rose-400" />
-              Surface treatment
-            </p>
-            <p className="font-mono tabular-nums text-teal-700">
-              {usd.format(calc.usd_amounts.surface_treatment)} * (100 / {calc.inflation_index.toFixed(2)}) = {usd.format(calc.usd2022_amounts.surface_treatment)}
-            </p>
-          </div>
+          {projection.categories.map((category) => {
+            const meta = categoryMetaByKey[category.key]
+            const Icon = meta.icon
+            return (
+              <div key={category.key} className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
+                <p className="flex items-center gap-2 text-muted-foreground">
+                  <Icon className={meta.textClass} />
+                  {category.label}
+                </p>
+                <p className="font-mono tabular-nums text-teal-700">
+                  {usd.format(category.amountUsd)} * ({projection.inflationBaseIndex.toFixed(2)} / {projection.inflationIndex.toFixed(2)}) = {usd.format(category.amountUsd2022)}
+                </p>
+              </div>
+            )
+          })}
         </div>
       </div>
 
@@ -392,59 +370,29 @@ export function CalculationProcessPanel({
           Each line item uses its own NAICS factor (kg CO2e per USD), then totals are grouped by component.
         </p>
         <div className="space-y-3 text-sm">
-          {calc.line_items?.length ? (
-            calc.line_items.map((item, index) => {
-              const meta = categoryMetaByKey[item.category]
+          {projection.categories.flatMap((category) =>
+            category.lines.map((line, index) => {
+              const meta = categoryMetaByKey[category.key]
               const Icon = meta.icon
               return (
-                <div key={`${item.category}-${item.naics_code}-${index}`} className="rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
+                <div key={`${category.key}-${line.naicsCode ?? 'aggregate'}-${index}`} className="rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
                   <div className="grid grid-cols-[1.25rem_minmax(0,1fr)] items-start gap-x-2 gap-y-1">
                     <Icon className={cn('mt-0.5 size-4 shrink-0', meta.textClass)} />
                     <p className="text-muted-foreground">
-                      {getLineItemLabel(item, index, naicsByCode)}
+                      {getLineItemLabel(category, line, index, naicsByCode)}
                     </p>
                     <span />
                     <p className="col-start-2 font-mono tabular-nums text-lime-700">
-                    {usd.format(item.amount_usd2022)} * {item.factor.toFixed(4)} = {kg.format(item.emission)} kg
+                    {usd.format(line.amountUsd2022)} * {line.factor.toFixed(4)} = {kg.format(line.emissions)} kg
                     </p>
                   </div>
                 </div>
               )
-            })
-          ) : (
-            <>
-              <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
-                <p className="flex items-center gap-2 text-muted-foreground">
-                  <Layers className="text-lime-400" />
-                  Raw material
-                </p>
-                <p className="font-mono tabular-nums text-lime-700">
-                  {usd.format(calc.usd2022_amounts.raw_material)} * {calc.factors.raw_material.toFixed(4)} = {kg.format(result.emissions.raw_material)} kg
-                </p>
-              </div>
-              <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
-                <p className="flex items-center gap-2 text-muted-foreground">
-                  <Cog className="text-teal-400" />
-                  Fabrication
-                </p>
-                <p className="font-mono tabular-nums text-lime-700">
-                  {usd.format(calc.usd2022_amounts.fabrication)} * {calc.factors.fabrication.toFixed(4)} = {kg.format(result.emissions.fabrication)} kg
-                </p>
-              </div>
-              <div className="space-y-1.5 rounded-lg border border-zinc-900/12 bg-zinc-950/5 p-3">
-                <p className="flex items-center gap-2 text-muted-foreground">
-                  <Paintbrush className="text-rose-400" />
-                  Surface treatment
-                </p>
-                <p className="font-mono tabular-nums text-lime-700">
-                  {usd.format(calc.usd2022_amounts.surface_treatment)} * {calc.factors.surface_treatment.toFixed(4)} = {kg.format(result.emissions.surface_treatment)} kg
-                </p>
-              </div>
-            </>
+            }),
           )}
           <div className="flex items-center justify-between rounded-lg border border-lime-400/30 bg-lime-500/10 px-3 py-2.5 text-sm font-medium">
             <span className="text-lime-800">Total Emissions</span>
-            <span className="font-mono text-lime-700 tabular-nums">{kg.format(result.emissions.total)} kg CO2e</span>
+            <span className="font-mono text-lime-700 tabular-nums">{kg.format(projection.totals.useeioEmissions)} kg CO2e</span>
           </div>
         </div>
       </div>

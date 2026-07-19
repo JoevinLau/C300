@@ -46,6 +46,7 @@ import {
   calculateMethod2,
   fetchNaicsOptions,
   fetchMethod2Machines,
+  type Method2CalculateRequest,
   type Method2CalculateResponse,
   type Method2MachineReference,
 } from '@/lib/calculator-api'
@@ -74,6 +75,10 @@ import { useCalculationHistorySave } from '@/hooks/useCalculationHistorySave'
 import { useMethod2Chat } from '@/hooks/useMethod2Chat'
 import { useMethod2Documents } from '@/hooks/useMethod2Documents'
 import { useCalculationWorkspace } from '@/features/calculation-workspace/useCalculationWorkspace'
+import {
+  createMethod2ResultProjection,
+  type Method2ResultProjection,
+} from '@/features/result-projection/result-projection'
 
 type MachiningRow = {
   id: string
@@ -164,10 +169,14 @@ const requiredDocuments = [
   'Surface treatment supplier disclosure or process factor',
 ]
 
-function buildComponents(result: Method2CalculateResponse | null, transportSummary: string): ComponentView[] {
-  const emissions = result?.emissions
-  const machiningEntry = result?.machining.entries[0]
-  const transportSource = result?.transport.source ?? 'Not calculated'
+function buildComponents(projection: Method2ResultProjection | null, transportSummary: string): ComponentView[] {
+  const emissionsByKey = new Map(
+    projection?.categories.map((category) => [category.key, category.emissions]) ?? [],
+  )
+  const rawMaterial = projection?.spendCategories.find((category) => category.key === 'raw_material')
+  const surfaceTreatment = projection?.spendCategories.find((category) => category.key === 'surface_treatment')
+  const machiningEntry = projection?.machining.entries[0]
+  const transportSource = projection?.transport.source ?? 'Not calculated'
   const transportEstimated = transportSource.toLowerCase().includes('estimate')
 
   return [
@@ -178,14 +187,14 @@ function buildComponents(result: Method2CalculateResponse | null, transportSumma
       icon: Layers,
       source: 'Authoritative NAICS reference database',
       formula: 'Cost -> FX -> GDP deflator -> NAICS factor -> emissions',
-      valueKg: emissions?.raw_material ?? 0,
+      valueKg: emissionsByKey.get('raw_material') ?? 0,
       confidence: 'Primary',
       rowClass: 'border-lime-400/20 bg-lime-400/[0.04]',
       barClass: 'bg-lime-400',
       textClass: 'text-lime-700',
       details: [
-        { label: 'NAICS proxy', value: demoPart.rawMaterialNaics },
-        { label: 'Cost basis', value: currency.format(demoPart.rawMaterialCostSgd) },
+        { label: 'NAICS proxy', value: rawMaterial?.naicsCode ?? 'Not calculated' },
+        { label: 'Cost basis', value: currency.format(rawMaterial?.amountSgd ?? 0) },
         { label: 'Reuse', value: 'Method 1 compute_emissions' },
       ],
     },
@@ -196,7 +205,7 @@ function buildComponents(result: Method2CalculateResponse | null, transportSumma
       icon: Route,
       source: transportSource,
       formula: 'Existing Method 1 /ecotransit implementation',
-      valueKg: emissions?.transportation ?? 0,
+      valueKg: emissionsByKey.get('transportation') ?? 0,
       confidence: transportEstimated ? 'Estimated' : 'Primary',
       rowClass: 'border-sky-400/20 bg-sky-400/[0.04]',
       barClass: 'bg-sky-400',
@@ -214,7 +223,7 @@ function buildComponents(result: Method2CalculateResponse | null, transportSumma
       icon: Factory,
       source: machiningEntry?.dataSource ?? 'Method 2 reference database',
       formula: 'Hourly emission factor x operating hours',
-      valueKg: emissions?.machining ?? 0,
+      valueKg: emissionsByKey.get('machining') ?? 0,
       confidence: 'Primary',
       rowClass: 'border-teal-400/20 bg-teal-400/[0.04]',
       barClass: 'bg-teal-400',
@@ -232,14 +241,14 @@ function buildComponents(result: Method2CalculateResponse | null, transportSumma
       icon: Paintbrush,
       source: 'Authoritative NAICS reference database',
       formula: 'Cost -> FX -> GDP deflator -> NAICS factor -> emissions',
-      valueKg: emissions?.surface_treatment ?? 0,
+      valueKg: emissionsByKey.get('surface_treatment') ?? 0,
       confidence: 'Primary',
       rowClass: 'border-rose-400/20 bg-rose-400/[0.04]',
       barClass: 'bg-rose-400',
       textClass: 'text-rose-700',
       details: [
-        { label: 'NAICS proxy', value: demoPart.surfaceTreatmentNaics },
-        { label: 'Cost basis', value: currency.format(demoPart.surfaceTreatmentCostSgd) },
+        { label: 'NAICS proxy', value: surfaceTreatment?.naicsCode ?? 'Not calculated' },
+        { label: 'Cost basis', value: currency.format(surfaceTreatment?.amountSgd ?? 0) },
         { label: 'Reuse', value: 'Method 1 compute_emissions' },
       ],
     },
@@ -248,12 +257,12 @@ function buildComponents(result: Method2CalculateResponse | null, transportSumma
 
 function ResultsPanel({
   components,
-  result,
+  projection,
 }: {
   components: ComponentView[]
-  result: Method2CalculateResponse | null
+  projection: Method2ResultProjection | null
 }) {
-  const total = result?.emissions.total ?? 0
+  const total = projection?.totals.reportedEmissions ?? 0
   const max = Math.max(...components.map((item) => item.valueKg), 1)
 
   return (
@@ -266,10 +275,10 @@ function ResultsPanel({
         </p>
         <div className="mt-4 flex flex-wrap gap-2 text-xs">
           <span className="rounded-full border border-zinc-900/12 bg-zinc-950/5 px-2.5 py-1 font-mono text-lime-800">
-            {demoPart.partId}
+            {projection?.documentId ?? demoPart.partId}
           </span>
           <span className="rounded-full border border-zinc-900/12 bg-zinc-950/5 px-2.5 py-1 text-muted-foreground">
-            {demoPart.weightKg} kg material - {demoPart.year}
+            {projection?.transportWeightKg ?? demoPart.weightKg} kg material - {projection?.year ?? demoPart.year}
           </span>
         </div>
       </div>
@@ -313,6 +322,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
   ])
   const [machiningResult, setMachiningResult] = useState<MachiningElectricityResult | null>(null)
   const [machiningError, setMachiningError] = useState<string | null>(null)
+  const [resultRequest, setResultRequest] = useState<Method2CalculateRequest | null>(null)
   const {
     historyWarning,
     clearHistoryWarning,
@@ -406,7 +416,20 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
     return `${kg.format(emissions)} kg CO2e via ${transportResult.transport.chosen_mode}`
   }, [transportResult])
 
-  const components = useMemo(() => buildComponents(result, transportSummary), [result, transportSummary])
+  const resultProjection = useMemo(
+    () => result && resultRequest
+      ? createMethod2ResultProjection({
+          result,
+          request: resultRequest,
+          transport: transportResult?.transport,
+        })
+      : null,
+    [result, resultRequest, transportResult],
+  )
+  const components = useMemo(
+    () => buildComponents(resultProjection, transportSummary),
+    [resultProjection, transportSummary],
+  )
 
   function invalidateMachiningResult() {
     setMachiningResult(null)
@@ -424,7 +447,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
         weight_kg: Number(transportWeight) || demoPart.weightKg,
         year: Number(form.year),
       },
-      total_emissions_kg_co2e: result?.emissions.total ?? 0,
+      total_emissions_kg_co2e: resultProjection?.totals.reportedEmissions ?? 0,
       components: components.map((item) => ({
         label: item.label,
         emissions_kg_co2e: item.valueKg,
@@ -435,7 +458,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
       transport: transportResult?.transport ?? null,
       missing_source_documents: requiredDocuments,
     }
-  }, [components, form.invoice_id, form.year, result, transportResult, transportWeight])
+  }, [components, form.invoice_id, form.year, resultProjection, transportResult, transportWeight])
 
   const {
     chatLoading,
@@ -568,6 +591,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
     await workspace.calculation.run(
       () => calculateMethod2(calculationRequest),
       async (response) => {
+        setResultRequest(calculationRequest)
         setMachiningResult({
           entries: response.machining.entries.map((entry, index) => ({
             id: rows[index]?.id ?? `machine-result-${index}`,
@@ -905,7 +929,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
                     </div>
                   </CardHeader>
                   <CardContent className="px-5 py-6">
-                    <ResultsPanel components={components} result={result} />
+                    <ResultsPanel components={components} projection={resultProjection} />
                   </CardContent>
                 </Card>
 

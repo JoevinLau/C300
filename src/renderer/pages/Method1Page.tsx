@@ -978,6 +978,7 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
                 <CalculationProcessPanel
                   loading={loading}
                   result={result}
+                  totalSgd={totalSgd}
                   naicsByCode={naicsByCode}
                 />
               </CardContent>

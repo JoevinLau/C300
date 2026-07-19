@@ -6,11 +6,8 @@ import {
   View,
 } from '@react-pdf/renderer'
 
-import type {
-  CalculateResponse,
-  CalculationLineItemResult,
-  EcoTransitResponse,
-} from '@/lib/calculator-api'
+import type { EcoTransitResponse } from '@/lib/calculator-api'
+import type { UseeioResultProjection } from '@/features/result-projection/result-projection'
 
 const styles = StyleSheet.create({
   page: {
@@ -340,78 +337,11 @@ const styles = StyleSheet.create({
   },
 })
 
-const categories = [
-  { label: 'Raw material', key: 'raw_material' },
-  { label: 'Fabrication', key: 'fabrication' },
-  { label: 'Surface treatment', key: 'surface_treatment' },
-] as const
-
-type CategoryKey = typeof categories[number]['key']
-
-type CalculationLine = {
-  amountSgd: number
-  amountUsd: number
-  amountUsd2022: number
-  code: string
-  factor: number
-  emission: number
-}
-
 const formatNumber = (value: number, digits = 2) =>
   value.toLocaleString('en-US', {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   })
-
-const sumCategories = (
-  values: Record<CategoryKey, number>,
-) => categories.reduce((sum, category) => sum + values[category.key], 0)
-
-function getCalculationLines(result: CalculateResponse, categoryKey: CategoryKey): CalculationLine[] {
-  const lineItems = result.calculation.line_items?.filter(
-    (item): item is CalculationLineItemResult => item.category === categoryKey,
-  ) ?? []
-
-  if (lineItems.length > 0) {
-    return lineItems.map((item) => ({
-      amountSgd: item.amount_sgd,
-      amountUsd: item.amount_usd,
-      amountUsd2022: item.amount_usd2022,
-      code: item.naics_code,
-      factor: item.factor,
-      emission: item.emission,
-    }))
-  }
-
-  return [{
-    amountSgd: result.calculation.sgd_amounts[categoryKey],
-    amountUsd: result.calculation.usd_amounts[categoryKey],
-    amountUsd2022: result.calculation.usd2022_amounts[categoryKey],
-    code: 'Category aggregate',
-    factor: result.calculation.factors[categoryKey],
-    emission: result.emissions[categoryKey],
-  }]
-}
-
-function getInflationBaseIndex(result: CalculateResponse): number {
-  const lineItem = result.calculation.line_items?.find(
-    (item) => item.amount_usd > 0 && Number.isFinite(item.amount_usd2022 / item.amount_usd),
-  )
-
-  if (lineItem) {
-    return (lineItem.amount_usd2022 / lineItem.amount_usd) * result.calculation.inflation_index
-  }
-
-  for (const category of categories) {
-    const amountUsd = result.calculation.usd_amounts[category.key]
-    const amountUsd2022 = result.calculation.usd2022_amounts[category.key]
-    if (amountUsd > 0 && Number.isFinite(amountUsd2022 / amountUsd)) {
-      return (amountUsd2022 / amountUsd) * result.calculation.inflation_index
-    }
-  }
-
-  return 100
-}
 
 function PdfHeader({
   invoiceId,
@@ -449,35 +379,31 @@ function PdfFooter() {
 }
 
 export function UseeioResultsPdf({
-  result,
-  totalSgd,
+  projection,
   transport,
 }: {
-  result: CalculateResponse
-  totalSgd: number
+  projection: UseeioResultProjection
   transport?: EcoTransitResponse | null
 }) {
   const transportReturned = Boolean(transport?.transport)
-  const transportEmissionsAvailable = transport?.transport.chosen_emissions_kg != null
-  const transportEmissions = transport?.transport.chosen_emissions_kg ?? 0
-  const totalEmissions = result.emissions.total + transportEmissions
-  const totalSgdCalculated = sumCategories(result.calculation.sgd_amounts)
-  const totalUsd = sumCategories(result.calculation.usd_amounts)
-  const totalUsd2022 = sumCategories(result.calculation.usd2022_amounts)
-  const componentEmissions = sumCategories(result.emissions)
-  const inflationBaseIndex = getInflationBaseIndex(result)
-  const allocationDifference = totalSgdCalculated - totalSgd
-  const useeioDifference = componentEmissions - result.emissions.total
-  const totalsReconcile = Math.abs(allocationDifference) <= 0.01 && Math.abs(useeioDifference) <= 0.01
+  const transportEmissionsAvailable = projection.totals.transportEmissions !== null
+  const transportEmissions = projection.totals.transportEmissions ?? 0
+  const totalEmissions = projection.totals.reportedEmissions
+  const totalSgdCalculated = projection.totals.allocatedSgd
+  const totalUsd = projection.totals.usd
+  const totalUsd2022 = projection.totals.usd2022
+  const componentEmissions = projection.totals.componentEmissions
+  const inflationBaseIndex = projection.inflationBaseIndex
+  const totalsReconcile = projection.reconciliation.totalsReconcile
 
   return (
     <Document
-      title={`USEEIO calculation - ${result.invoice_id}`}
+      title={`USEEIO calculation - ${projection.documentId}`}
       author="C300 Carbon Emissions Calculator"
       subject="USEEIO calculation results and calculation trail"
     >
       <Page size="A4" style={styles.page}>
-        <PdfHeader invoiceId={result.invoice_id} />
+        <PdfHeader invoiceId={projection.documentId} />
 
         <View style={styles.summary}>
           <Text style={styles.summaryLabel}>
@@ -485,7 +411,7 @@ export function UseeioResultsPdf({
           </Text>
           <Text style={styles.summaryValue}>{formatNumber(totalEmissions)} kg CO2e</Text>
           <Text style={styles.summaryMeta}>
-            USEEIO {formatNumber(result.emissions.total)} kg CO2e
+            USEEIO {formatNumber(projection.totals.useeioEmissions)} kg CO2e
             {transportEmissionsAvailable
               ? `  |  Transport ${formatNumber(transportEmissions)} kg CO2e`
               : ''}
@@ -497,15 +423,15 @@ export function UseeioResultsPdf({
           <View style={styles.detailGrid}>
             <View style={styles.detail}>
               <Text style={styles.detailLabel}>Invoice ID</Text>
-              <Text style={styles.detailValue}>{result.invoice_id}</Text>
+              <Text style={styles.detailValue}>{projection.documentId}</Text>
             </View>
             <View style={styles.detail}>
               <Text style={styles.detailLabel}>Reporting year</Text>
-              <Text style={styles.detailValue}>{result.calculation.year}</Text>
+              <Text style={styles.detailValue}>{projection.year}</Text>
             </View>
             <View style={styles.detail}>
               <Text style={styles.detailLabel}>Invoice total</Text>
-              <Text style={styles.detailValue}>SGD {formatNumber(totalSgd)}</Text>
+              <Text style={styles.detailValue}>SGD {formatNumber(projection.totals.inputSgd)}</Text>
             </View>
             <View style={styles.detail}>
               <Text style={styles.detailLabel}>Reporting-year USD</Text>
@@ -518,13 +444,13 @@ export function UseeioResultsPdf({
             <View style={styles.detail}>
               <Text style={styles.detailLabel}>SGD to USD rate</Text>
               <Text style={styles.detailValue}>
-                1 SGD = {formatNumber(result.calculation.fx_rate, 6)} USD
+                1 SGD = {formatNumber(projection.fxRate, 6)} USD
               </Text>
             </View>
             <View style={styles.detail}>
-              <Text style={styles.detailLabel}>{result.calculation.year} deflator index</Text>
+              <Text style={styles.detailLabel}>{projection.year} deflator index</Text>
               <Text style={styles.detailValue}>
-                {formatNumber(result.calculation.inflation_index, 4)}
+                {formatNumber(projection.inflationIndex, 4)}
               </Text>
             </View>
             <View style={styles.detail}>
@@ -547,7 +473,7 @@ export function UseeioResultsPdf({
               <Text style={styles.methodTitle}>Normalize to 2022 USD</Text>
               <Text style={styles.methodFormula}>
                 Reporting-year USD x ({formatNumber(inflationBaseIndex, 4)} /{' '}
-                {formatNumber(result.calculation.inflation_index, 4)})
+                {formatNumber(projection.inflationIndex, 4)})
               </Text>
             </View>
             <View style={styles.methodCard}>
@@ -564,28 +490,28 @@ export function UseeioResultsPdf({
             <View style={[styles.row, styles.headerRow]} fixed>
               <Text style={[styles.cell, styles.componentCell]}>Component</Text>
               <Text style={[styles.cell, styles.sgdCell]}>SGD</Text>
-              <Text style={[styles.cell, styles.usdCell]}>{result.calculation.year} USD</Text>
+              <Text style={[styles.cell, styles.usdCell]}>{projection.year} USD</Text>
               <Text style={[styles.cell, styles.usd2022Cell]}>2022 USD</Text>
               <Text style={[styles.cell, styles.factorCell]}>Effective factor</Text>
               <Text style={[styles.cell, styles.emissionCell]}>kg CO2e</Text>
             </View>
-            {categories.map((category) => (
+            {projection.categories.map((category) => (
               <View key={category.key} style={styles.row} wrap={false}>
                 <Text style={[styles.cell, styles.componentCell]}>{category.label}</Text>
                 <Text style={[styles.cell, styles.sgdCell]}>
-                  {formatNumber(result.calculation.sgd_amounts[category.key])}
+                  {formatNumber(category.amountSgd)}
                 </Text>
                 <Text style={[styles.cell, styles.usdCell]}>
-                  {formatNumber(result.calculation.usd_amounts[category.key])}
+                  {formatNumber(category.amountUsd)}
                 </Text>
                 <Text style={[styles.cell, styles.usd2022Cell]}>
-                  {formatNumber(result.calculation.usd2022_amounts[category.key])}
+                  {formatNumber(category.amountUsd2022)}
                 </Text>
                 <Text style={[styles.cell, styles.factorCell]}>
-                  {formatNumber(result.calculation.factors[category.key], 6)}
+                  {formatNumber(category.factor, 6)}
                 </Text>
                 <Text style={[styles.cell, styles.emissionCell]}>
-                  {formatNumber(result.emissions[category.key])}
+                  {formatNumber(category.emissions)}
                 </Text>
               </View>
             ))}
@@ -596,7 +522,7 @@ export function UseeioResultsPdf({
               <Text style={[styles.cell, styles.usd2022Cell]}>{formatNumber(totalUsd2022)}</Text>
               <Text style={[styles.cell, styles.factorCell]}>-</Text>
               <Text style={[styles.cell, styles.emissionCell]}>
-                {formatNumber(result.emissions.total)}
+                {formatNumber(projection.totals.useeioEmissions)}
               </Text>
             </View>
           </View>
@@ -610,7 +536,7 @@ export function UseeioResultsPdf({
       </Page>
 
       <Page size="A4" style={styles.page}>
-        <PdfHeader invoiceId={result.invoice_id} detailPage />
+        <PdfHeader invoiceId={projection.documentId} detailPage />
 
         <View style={styles.section}>
           <Text style={styles.sectionDescription}>
@@ -618,32 +544,32 @@ export function UseeioResultsPdf({
             kilograms of CO2e per 2022 USD of spend.
           </Text>
 
-          {categories.map((category) => {
-            const lines = getCalculationLines(result, category.key)
+          {projection.categories.map((category) => {
+            const lines = category.lines
             return (
               <View key={category.key}>
                 <View style={styles.categoryHeader} minPresenceAhead={80}>
                   <Text style={styles.categoryTitle}>{category.label}</Text>
                   <Text style={styles.categoryTotal}>
-                    Subtotal {formatNumber(result.emissions[category.key])} kg CO2e
+                    Subtotal {formatNumber(category.emissions)} kg CO2e
                   </Text>
                 </View>
 
                 {lines.map((line, index) => (
-                  <View key={`${category.key}-${line.code}-${index}`} style={styles.calculationCard} wrap={false}>
+                  <View key={`${category.key}-${line.naicsCode ?? 'aggregate'}-${index}`} style={styles.calculationCard} wrap={false}>
                     <View style={styles.calculationHeader}>
                       <Text style={styles.calculationLabel}>
                         {lines.length > 1 ? `Line ${index + 1}  |  ` : ''}
-                        {line.code === 'Category aggregate' ? line.code : `NAICS ${line.code}`}
+                        {line.naicsCode ? `NAICS ${line.naicsCode}` : 'Category aggregate'}
                       </Text>
                       <Text style={styles.calculationResult}>
-                        {formatNumber(line.emission)} kg CO2e
+                        {formatNumber(line.emissions)} kg CO2e
                       </Text>
                     </View>
                     <View style={styles.formulaRow}>
                       <Text style={styles.formulaLabel}>1. Currency conversion</Text>
                       <Text style={styles.formulaValue}>
-                        SGD {formatNumber(line.amountSgd)} x {formatNumber(result.calculation.fx_rate, 6)}
+                        SGD {formatNumber(line.amountSgd)} x {formatNumber(projection.fxRate, 6)}
                         {' = '}USD {formatNumber(line.amountUsd)}
                       </Text>
                     </View>
@@ -651,7 +577,7 @@ export function UseeioResultsPdf({
                       <Text style={styles.formulaLabel}>2. 2022 normalization</Text>
                       <Text style={styles.formulaValue}>
                         USD {formatNumber(line.amountUsd)} x ({formatNumber(inflationBaseIndex, 4)} /{' '}
-                        {formatNumber(result.calculation.inflation_index, 4)}) = USD{' '}
+                        {formatNumber(projection.inflationIndex, 4)}) = USD{' '}
                         {formatNumber(line.amountUsd2022)}
                       </Text>
                     </View>
@@ -659,7 +585,7 @@ export function UseeioResultsPdf({
                       <Text style={styles.formulaLabel}>3. Emission factor</Text>
                       <Text style={styles.formulaValue}>
                         USD {formatNumber(line.amountUsd2022)} x {formatNumber(line.factor, 6)} kg CO2e/2022 USD
-                        {' = '}{formatNumber(line.emission)} kg CO2e
+                        {' = '}{formatNumber(line.emissions)} kg CO2e
                       </Text>
                     </View>
                   </View>
@@ -738,24 +664,24 @@ export function UseeioResultsPdf({
             <View style={styles.reconciliationRow}>
               <Text style={styles.reconciliationLabel}>Allocated spend</Text>
               <Text style={styles.reconciliationFormula}>
-                {categories.map((category) => formatNumber(result.calculation.sgd_amounts[category.key])).join(' + ')}
-                {' = '}SGD {formatNumber(totalSgdCalculated)} | Invoice SGD {formatNumber(totalSgd)}
+                {projection.categories.map((category) => formatNumber(category.amountSgd)).join(' + ')}
+                {' = '}SGD {formatNumber(totalSgdCalculated)} | Invoice SGD {formatNumber(projection.totals.inputSgd)}
               </Text>
             </View>
             <View style={styles.reconciliationRow}>
               <Text style={styles.reconciliationLabel}>USEEIO subtotal</Text>
               <Text style={styles.reconciliationFormula}>
-                {categories.map((category) => formatNumber(result.emissions[category.key])).join(' + ')}
+                {projection.categories.map((category) => formatNumber(category.emissions)).join(' + ')}
                 {' = '}{formatNumber(componentEmissions)} kg CO2e | Reported{' '}
-                {formatNumber(result.emissions.total)} kg CO2e
+                {formatNumber(projection.totals.useeioEmissions)} kg CO2e
               </Text>
             </View>
             <View style={[styles.reconciliationRow, styles.formulaRowLast]}>
               <Text style={styles.reconciliationLabel}>Final reported total</Text>
               <Text style={styles.reconciliationFormula}>
                 {transportEmissionsAvailable
-                  ? `${formatNumber(result.emissions.total)} + ${formatNumber(transportEmissions)} = ${formatNumber(totalEmissions)} kg CO2e`
-                  : `${formatNumber(result.emissions.total)} = ${formatNumber(totalEmissions)} kg CO2e (no transport emissions included)`}
+                  ? `${formatNumber(projection.totals.useeioEmissions)} + ${formatNumber(transportEmissions)} = ${formatNumber(totalEmissions)} kg CO2e`
+                  : `${formatNumber(projection.totals.useeioEmissions)} = ${formatNumber(totalEmissions)} kg CO2e (no transport emissions included)`}
               </Text>
             </View>
           </View>

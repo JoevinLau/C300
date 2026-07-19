@@ -9,6 +9,10 @@ import {
 } from 'lucide-react'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  createMethod2ResultProjection,
+  createUseeioResultProjection,
+} from '@/features/result-projection/result-projection'
 import { cn } from '@/lib/utils'
 import type {
   CalculateRequest,
@@ -203,25 +207,14 @@ function TransportDetails({ transport }: { transport: CalculationHistoryTranspor
 
 function UseeioDetails({ record }: { record: UseeioHistoryDetail }) {
   const { request, result } = record
-  const lineItems = result.calculation.line_items ?? []
-  const categories = (['raw_material', 'fabrication', 'surface_treatment'] as const).map((category) => ({
-    category,
-    amountSgd: result.calculation.sgd_amounts[category],
-    amountUsd2022: result.calculation.usd2022_amounts[category],
-    factor: result.calculation.factors[category],
-    emissions: result.emissions[category],
-    naics: (() => {
-      const codes = Array.from(
-        new Set(
-          lineItems
-            .filter((item) => item.category === category)
-            .map((item) => item.naics_code),
-        ),
-      )
-      return codes.length > 1 ? 'Multiple codes' : (codes[0] ?? request.naics[category])
-    })(),
-  }))
-  const maxEmissions = Math.max(...categories.map((item) => item.emissions), 1)
+  const projection = createUseeioResultProjection({
+    result,
+    totalAmountSgd: request.total_amount_sgd,
+    transport: record.transport,
+    fallbackNaics: request.naics,
+  })
+  const hasLineItems = Boolean(result.calculation.line_items?.length)
+  const maxEmissions = Math.max(...projection.categories.map((item) => item.emissions), 1)
 
   return (
     <div className="space-y-6">
@@ -230,24 +223,27 @@ function UseeioDetails({ record }: { record: UseeioHistoryDetail }) {
         <div className="grid grid-cols-2 gap-2">
           <Metric label="Invoice spend" value={sgd.format(record.totalAmountSgd)} />
           <Metric label="Reporting year" value={String(record.year)} />
-          <Metric label="SGD to USD rate" value={preciseNumber.format(result.calculation.fx_rate)} />
-          <Metric label="Inflation index" value={preciseNumber.format(result.calculation.inflation_index)} />
+          <Metric label="SGD to USD rate" value={preciseNumber.format(projection.fxRate)} />
+          <Metric label="Inflation index" value={preciseNumber.format(projection.inflationIndex)} />
         </div>
       </section>
 
       <section className="space-y-4">
         <SectionHeading eyebrow="Breakdown" title="USEEIO components" />
         <div className="space-y-4">
-          {categories.map((item) => {
-            const meta = categoryMeta[item.category]
+          {projection.categories.map((item) => {
+            const meta = categoryMeta[item.key]
+            const naics = item.naicsCodes.length > 1
+              ? 'Multiple codes'
+              : (item.naicsCodes[0] ?? 'Not recorded')
             return (
-              <div key={item.category} className="rounded-lg border border-zinc-900/10 bg-white p-4">
+              <div key={item.key} className="rounded-lg border border-zinc-900/10 bg-white p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-2.5">
                     <span className={cn('size-2.5 shrink-0 rounded-full', meta.dotClass)} />
                     <div>
                       <p className="font-semibold text-zinc-950">{meta.label}</p>
-                      <p className="mt-0.5 font-mono text-xs text-zinc-500">NAICS {item.naics}</p>
+                      <p className="mt-0.5 font-mono text-xs text-zinc-500">NAICS {naics}</p>
                     </div>
                   </div>
                   <p className="font-mono text-sm font-semibold tabular-nums text-zinc-950">
@@ -275,7 +271,7 @@ function UseeioDetails({ record }: { record: UseeioHistoryDetail }) {
         </div>
       </section>
 
-      {lineItems.length > 0 ? (
+      {hasLineItems ? (
         <section className="space-y-3">
           <SectionHeading eyebrow="Audit trail" title="Saved line items" />
           <div className="overflow-hidden rounded-lg border border-zinc-900/10">
@@ -284,23 +280,25 @@ function UseeioDetails({ record }: { record: UseeioHistoryDetail }) {
               <span className="text-right">2022 USD × factor</span>
               <span className="text-right">Emissions</span>
             </div>
-            {lineItems.map((item, index) => (
+            {projection.categories.flatMap((category) =>
+              category.lines.map((line, index) => (
               <div
-                key={`${item.category}-${item.naics_code}-${index}`}
+                key={`${category.key}-${line.naicsCode ?? 'aggregate'}-${index}`}
                 className="grid gap-2 border-t border-zinc-900/8 px-4 py-3 first:border-t-0 sm:grid-cols-[1.1fr_0.8fr_0.8fr] sm:items-center"
               >
                 <div>
-                  <p className="text-sm font-medium text-zinc-900">{categoryMeta[item.category].label}</p>
-                  <p className="font-mono text-xs text-zinc-500">{item.naics_code}</p>
+                  <p className="text-sm font-medium text-zinc-900">{category.label}</p>
+                  <p className="font-mono text-xs text-zinc-500">{line.naicsCode ?? 'Not recorded'}</p>
                 </div>
                 <p className="font-mono text-xs tabular-nums text-zinc-600 sm:text-right">
-                  {usd.format(item.amount_usd2022)} × {preciseNumber.format(item.factor)}
+                  {usd.format(line.amountUsd2022)} × {preciseNumber.format(line.factor)}
                 </p>
                 <p className="font-mono text-sm font-semibold tabular-nums text-zinc-950 sm:text-right">
-                  {formatKg(item.emission)}
+                  {formatKg(line.emissions)}
                 </p>
               </div>
-            ))}
+              )),
+            )}
           </div>
         </section>
       ) : null}
@@ -315,12 +313,22 @@ function UseeioDetails({ record }: { record: UseeioHistoryDetail }) {
 
 function Method2Details({ record }: { record: Method2HistoryDetail }) {
   const { request, result } = record
-  const emissionRows = [
-    { label: 'Raw material', value: result.emissions.raw_material, barClass: 'bg-lime-500' },
-    { label: 'Transportation', value: result.emissions.transportation, barClass: 'bg-sky-500' },
-    { label: 'Machining', value: result.emissions.machining, barClass: 'bg-teal-500' },
-    { label: 'Surface treatment', value: result.emissions.surface_treatment, barClass: 'bg-rose-400' },
-  ]
+  const projection = createMethod2ResultProjection({
+    request,
+    result,
+    transport: record.transport,
+  })
+  const barClassByKey = {
+    raw_material: 'bg-lime-500',
+    transportation: 'bg-sky-500',
+    machining: 'bg-teal-500',
+    surface_treatment: 'bg-rose-400',
+  } as const
+  const emissionRows = projection.categories.map((category) => ({
+    label: category.label,
+    value: category.emissions,
+    barClass: barClassByKey[category.key],
+  }))
   const maxEmissions = Math.max(...emissionRows.map((item) => item.value), 1)
 
   return (
@@ -331,7 +339,7 @@ function Method2Details({ record }: { record: Method2HistoryDetail }) {
           <Metric label="Raw material spend" value={sgd.format(request.raw_material_sgd)} />
           <Metric label="Surface treatment" value={sgd.format(request.surface_treatment_sgd)} />
           <Metric label="Reporting year" value={String(request.year)} />
-          <Metric label="Machine entries" value={String(result.machining.entries.length)} />
+          <Metric label="Machine entries" value={String(projection.machining.entries.length)} />
         </div>
       </section>
 
@@ -348,9 +356,9 @@ function Method2Details({ record }: { record: Method2HistoryDetail }) {
 
       <section className="space-y-3">
         <SectionHeading eyebrow="Production" title="Machining entries" />
-        {result.machining.entries.length > 0 ? (
+        {projection.machining.entries.length > 0 ? (
           <div className="space-y-2">
-            {result.machining.entries.map((entry, index) => (
+            {projection.machining.entries.map((entry, index) => (
               <Card key={`${entry.machineType}-${entry.dutyLevel}-${index}`} className="gap-0 py-0 shadow-none">
                 <CardContent className="px-4 py-4">
                   <div className="flex items-start justify-between gap-4">
@@ -381,7 +389,7 @@ function Method2Details({ record }: { record: Method2HistoryDetail }) {
               <span className="flex items-center gap-2 font-medium">
                 <Calculator className="size-4 text-teal-200" /> Machining subtotal
               </span>
-              <span className="font-mono font-semibold tabular-nums">{formatKg(result.machining.total)}</span>
+              <span className="font-mono font-semibold tabular-nums">{formatKg(projection.machining.total)}</span>
             </div>
           </div>
         ) : (
@@ -396,32 +404,24 @@ function Method2Details({ record }: { record: Method2HistoryDetail }) {
       <section className="space-y-3">
         <SectionHeading eyebrow="Spend model" title="Cost-based components" />
         <div className="grid gap-2 sm:grid-cols-2">
-          <Card className="gap-0 py-0 shadow-none">
+          {projection.spendCategories.map((category) => (
+          <Card key={category.key} className="gap-0 py-0 shadow-none">
             <CardContent className="px-4 py-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-zinc-950">
-                <Scale className="size-4 text-lime-700" /> Raw material
+                {category.key === 'raw_material'
+                  ? <Scale className="size-4 text-lime-700" />
+                  : <FileSpreadsheet className="size-4 text-rose-600" />}
+                {category.label}
               </div>
               <p className="mt-3 font-mono text-xs leading-5 text-zinc-500">
-                NAICS {request.naics.raw_material}<br />
-                {usd.format(result.calculation.usd2022_amounts.raw_material)} ×{' '}
-                {preciseNumber.format(result.calculation.factors.raw_material)}
+                NAICS {category.naicsCode}<br />
+                {usd.format(category.amountUsd2022)} ×{' '}
+                {preciseNumber.format(category.factor)}
               </p>
-              <p className="mt-2 font-mono text-sm font-semibold">{formatKg(result.emissions.raw_material)}</p>
+              <p className="mt-2 font-mono text-sm font-semibold">{formatKg(category.emissions)}</p>
             </CardContent>
           </Card>
-          <Card className="gap-0 py-0 shadow-none">
-            <CardContent className="px-4 py-4">
-              <div className="flex items-center gap-2 text-sm font-semibold text-zinc-950">
-                <FileSpreadsheet className="size-4 text-rose-600" /> Surface treatment
-              </div>
-              <p className="mt-3 font-mono text-xs leading-5 text-zinc-500">
-                NAICS {request.naics.surface_treatment}<br />
-                {usd.format(result.calculation.usd2022_amounts.surface_treatment)} ×{' '}
-                {preciseNumber.format(result.calculation.factors.surface_treatment)}
-              </p>
-              <p className="mt-2 font-mono text-sm font-semibold">{formatKg(result.emissions.surface_treatment)}</p>
-            </CardContent>
-          </Card>
+          ))}
         </div>
       </section>
 
@@ -431,7 +431,7 @@ function Method2Details({ record }: { record: Method2HistoryDetail }) {
         <div className="flex items-start gap-2 rounded-md bg-zinc-100 px-3 py-2.5 text-xs leading-5 text-zinc-600">
           <Route className="mt-0.5 size-3.5 shrink-0" />
           <span>
-            Method 2 stored {formatKg(result.transport.emissions)} from {result.transport.source || 'the saved transport source'}.
+            Method 2 stored {formatKg(projection.transport.emissions)} from {projection.transport.source || 'the saved transport source'}.
           </span>
         </div>
       </section>
