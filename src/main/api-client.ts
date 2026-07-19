@@ -2,6 +2,12 @@ import type { CalculateRequest, CalculateResponse } from '../shared/calculator-t
 import type { LocalApiMethod, LocalApiRequest } from '../shared/electron-api'
 
 const API_BASE = 'http://127.0.0.1:8000'
+const DEFAULT_TIMEOUT_MS = 60_000
+
+interface LocalApiRequestOptions {
+  timeoutMs?: number
+  signal?: AbortSignal
+}
 
 const ALLOWED_ROUTES: Array<{ methods: LocalApiMethod[]; path: RegExp }> = [
   { methods: ['POST'], path: /^\/calculate$/ },
@@ -67,7 +73,10 @@ async function parseResponse(response: Response): Promise<unknown> {
   }
 }
 
-export async function requestLocalApi(request: LocalApiRequest): Promise<unknown> {
+export async function requestLocalApi(
+  request: LocalApiRequest,
+  options: LocalApiRequestOptions = {},
+): Promise<unknown> {
   const { method, url } = resolveAllowedUrl(request)
   const headers = new Headers()
   let body: BodyInit | undefined
@@ -91,16 +100,39 @@ export async function requestLocalApi(request: LocalApiRequest): Promise<unknown
     body = formData
   }
 
-  const response = await fetch(url, { method, headers, body })
-  const responseBody = await parseResponse(response)
-  if (!response.ok) {
-    const detail =
-      responseBody && typeof responseBody === 'object' && 'detail' in responseBody
-        ? (responseBody as { detail: unknown }).detail
-        : `Request failed (${response.status})`
-    throw new Error(formatApiError(detail))
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const controller = new AbortController()
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
+  const forwardAbort = () => controller.abort(options.signal?.reason)
+  if (options.signal?.aborted) forwardAbort()
+  else options.signal?.addEventListener('abort', forwardAbort, { once: true })
+
+  try {
+    const response = await fetch(url, { method, headers, body, signal: controller.signal })
+    const responseBody = await parseResponse(response)
+    if (!response.ok) {
+      const detail =
+        responseBody && typeof responseBody === 'object' && 'detail' in responseBody
+          ? (responseBody as { detail: unknown }).detail
+          : `Request failed (${response.status})`
+      throw new Error(formatApiError(detail))
+    }
+    return responseBody
+  } catch (error) {
+    if (timedOut) {
+      throw new Error(`Local API request timed out after ${timeoutMs} ms.`, {
+        cause: error,
+      })
+    }
+    throw error
+  } finally {
+    clearTimeout(timer)
+    options.signal?.removeEventListener('abort', forwardAbort)
   }
-  return responseBody
 }
 
 export async function postCalculate(payload: CalculateRequest): Promise<CalculateResponse> {

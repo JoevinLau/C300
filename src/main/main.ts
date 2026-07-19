@@ -1,11 +1,12 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import http from 'node:http'
 
 import { postCalculate, requestLocalApi } from './api-client'
+import { BackendSupervisor, type BackendStatus } from './backend-supervisor'
 import { CalculationHistoryStore } from './calculation-history-store'
 import type { CalculateRequest } from '../shared/calculator-types'
 import type {
@@ -15,7 +16,9 @@ import type {
 import type { LocalApiRequest } from '../shared/electron-api'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-let apiProcess: ChildProcess | null = null
+let backendSupervisor: BackendSupervisor | null = null
+let usingExistingApi = false
+let backendFailurePromptOpen = false
 let calculationHistoryStore: CalculationHistoryStore | null = null
 const API_HOST = '127.0.0.1'
 const API_PORT = 8000
@@ -31,9 +34,11 @@ function getCalculationHistoryStore(): CalculationHistoryStore {
 
 function registerApiHandlers() {
   ipcMain.handle('calculator:calculate', async (_event, payload: CalculateRequest) => {
+    assertBackendReady()
     return postCalculate(payload)
   })
   ipcMain.handle('local-api:request', async (_event, request: LocalApiRequest) => {
+    assertBackendReady()
     return requestLocalApi(request)
   })
 
@@ -48,6 +53,14 @@ function registerApiHandlers() {
   )
   ipcMain.handle('calculation-history:get', (_event, id: string) =>
     getCalculationHistoryStore().get(id),
+  )
+}
+
+function assertBackendReady() {
+  if (usingExistingApi || backendSupervisor?.status.state === 'ready') return
+  const state = backendSupervisor?.status.state ?? 'stopped'
+  throw new Error(
+    `The calculation backend is ${state}. Wait for recovery to finish, then try again.`,
   )
 }
 
@@ -85,7 +98,7 @@ function canRunPython(executable: string) {
   }
 }
 
-function resolvePythonExecutable(venvPythons: string[]) {
+function resolvePythonExecutable(venvPythons: string[]): string | null {
   const candidates = [
     ...venvPythons,
     process.platform === 'win32' ? 'python' : 'python3',
@@ -107,80 +120,57 @@ function resolvePythonExecutable(venvPythons: string[]) {
     }
   }
 
-  return process.platform === 'win32' ? 'python' : 'python3'
+  return null
 }
 
-function monitorApiProcess(
-  child: ChildProcess,
-  label: string,
-  onStartupFailure?: () => void,
-) {
-  apiProcess = child
-  let stderr = ''
-  let settled = false
-  const settleTimer = setTimeout(() => {
-    settled = true
-  }, 3000)
-
-  child.stderr?.on('data', (chunk) => {
-    stderr += chunk.toString()
-  })
-  child.on('error', (error) => {
-    clearTimeout(settleTimer)
-    if (apiProcess === child) apiProcess = null
-    console.error(`FastAPI startup failed with ${label}: ${error.message}`)
-    if (!settled) onStartupFailure?.()
-  })
-  child.on('exit', (code) => {
-    clearTimeout(settleTimer)
-    if (apiProcess === child) apiProcess = null
-    if (!settled) {
-      if (isPortInUseStartupError(stderr)) {
-        void isExistingApiHealthy().then((healthy) => {
-          if (healthy && process.env.C300_REUSE_EXISTING_API === '1') {
-            console.log(`FastAPI is already running on http://${API_HOST}:${API_PORT}; reusing it.`)
-            return
-          }
-
-          console.error(
-            healthy
-              ? `FastAPI is already running on http://${API_HOST}:${API_PORT}. Stop that process, then run npm run dev again so code changes are loaded. Set C300_REUSE_EXISTING_API=1 to reuse it intentionally.`
-              : `Port ${API_PORT} is already in use, but it does not look like the FastAPI service. Stop the process using that port, then run npm run dev again.`,
-          )
-        })
-        return
-      }
-
-      console.error(
-        `FastAPI exited during startup with ${label} (code ${code}). ${stderr.trim()}`,
-      )
-      onStartupFailure?.()
-    }
-  })
-}
-
-function isPortInUseStartupError(stderr: string) {
-  const normalized = stderr.toLowerCase()
-  return (
-    normalized.includes('errno 10048') ||
-    normalized.includes('winerror 10048') ||
-    normalized.includes('eaddrinuse') ||
-    normalized.includes('address already in use')
-  )
-}
-
-function isExistingApiHealthy() {
-  return new Promise<boolean>((resolve) => {
+function probeApiReadiness() {
+  return new Promise<boolean>((resolve, reject) => {
     const request = http.get(
       {
         hostname: API_HOST,
         port: API_PORT,
-        path: '/',
-        timeout: 1000,
+        path: '/health/ready',
+        timeout: 1500,
       },
       (response) => {
-        response.resume()
-        resolve(response.statusCode === 200)
+        let body = ''
+        response.setEncoding('utf8')
+        response.on('data', (chunk) => {
+          if (body.length < 16_384) body += chunk
+        })
+        response.on('end', () => {
+          try {
+            const result = JSON.parse(body) as {
+              service?: string
+              status?: string
+              checks?: Record<string, string>
+            }
+            if (
+              response.statusCode === 200 &&
+              result.service === 'c300-api' &&
+              result.status === 'ready'
+            ) {
+              resolve(true)
+              return
+            }
+            if (result.service === 'c300-api' && result.status === 'not_ready') {
+              const unavailable = Object.entries(result.checks ?? {})
+                .filter(([, status]) => status !== 'ready')
+                .map(([name]) => name.replaceAll('_', ' '))
+                .join(', ')
+              reject(
+                new Error(
+                  `Backend dependencies are unavailable${unavailable ? `: ${unavailable}` : ''}.`,
+                ),
+              )
+              return
+            }
+            resolve(false)
+          } catch (error) {
+            if (error instanceof SyntaxError) resolve(false)
+            else reject(error)
+          }
+        })
       },
     )
 
@@ -192,7 +182,7 @@ function isExistingApiHealthy() {
   })
 }
 
-function startApiServer() {
+function createBackendSupervisor() {
   const projectRoot = path.join(__dirname, '..', '..')
   const ragDataDir = path.join(app.getPath('userData'), 'rag-data')
   const playwrightBrowsersDir = app.isPackaged
@@ -205,60 +195,120 @@ function startApiServer() {
     RAG_DATA_DIR: ragDataDir,
   }
 
-  if (app.isPackaged) {
-    const apiExecutable = path.join(process.resourcesPath, 'backend', 'c300-api.exe')
-    if (!fs.existsSync(apiExecutable)) {
-      console.error(`FastAPI startup failed: bundled backend not found at ${apiExecutable}.`)
-      return
+  const launch = () => {
+    if (app.isPackaged) {
+      const apiExecutable = path.join(process.resourcesPath, 'backend', 'c300-api.exe')
+      if (!fs.existsSync(apiExecutable)) {
+        throw new Error(`Bundled backend not found at ${apiExecutable}.`)
+      }
+      return spawn(apiExecutable, [], {
+        cwd: path.dirname(apiExecutable),
+        env,
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
     }
 
-    const child = spawn(apiExecutable, [], {
-      cwd: path.dirname(apiExecutable),
-      env,
-      windowsHide: true,
-      stdio: 'pipe',
-    })
-    monitorApiProcess(child, 'bundled backend')
-    return
-  }
-
-  const apiScript = path.join(projectRoot, 'api', 'main.py')
-  const pythonName = process.platform === 'win32' ? 'python.exe' : 'python'
-  const binDir = process.platform === 'win32' ? 'Scripts' : 'bin'
-  const candidates = [
-    process.env.PYTHON,
-    path.join(projectRoot, '.venv-api', binDir, pythonName),
-    path.join(projectRoot, 'api', 'venv', binDir, pythonName),
-    path.join(projectRoot, '.venv', binDir, pythonName),
-    process.platform === 'win32' ? 'python' : 'python3',
-    process.platform === 'win32' ? 'py' : undefined,
-  ].filter((candidate): candidate is string => Boolean(candidate))
-
-  const launch = (index: number) => {
-    const pythonExecutable = candidates[index]
+    const apiScript = path.join(projectRoot, 'api', 'main.py')
+    const pythonName = process.platform === 'win32' ? 'python.exe' : 'python'
+    const binDir = process.platform === 'win32' ? 'Scripts' : 'bin'
+    const candidates = [
+      process.env.PYTHON,
+      path.join(projectRoot, '.venv-api', binDir, pythonName),
+      path.join(projectRoot, 'api', 'venv', binDir, pythonName),
+      path.join(projectRoot, '.venv', binDir, pythonName),
+      process.platform === 'win32' ? 'python' : 'python3',
+      process.platform === 'win32' ? 'py' : undefined,
+    ].filter((candidate): candidate is string => Boolean(candidate))
+    const pythonExecutable = resolvePythonExecutable(candidates)
     if (!pythonExecutable) {
-      console.error('FastAPI startup failed: no usable Python executable was found.')
-      return
+      throw new Error('No usable Python executable was found.')
     }
-    if (path.isAbsolute(pythonExecutable) && !fs.existsSync(pythonExecutable)) {
-      launch(index + 1)
-      return
-    }
-
     const args = pythonExecutable === 'py' ? ['-3', apiScript] : [apiScript]
-    const child = spawn(pythonExecutable, args, {
+    return spawn(pythonExecutable, args, {
       cwd: projectRoot,
       env,
       windowsHide: true,
-      stdio: 'pipe',
+      stdio: ['ignore', 'pipe', 'pipe'],
     })
-    monitorApiProcess(child, pythonExecutable, () => launch(index + 1))
   }
 
-  launch(0)
+  return new BackendSupervisor({
+    launch,
+    probe: probeApiReadiness,
+    onStatusChange: handleBackendStatusChange,
+  })
 }
 
-app.whenReady().then(() => {
+function handleBackendStatusChange(status: BackendStatus) {
+  if (status.state === 'ready') {
+    console.log(`FastAPI is ready on http://${API_HOST}:${API_PORT}.`)
+    return
+  }
+  if (status.state === 'restarting') {
+    console.warn(`FastAPI recovery attempt ${status.attempt}: ${status.error ?? ''}`)
+    return
+  }
+  if (status.state === 'failed') {
+    console.error(`FastAPI is unavailable: ${status.error ?? 'Unknown error'}`)
+    if (BrowserWindow.getAllWindows().length > 0) void promptForBackendRecovery(status.error)
+  }
+}
+
+async function promptForBackendRecovery(error?: string) {
+  if (backendFailurePromptOpen) return
+  backendFailurePromptOpen = true
+  try {
+    const result = await dialog.showMessageBox({
+      type: 'error',
+      title: 'Calculation backend unavailable',
+      message: 'The calculation service could not be started.',
+      detail: error ?? 'Check the database connection and backend configuration.',
+      buttons: ['Retry', 'Quit'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    })
+    if (result.response === 0) {
+      try {
+        await startApiServer()
+      } catch (retryError) {
+        const message = retryError instanceof Error ? retryError.message : String(retryError)
+        backendFailurePromptOpen = false
+        await promptForBackendRecovery(message)
+      }
+    } else {
+      app.quit()
+    }
+  } finally {
+    backendFailurePromptOpen = false
+  }
+}
+
+async function startApiServer() {
+  let existingReady = false
+  try {
+    existingReady = await probeApiReadiness()
+  } catch {
+    // A C300 API with failed dependencies is not safe to reuse.
+  }
+  if (existingReady) {
+    if (process.env.C300_REUSE_EXISTING_API !== '1') {
+      throw new Error(
+        `A C300 API is already running on port ${API_PORT}. Stop it, or set C300_REUSE_EXISTING_API=1 to reuse it intentionally.`,
+      )
+    }
+    usingExistingApi = true
+    console.log(`Reusing FastAPI on http://${API_HOST}:${API_PORT}.`)
+    return
+  }
+
+  usingExistingApi = false
+  backendSupervisor ??= createBackendSupervisor()
+  await backendSupervisor.start()
+}
+
+app.whenReady().then(async () => {
   try {
     calculationHistoryStore = new CalculationHistoryStore(
       path.join(app.getPath('userData'), 'calculation-history.sqlite3'),
@@ -268,27 +318,36 @@ app.whenReady().then(() => {
   }
 
   registerApiHandlers()
-  startApiServer()
+  try {
+    await startApiServer()
+  } catch (error) {
+    await promptForBackendRecovery(error instanceof Error ? error.message : String(error))
+    if (!usingExistingApi && backendSupervisor?.status.state !== 'ready') return
+  }
   createWindow()
 
-  app.on('activate', () => {
+  app.on('activate', async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
+      if (!usingExistingApi && backendSupervisor?.status.state !== 'ready') {
+        try {
+          await startApiServer()
+        } catch (error) {
+          await promptForBackendRecovery(error instanceof Error ? error.message : String(error))
+          return
+        }
+      }
       createWindow()
     }
   })
 })
 
 app.on('before-quit', () => {
+  void backendSupervisor?.stop()
   calculationHistoryStore?.close()
   calculationHistoryStore = null
 })
 
 app.on('window-all-closed', () => {
-  if (apiProcess) {
-    apiProcess.kill()
-    apiProcess = null
-  }
-
   if (process.platform !== 'darwin') {
     app.quit()
   }

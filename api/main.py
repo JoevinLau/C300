@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Literal
 
@@ -46,6 +47,7 @@ from rag_service import (
     SearchResult,
     UnsupportedDocumentError,
 )
+from db import DatabaseUnavailable, execute_with_retry
 
 # Models and request/response schemas
 from pydantic import BaseModel, Field, model_validator
@@ -654,7 +656,44 @@ When evidence is incomplete, state what is missing. Cite evidence inline as
 
 @app.get("/")
 def home():
-    return {"message": "API is running!"}
+    return {"service": "c300-api", "status": "live"}
+
+
+def check_reference_database() -> None:
+    execute_with_retry("SELECT 1 AS ready", fetch="one")
+
+
+def check_rag_storage() -> None:
+    rag_service.data_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=rag_service.data_root):
+        pass
+
+
+@app.get("/health/ready")
+def readiness():
+    checks = {"database": "ready", "rag_storage": "ready"}
+
+    try:
+        check_reference_database()
+    except (DatabaseUnavailable, OSError):
+        logger.warning("Backend readiness check failed: reference database unavailable")
+        checks["database"] = "unavailable"
+
+    try:
+        check_rag_storage()
+    except OSError:
+        logger.warning("Backend readiness check failed: RAG storage unavailable")
+        checks["rag_storage"] = "unavailable"
+
+    ready = all(status == "ready" for status in checks.values())
+    return JSONResponse(
+        status_code=200 if ready else 503,
+        content={
+            "service": "c300-api",
+            "status": "ready" if ready else "not_ready",
+            "checks": checks,
+        },
+    )
 
 
 @app.post("/ecotransit")

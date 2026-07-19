@@ -70,3 +70,29 @@ test('reconstructs multipart document uploads from IPC-safe bytes', async () => 
     globalThis.fetch = originalFetch
   }
 })
+
+test('aborts a stalled backend request after the configured deadline', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (_input, init) =>
+    new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener(
+        'abort',
+        () => reject(init.signal?.reason ?? new DOMException('Aborted', 'AbortError')),
+        { once: true },
+      )
+    })
+
+  try {
+    await assert.rejects(
+      Promise.race([
+        requestLocalApi({ path: '/method2/machines' }, { timeoutMs: 20 }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('test guard expired')), 150),
+        ),
+      ]),
+      /Local API request timed out after 20 ms/,
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})

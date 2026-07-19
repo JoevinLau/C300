@@ -102,6 +102,27 @@ class CalculationApiTests(unittest.TestCase):
             ),
         )
 
+    def test_readiness_requires_the_reference_database(self):
+        with patch.object(main, "check_reference_database", return_value=None), patch.object(
+            main, "check_rag_storage", return_value=None
+        ):
+            response = self.client.get("/health/ready")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["service"], "c300-api")
+        self.assertEqual(response.json()["status"], "ready")
+
+        with patch.object(
+            main,
+            "check_reference_database",
+            side_effect=DatabaseUnavailable("reference database offline"),
+        ), patch.object(main, "check_rag_storage", return_value=None):
+            response = self.client.get("/health/ready")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["status"], "not_ready")
+        self.assertEqual(response.json()["checks"]["database"], "unavailable")
+
     def test_selected_naics_codes_control_category_factors_and_emissions(self):
         payload = calculation_payload()
         fx_patch, factor_patch = self.factor_patches()
