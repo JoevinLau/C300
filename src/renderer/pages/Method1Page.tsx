@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useState } from 'react'
 import {
   AlertCircle,
   ArrowLeft,
@@ -26,8 +26,7 @@ import {
   type Method1FormKey as FormKey,
 } from '@/components/Method1SharedInputs'
 import { CalculationProcessPanel, ResultsPanel } from '@/components/useeio/Method1ResultsPanels'
-import { calculateEcoTransitTransport, calculateEmissions, fetchNaicsOptions, type CalculateResponse, type EcoTransitResponse, type NaicsOption } from '@/lib/calculator-api'
-import { naicsCatalogByCode } from '../../shared/naics-catalog'
+import { calculateEcoTransitTransport, calculateEmissions, fetchNaicsOptions, type CalculateResponse } from '@/lib/calculator-api'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -47,17 +46,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toCalculationHistoryTransport } from '@/lib/calculation-history'
 import {
-  addLineItem,
-  buildTransportCalculationRequest,
-  deriveAllocationState,
   isSupportedCalculationYear,
   MAX_CALCULATION_YEAR,
   MIN_CALCULATION_YEAR,
-  removeLineItem,
-  updateLineItem,
 } from '@/lib/calculation-workflow'
 import { useCalculationHistorySave } from '@/hooks/useCalculationHistorySave'
 import { cn } from '@/lib/utils'
+import { useCalculationWorkspace } from '@/features/calculation-workspace/useCalculationWorkspace'
 
 
 const defaultForm: Record<FormKey, string> = {
@@ -84,6 +79,21 @@ const demoForm: Record<FormKey, string> = {
 const TRANSPORT_COUNTRIES = TRANSPORT_PORTS
   .map((item) => item.country)
   .sort((a, b) => a.localeCompare(b))
+
+const initialLineItems: Record<CategoryId, LineItem[]> = {
+  raw: [{ amount: '', naics: '331110' }],
+  fabrication: [{ amount: '', naics: '332710' }],
+  surface: [{ amount: '', naics: '332812' }],
+}
+
+const initialTransport = {
+  weight: '',
+  origin: 'China',
+  portOfLoading: 'Port of Shanghai',
+  portOfDischarge: PORT_OF_DISCHARGE,
+  mode: 'sea' as const,
+  allowEstimate: false,
+}
 
 function StepIndicator({ activeStep }: { activeStep: number }) {
   return (
@@ -182,80 +192,28 @@ function AllocationBar({
 }
 
 function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
-  const [form, setForm] = useState(defaultForm)
   const [activeStep, setActiveStep] = useState(1)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<CalculateResponse | null>(null)
-  const [naicsOptions, setNaicsOptions] = useState<NaicsOption[]>([])
-  const [naicsError, setNaicsError] = useState<string | null>(null)
-  const [rawItems, setRawItems] = useState<LineItem[]>([
-    { amount: '', naics: '331110' },
-  ])
-  const [fabItems, setFabItems] = useState<LineItem[]>([
-    { amount: '', naics: '332710' },
-  ])
-  const [surfaceItems, setSurfaceItems] = useState<LineItem[]>([
-    { amount: '', naics: '332812' },
-  ])
-  const [transportWeight, setTransportWeight] = useState<string>('')
-  const [transportOrigin, setTransportOrigin] = useState<string>('China')
-  const [transportPortOfLoading, setTransportPortOfLoading] = useState<string>('Port of Shanghai')
-  const [transportPortOfDischarge, setTransportPortOfDischarge] = useState<string>(PORT_OF_DISCHARGE)
-  const [transportMode, setTransportMode] = useState<'sea' | 'land' | 'air'>('sea')
-  const [allowTransportEstimate, setAllowTransportEstimate] = useState(false)
-  const [transportLoading, setTransportLoading] = useState(false)
-  const [transportError, setTransportError] = useState<string | null>(null)
-  const [transportResult, setTransportResult] = useState<EcoTransitResponse | null>(null)
-  const calculationRequestId = useRef(0)
-  const transportRequestId = useRef(0)
   const {
     historyWarning,
     clearHistoryWarning,
     saveCalculationHistory,
   } = useCalculationHistorySave(onHistorySaved)
-  const selectedTransportPort = useMemo(
-    () => TRANSPORT_PORTS.find((item) => item.country.toLowerCase() === transportOrigin.trim().toLowerCase()),
-    [transportOrigin],
-  )
 
-  useEffect(() => {
-    if (selectedTransportPort) {
-      setTransportPortOfLoading(selectedTransportPort.loadingPorts[0])
-    }
-  }, [selectedTransportPort])
-
-  const loadingPortOptions = selectedTransportPort?.loadingPorts ?? []
-  const routeProcess = [
-    transportPortOfLoading.trim() || 'Port of loading',
-    ...(selectedTransportPort?.intermediatePorts ?? []),
-    transportPortOfDischarge.trim() || PORT_OF_DISCHARGE,
-  ]
-  const routeLegs = buildRouteLegEmissions(routeProcess, transportMode, transportResult)
-
-  useEffect(() => {
-
-    let cancelled = false
-    void fetchNaicsOptions()
-      .then((options) => {
-        if (!cancelled) {
-          setNaicsOptions(options)
-          setNaicsError(null)
-        }
-      })
-      .catch((fetchError) => {
-        if (!cancelled) {
-          setNaicsOptions([])
-          setNaicsError(fetchError instanceof Error ? fetchError.message : String(fetchError))
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const naicsByCode = useMemo(() => naicsCatalogByCode(naicsOptions), [naicsOptions])
-
+  const workspace = useCalculationWorkspace<FormKey, CategoryId, (typeof CATEGORIES)[number], CalculateResponse>({
+    initialForm: defaultForm,
+    categories: CATEGORIES,
+    initialLineItems,
+    totalAmountKey: 'total_amount_sgd',
+    initialTransport,
+    transportPorts: TRANSPORT_PORTS,
+    loadNaicsOptions: fetchNaicsOptions,
+    calculateTransport: calculateEcoTransitTransport,
+    clearHistoryWarning,
+  })
+  const { form, naicsOptions, naicsError, naicsByCode } = workspace
+  const rawItems = workspace.lineItems.raw
+  const fabItems = workspace.lineItems.fabrication
+  const surfaceItems = workspace.lineItems.surface
   const {
     categoryAmounts,
     allocationSum,
@@ -265,96 +223,44 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
     remaining,
     segments: allocationSegments,
     percentages: allocationPercentages,
-  } = useMemo(
-    () =>
-      deriveAllocationState({
-        categories: CATEGORIES,
-        form,
-        lineItems: {
-          raw: rawItems,
-          fabrication: fabItems,
-          surface: surfaceItems,
-        },
-        totalAmountKey: 'total_amount_sgd',
-      }),
-    [fabItems, form, rawItems, surfaceItems],
-  )
+  } = workspace.allocation
+  const {
+    result,
+    loading,
+    error,
+  } = workspace.calculation
+  const {
+    weight: transportWeight,
+    origin: transportOrigin,
+    portOfLoading: transportPortOfLoading,
+    portOfDischarge: transportPortOfDischarge,
+    mode: transportMode,
+    allowEstimate: allowTransportEstimate,
+    loading: transportLoading,
+    error: transportError,
+    result: transportResult,
+    selectedPort: selectedTransportPort,
+  } = workspace.transport
 
-  function invalidateResult() {
-    calculationRequestId.current += 1
-    setLoading(false)
-    setResult(null)
-    setError(null)
-    clearHistoryWarning()
-  }
+  const loadingPortOptions = selectedTransportPort?.loadingPorts ?? []
+  const routeProcess = [
+    transportPortOfLoading.trim() || 'Port of loading',
+    ...(selectedTransportPort?.intermediatePorts ?? []),
+    transportPortOfDischarge.trim() || PORT_OF_DISCHARGE,
+  ]
+  const routeLegs = buildRouteLegEmissions(routeProcess, transportMode, transportResult)
 
-  function invalidateTransport() {
-    transportRequestId.current += 1
-    setTransportLoading(false)
-    setTransportResult(null)
-    setTransportError(null)
-    invalidateResult()
-  }
-
-  function updateItem(category: CategoryId, index: number, fields: Partial<LineItem>) {
-    if (category === 'raw') setRawItems((prev) => updateLineItem(prev, index, fields))
-    if (category === 'fabrication') setFabItems((prev) => updateLineItem(prev, index, fields))
-    if (category === 'surface') setSurfaceItems((prev) => updateLineItem(prev, index, fields))
-    invalidateResult()
-  }
-
-  function addItem(category: CategoryId) {
-    if (category === 'raw') setRawItems((prev) => addLineItem(prev, '331110'))
-    if (category === 'fabrication') setFabItems((prev) => addLineItem(prev, '332710'))
-    if (category === 'surface') setSurfaceItems((prev) => addLineItem(prev, '332812'))
-    invalidateResult()
-  }
-
-  function removeItem(category: CategoryId, index: number) {
-    if (category === 'raw') setRawItems((prev) => removeLineItem(prev, index))
-    if (category === 'fabrication') setFabItems((prev) => removeLineItem(prev, index))
-    if (category === 'surface') setSurfaceItems((prev) => removeLineItem(prev, index))
-    invalidateResult()
-  }
+  const updateItem = workspace.updateItem
+  const addItem = workspace.addItem
+  const removeItem = workspace.removeItem
 
   async function handleTransportCalculate(event?: React.SyntheticEvent) {
     if (event) event.preventDefault()
-    setTransportError(null)
-    setTransportResult(null)
-    invalidateResult()
-
-    const transportCalculation = buildTransportCalculationRequest({
-      weight: transportWeight,
-      origin: transportOrigin,
-      portOfLoading: transportPortOfLoading,
-      portOfDischarge: transportPortOfDischarge,
-      mode: transportMode,
-      matchedPort: selectedTransportPort,
-      allowEstimate: allowTransportEstimate,
-    })
-    if (!transportCalculation.ok) {
-      setTransportError(transportCalculation.error)
-      return
-    }
-
-    const requestId = ++transportRequestId.current
-    setTransportLoading(true)
-    try {
-      const response = await calculateEcoTransitTransport(transportCalculation.request)
-
-      if (requestId === transportRequestId.current) setTransportResult(response)
-    } catch (err) {
-      if (requestId === transportRequestId.current) {
-        setTransportError(err instanceof Error ? err.message : String(err))
-      }
-    } finally {
-      if (requestId === transportRequestId.current) setTransportLoading(false)
-    }
+    await workspace.transport.run()
   }
 
   function updateField(key: FormKey, value: string) {
-    setForm((prev) => ({ ...prev, [key]: value }))
-    invalidateResult()
+    workspace.updateField(key, value)
     if (key === 'invoice_id' || key === 'year' || key === 'total_amount_sgd') setActiveStep(1)
     if (
       key === 'raw_material_sgd' ||
@@ -367,40 +273,13 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
   }
 
   function applyAmountPreset(rawPct: number, fabPct: number, surfacePct: number) {
-    if (!hasInvoiceTotal) return
-    const raw = Number(((totalSgd * rawPct) / 100).toFixed(2))
-    const fab = Number(((totalSgd * fabPct) / 100).toFixed(2))
-    const surface = Number((totalSgd - raw - fab).toFixed(2))
-    setRawItems([{ amount: String(raw), naics: rawItems[0]?.naics ?? form.naics_raw_material }])
-    setFabItems([{ amount: String(fab), naics: fabItems[0]?.naics ?? form.naics_fabrication }])
-    setSurfaceItems([{ amount: String(surface), naics: surfaceItems[0]?.naics ?? form.naics_surface_treatment }])
-    setForm((prev) => ({
-      ...prev,
-      raw_material_sgd: String(raw),
-      fabrication_sgd: String(fab),
-      surface_treatment_sgd: String(surface),
-    }))
-    setActiveStep(2)
-    invalidateResult()
+    const applied = workspace.applyPreset({ raw: rawPct, fabrication: fabPct, surface: surfacePct })
+    if (applied) setActiveStep(2)
   }
 
   function distributeEqually() {
-    if (!hasInvoiceTotal) return
-    const share = Number((totalSgd / 3).toFixed(2))
-    const raw = share
-    const fab = share
-    const surface = Number((totalSgd - raw - fab).toFixed(2))
-    setRawItems([{ amount: String(raw), naics: rawItems[0]?.naics ?? form.naics_raw_material }])
-    setFabItems([{ amount: String(fab), naics: fabItems[0]?.naics ?? form.naics_fabrication }])
-    setSurfaceItems([{ amount: String(surface), naics: surfaceItems[0]?.naics ?? form.naics_surface_treatment }])
-    setForm((prev) => ({
-      ...prev,
-      raw_material_sgd: String(raw),
-      fabrication_sgd: String(fab),
-      surface_treatment_sgd: String(surface),
-    }))
-    setActiveStep(2)
-    invalidateResult()
+    const applied = workspace.distributeEqually()
+    if (applied) setActiveStep(2)
   }
 
   function applyDefaultSplit() {
@@ -408,88 +287,68 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
   }
 
   function loadDemo() {
-    calculationRequestId.current += 1
-    transportRequestId.current += 1
-    setLoading(false)
-    setTransportLoading(false)
     const demoTransportWeight = '500'
     const demoTransportOrigin = 'China'
     const demoTransportMode: 'sea' | 'land' | 'air' = 'sea'
 
-    setForm(demoForm)
-    setRawItems([{ amount: demoForm.raw_material_sgd, naics: demoForm.naics_raw_material }])
-    setFabItems([{ amount: demoForm.fabrication_sgd, naics: demoForm.naics_fabrication }])
-    setSurfaceItems([{ amount: demoForm.surface_treatment_sgd, naics: demoForm.naics_surface_treatment }])
-    setTransportWeight(demoTransportWeight)
-    setTransportOrigin(demoTransportOrigin)
-    setTransportPortOfLoading('Port of Shanghai')
-    setTransportPortOfDischarge(PORT_OF_DISCHARGE)
-    setTransportMode(demoTransportMode)
-    setAllowTransportEstimate(false)
-    setTransportError(null)
-    setTransportResult({
-      transport: {
-        origin: demoTransportOrigin,
-        port_of_loading: 'Port of Shanghai',
-        port_of_discharge: PORT_OF_DISCHARGE,
-        distance_km: null,
-        weight_kg: Number(demoTransportWeight),
-        chosen_mode: demoTransportMode,
-        chosen_emissions_kg: null,
-        energy_mj: null,
-        source: 'EcoTransit World',
-        estimated: false,
-        raw: {},
+    workspace.replaceWorkspace({
+      form: demoForm,
+      lineItems: {
+        raw: [{ amount: demoForm.raw_material_sgd, naics: demoForm.naics_raw_material }],
+        fabrication: [{ amount: demoForm.fabrication_sgd, naics: demoForm.naics_fabrication }],
+        surface: [{ amount: demoForm.surface_treatment_sgd, naics: demoForm.naics_surface_treatment }],
       },
+      transport: {
+        weight: demoTransportWeight,
+        origin: demoTransportOrigin,
+        portOfLoading: 'Port of Shanghai',
+        portOfDischarge: PORT_OF_DISCHARGE,
+        mode: demoTransportMode,
+        allowEstimate: false,
+        result: {
+          transport: {
+            origin: demoTransportOrigin,
+            port_of_loading: 'Port of Shanghai',
+            port_of_discharge: PORT_OF_DISCHARGE,
+            distance_km: null,
+            weight_kg: Number(demoTransportWeight),
+            chosen_mode: demoTransportMode,
+            chosen_emissions_kg: null,
+            energy_mj: null,
+            source: 'EcoTransit World',
+            estimated: false,
+            raw: {},
+          },
+        },
+      },
+      result: null,
     })
     setActiveStep(1)
-    setError(null)
-    clearHistoryWarning()
-    setResult(null)
   }
 
   function resetForm() {
-    calculationRequestId.current += 1
-    transportRequestId.current += 1
-    setForm(defaultForm)
-    setRawItems([{ amount: '', naics: '331110' }])
-    setFabItems([{ amount: '', naics: '332710' }])
-    setSurfaceItems([{ amount: '', naics: '332812' }])
-    setTransportWeight('')
-    setTransportOrigin('China')
-    setTransportPortOfLoading('Port of Shanghai')
-    setTransportPortOfDischarge(PORT_OF_DISCHARGE)
-    setTransportMode('sea')
-    setAllowTransportEstimate(false)
-    setTransportLoading(false)
-    setTransportError(null)
-    setTransportResult(null)
+    workspace.resetWorkspace()
     setActiveStep(1)
-    setError(null)
-    clearHistoryWarning()
-    setResult(null)
   }
 
   async function handleCalculate(event: React.FormEvent) {
     event.preventDefault()
-    setError(null)
-    clearHistoryWarning()
-    setResult(null)
+    workspace.calculation.prepare()
 
     if (!hasInvoiceTotal) {
-      setError('Enter a valid invoice total in SGD.')
+      workspace.calculation.fail('Enter a valid invoice total in SGD.')
       setActiveStep(1)
       return
     }
 
     if (allocationSum <= 0) {
-      setError('Enter an amount for at least one cost category.')
+      workspace.calculation.fail('Enter an amount for at least one cost category.')
       setActiveStep(2)
       return
     }
 
     if (!allocationValid) {
-      setError(
+      workspace.calculation.fail(
         `Line items must sum to the invoice total (${currency.format(totalSgd)}). Currently ${currency.format(allocationSum)}.`,
       )
       setActiveStep(2)
@@ -497,70 +356,60 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
     }
 
     if (!form.invoice_id.trim()) {
-      setError('Invoice ID is required.')
+      workspace.calculation.fail('Invoice ID is required.')
       setActiveStep(1)
       return
     }
 
     const year = Number(form.year)
     if (!isSupportedCalculationYear(year)) {
-      setError(`Year must be between ${MIN_CALCULATION_YEAR} and ${MAX_CALCULATION_YEAR}.`)
+      workspace.calculation.fail(`Year must be between ${MIN_CALCULATION_YEAR} and ${MAX_CALCULATION_YEAR}.`)
       setActiveStep(1)
       return
     }
 
-    const requestId = ++calculationRequestId.current
-    setLoading(true)
-    try {
-      const lineItems = [
-        ...rawItems.map((item) => ({ category: 'raw_material' as const, amount_sgd: parseAmount(item.amount), naics_code: item.naics.trim() })),
-        ...fabItems.map((item) => ({ category: 'fabrication' as const, amount_sgd: parseAmount(item.amount), naics_code: item.naics.trim() })),
-        ...surfaceItems.map((item) => ({ category: 'surface_treatment' as const, amount_sgd: parseAmount(item.amount), naics_code: item.naics.trim() })),
-      ].filter((item) => item.amount_sgd > 0)
-      const rawSum = rawItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.raw_material_sgd)
-      const fabSum = fabItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.fabrication_sgd)
-      const surfSum = surfaceItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.surface_treatment_sgd)
+    const lineItems = [
+      ...rawItems.map((item) => ({ category: 'raw_material' as const, amount_sgd: parseAmount(item.amount), naics_code: item.naics.trim() })),
+      ...fabItems.map((item) => ({ category: 'fabrication' as const, amount_sgd: parseAmount(item.amount), naics_code: item.naics.trim() })),
+      ...surfaceItems.map((item) => ({ category: 'surface_treatment' as const, amount_sgd: parseAmount(item.amount), naics_code: item.naics.trim() })),
+    ].filter((item) => item.amount_sgd > 0)
+    const rawSum = rawItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.raw_material_sgd)
+    const fabSum = fabItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.fabrication_sgd)
+    const surfSum = surfaceItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.surface_treatment_sgd)
 
-      const calculationRequest = {
-        invoice_id: form.invoice_id.trim(),
-        year,
-        total_amount_sgd: totalSgd,
-        sgd_amounts: {
-          raw_material: rawSum,
-          fabrication: fabSum,
-          surface_treatment: surfSum,
-        },
-        allocation: {
-          raw_material_pct: allocationPercentages.raw,
-          fabrication_pct: allocationPercentages.fabrication,
-          surface_treatment_pct: allocationPercentages.surface,
-        },
-        naics: {
-          raw_material: (rawItems[0]?.naics ?? form.naics_raw_material).trim(),
-          fabrication: (fabItems[0]?.naics ?? form.naics_fabrication).trim(),
-          surface_treatment: (surfaceItems[0]?.naics ?? form.naics_surface_treatment).trim(),
-        },
-        line_items: lineItems,
-      }
-      const response = await calculateEmissions(calculationRequest)
-      if (requestId !== calculationRequestId.current) return
-      setResult(response)
-      setActiveStep(2)
-
-      await saveCalculationHistory({
-        method: 'useeio',
-        request: calculationRequest,
-        result: response,
-        transport: toCalculationHistoryTransport(transportResult),
-      })
-
-    } catch (err) {
-      if (requestId === calculationRequestId.current) {
-        setError(err instanceof Error ? err.message : 'Calculation failed.')
-      }
-    } finally {
-      if (requestId === calculationRequestId.current) setLoading(false)
+    const calculationRequest = {
+      invoice_id: form.invoice_id.trim(),
+      year,
+      total_amount_sgd: totalSgd,
+      sgd_amounts: {
+        raw_material: rawSum,
+        fabrication: fabSum,
+        surface_treatment: surfSum,
+      },
+      allocation: {
+        raw_material_pct: allocationPercentages.raw,
+        fabrication_pct: allocationPercentages.fabrication,
+        surface_treatment_pct: allocationPercentages.surface,
+      },
+      naics: {
+        raw_material: (rawItems[0]?.naics ?? form.naics_raw_material).trim(),
+        fabrication: (fabItems[0]?.naics ?? form.naics_fabrication).trim(),
+        surface_treatment: (surfaceItems[0]?.naics ?? form.naics_surface_treatment).trim(),
+      },
+      line_items: lineItems,
     }
+    await workspace.calculation.run(
+      () => calculateEmissions(calculationRequest),
+      async (response) => {
+        setActiveStep(2)
+        await saveCalculationHistory({
+          method: 'useeio',
+          request: calculationRequest,
+          result: response,
+          transport: toCalculationHistoryTransport(transportResult),
+        })
+      },
+    )
   }
 
   return (
@@ -900,8 +749,7 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
                     placeholder="0"
                     value={transportWeight}
                     onChange={(event) => {
-                      setTransportWeight(event.target.value)
-                      invalidateTransport()
+                      workspace.transport.setWeight(event.target.value)
                     }}
                   />
                 </div>
@@ -910,8 +758,7 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
                   <Select
                     value={transportOrigin}
                     onValueChange={(value) => {
-                      setTransportOrigin(value)
-                      invalidateTransport()
+                      workspace.transport.setOrigin(value)
                     }}
                   >
                     <SelectTrigger id="transport_origin" className="w-full font-mono">
@@ -932,8 +779,7 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
                         <Select
                           value={transportPortOfLoading}
                           onValueChange={(value) => {
-                            setTransportPortOfLoading(value)
-                            invalidateTransport()
+                            workspace.transport.setPortOfLoading(value)
                           }}
                         >
                           <SelectTrigger id="transport_port_loading" className="mt-1 h-9 bg-white text-xs">
@@ -950,8 +796,7 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
                           id="transport_port_loading"
                           value={transportPortOfLoading}
                           onChange={(event) => {
-                            setTransportPortOfLoading(event.target.value)
-                            invalidateTransport()
+                            workspace.transport.setPortOfLoading(event.target.value)
                           }}
                           className="mt-1 h-9 bg-white text-xs"
                           placeholder="Enter port of loading"
@@ -964,8 +809,7 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
                         id="transport_port_discharge"
                         value={transportPortOfDischarge}
                         onChange={(event) => {
-                          setTransportPortOfDischarge(event.target.value)
-                          invalidateTransport()
+                          workspace.transport.setPortOfDischarge(event.target.value)
                         }}
                         className="mt-1 h-9 bg-white text-xs"
                       />
@@ -993,8 +837,7 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
                   <Select
                     value={transportMode}
                     onValueChange={(value) => {
-                      setTransportMode(value as 'sea' | 'land' | 'air')
-                      invalidateTransport()
+                      workspace.transport.setMode(value as 'sea' | 'land' | 'air')
                     }}
                   >
                     <SelectTrigger id="transport_mode" className="w-full">
@@ -1017,15 +860,7 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
                       type="button"
                       variant="ghost"
                       size="sm"
-                      onClick={() => {
-                        setTransportWeight('')
-                        setTransportOrigin('China')
-                        setTransportPortOfLoading('Port of Shanghai')
-                        setTransportPortOfDischarge(PORT_OF_DISCHARGE)
-                        setTransportMode('sea')
-                        setAllowTransportEstimate(false)
-                        invalidateTransport()
-                      }}
+                      onClick={workspace.transport.reset}
                     >
                       Reset
                     </Button>
@@ -1037,8 +872,7 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
                       className="mt-0.5 size-4 accent-lime-600"
                       checked={allowTransportEstimate}
                       onChange={(event) => {
-                        setAllowTransportEstimate(event.target.checked)
-                        invalidateTransport()
+                        workspace.transport.setAllowEstimate(event.target.checked)
                       }}
                     />
                     <span>Allow a clearly marked local estimate if EcoTransit is unavailable.</span>

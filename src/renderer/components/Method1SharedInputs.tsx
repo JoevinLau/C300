@@ -878,9 +878,8 @@ export function Method1TransportationSection({
   setTransportPortOfLoading,
   setTransportPortOfDischarge,
   setTransportMode,
-  setTransportResult,
-  setTransportError,
   setAllowTransportEstimate,
+  resetTransport,
   handleTransportCalculate,
 }: {
   transportWeight: string
@@ -898,9 +897,8 @@ export function Method1TransportationSection({
   setTransportPortOfLoading: (value: string) => void
   setTransportPortOfDischarge: (value: string) => void
   setTransportMode: (value: 'sea' | 'land' | 'air') => void
-  setTransportResult: (value: EcoTransitResponse | null) => void
-  setTransportError: (value: string | null) => void
   setAllowTransportEstimate: (value: boolean) => void
+  resetTransport: () => void
   handleTransportCalculate: (event?: React.SyntheticEvent) => void
 }) {
   const loadingPortOptions = selectedTransportPort?.loadingPorts ?? []
@@ -1011,16 +1009,7 @@ export function Method1TransportationSection({
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => {
-                setTransportWeight('')
-                setTransportOrigin('China')
-                setTransportPortOfLoading('Port of Shanghai')
-                setTransportPortOfDischarge(PORT_OF_DISCHARGE)
-                setTransportMode('sea')
-                setAllowTransportEstimate(false)
-                setTransportResult(null)
-                setTransportError(null)
-              }}
+              onClick={resetTransport}
             >
               Reset
             </Button>

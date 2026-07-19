@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type React from 'react'
 import {
   AlertCircle,
@@ -46,10 +46,8 @@ import {
   calculateMethod2,
   fetchNaicsOptions,
   fetchMethod2Machines,
-  type EcoTransitResponse,
   type Method2CalculateResponse,
   type Method2MachineReference,
-  type NaicsOption,
 } from '@/lib/calculator-api'
 import {
   METHOD1_CATEGORIES,
@@ -68,19 +66,14 @@ import { cn } from '@/lib/utils'
 import { createMethod2WorkspaceId } from '@/lib/rag-workspace'
 import { toCalculationHistoryTransport } from '@/lib/calculation-history'
 import {
-  addLineItem,
-  buildTransportCalculationRequest,
-  deriveAllocationState,
   isSupportedCalculationYear,
   MAX_CALCULATION_YEAR,
   MIN_CALCULATION_YEAR,
-  removeLineItem,
-  updateLineItem,
 } from '@/lib/calculation-workflow'
 import { useCalculationHistorySave } from '@/hooks/useCalculationHistorySave'
 import { useMethod2Chat } from '@/hooks/useMethod2Chat'
 import { useMethod2Documents } from '@/hooks/useMethod2Documents'
-import { naicsCatalogByCode } from '../../shared/naics-catalog'
+import { useCalculationWorkspace } from '@/features/calculation-workspace/useCalculationWorkspace'
 
 type MachiningRow = {
   id: string
@@ -148,6 +141,21 @@ const METHOD2_SPEND_CATEGORIES: CategoryId[] = ['raw', 'surface']
 const METHOD2_CATEGORIES = METHOD1_CATEGORIES.filter((category) =>
   METHOD2_SPEND_CATEGORIES.includes(category.id),
 )
+
+const initialLineItems: Record<CategoryId, LineItem[]> = {
+  raw: [{ amount: defaultSpendForm.raw_material_sgd, naics: defaultSpendForm.naics_raw_material }],
+  fabrication: [{ amount: defaultSpendForm.fabrication_sgd, naics: defaultSpendForm.naics_fabrication }],
+  surface: [{ amount: defaultSpendForm.surface_treatment_sgd, naics: defaultSpendForm.naics_surface_treatment }],
+}
+
+const initialTransport = {
+  weight: String(demoPart.weightKg),
+  origin: 'Malaysia',
+  portOfLoading: 'Port Klang',
+  portOfDischarge: PORT_OF_DISCHARGE,
+  mode: 'sea' as const,
+  allowEstimate: false,
+}
 
 const requiredDocuments = [
   'Supplier PCF, EPD, or raw material carbon factor',
@@ -298,45 +306,63 @@ function ResultsPanel({
 
 export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
   const [workspaceId] = useState(createMethod2WorkspaceId)
-  const [form, setForm] = useState<Record<Method1FormKey, string>>(defaultSpendForm)
-  const [naicsOptions, setNaicsOptions] = useState<NaicsOption[]>([])
-  const [naicsError, setNaicsError] = useState<string | null>(null)
-  const [rawItems, setRawItems] = useState<LineItem[]>([
-    { amount: defaultSpendForm.raw_material_sgd, naics: defaultSpendForm.naics_raw_material },
-  ])
-  const [fabItems, setFabItems] = useState<LineItem[]>([
-    { amount: defaultSpendForm.fabrication_sgd, naics: defaultSpendForm.naics_fabrication },
-  ])
-  const [surfaceItems, setSurfaceItems] = useState<LineItem[]>([
-    { amount: defaultSpendForm.surface_treatment_sgd, naics: defaultSpendForm.naics_surface_treatment },
-  ])
   const [machineLibrary, setMachineLibrary] = useState<Method2MachineReference[]>([])
   const [machineLibraryError, setMachineLibraryError] = useState<string | null>(null)
   const [rows, setRows] = useState<MachiningRow[]>([
     { id: 'machine-1', machineType: 'CNC Milling', dutyLevel: 'Medium', operatingHours: '5' },
   ])
-  const [transportWeight, setTransportWeight] = useState(String(demoPart.weightKg))
-  const [transportOrigin, setTransportOrigin] = useState('Malaysia')
-  const [transportPortOfLoading, setTransportPortOfLoading] = useState('Port Klang')
-  const [transportPortOfDischarge, setTransportPortOfDischarge] = useState(PORT_OF_DISCHARGE)
-  const [transportMode, setTransportMode] = useState<'sea' | 'land' | 'air'>('sea')
-  const [allowTransportEstimate, setAllowTransportEstimate] = useState(false)
-  const [transportResult, setTransportResult] = useState<EcoTransitResponse | null>(null)
-  const [transportSummary, setTransportSummary] = useState('No transport calculation yet')
-  const [transportLoading, setTransportLoading] = useState(false)
-  const [transportError, setTransportError] = useState<string | null>(null)
   const [machiningResult, setMachiningResult] = useState<MachiningElectricityResult | null>(null)
   const [machiningError, setMachiningError] = useState<string | null>(null)
-  const [calculateLoading, setCalculateLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<Method2CalculateResponse | null>(null)
-  const calculationRequestId = useRef(0)
-  const transportRequestId = useRef(0)
   const {
     historyWarning,
     clearHistoryWarning,
     saveCalculationHistory,
   } = useCalculationHistorySave(onHistorySaved)
+
+  const workspace = useCalculationWorkspace<Method1FormKey, CategoryId, (typeof METHOD2_CATEGORIES)[number], Method2CalculateResponse>({
+    initialForm: defaultSpendForm,
+    categories: METHOD2_CATEGORIES,
+    initialLineItems,
+    totalAmountKey: 'total_amount_sgd',
+    requireInvoiceTotal: false,
+    reconcileAllocationToTotal: false,
+    initialTransport,
+    transportPorts: TRANSPORT_PORTS,
+    loadNaicsOptions: fetchNaicsOptions,
+    calculateTransport: calculateEcoTransitTransport,
+    clearHistoryWarning,
+    formatCalculationError: (caught) => caught instanceof Error ? caught.message : String(caught),
+  })
+  const { form, naicsOptions, naicsError, naicsByCode } = workspace
+  const rawItems = workspace.lineItems.raw
+  const fabItems = workspace.lineItems.fabrication
+  const surfaceItems = workspace.lineItems.surface
+  const {
+    allocationSum,
+    totalAmount: totalSgd,
+    hasInvoiceTotal,
+    allocationValid,
+    remaining,
+    segments: allocationSegments,
+    percentages: allocationPercentages,
+  } = workspace.allocation
+  const {
+    result,
+    loading: calculateLoading,
+    error,
+  } = workspace.calculation
+  const {
+    weight: transportWeight,
+    origin: transportOrigin,
+    portOfLoading: transportPortOfLoading,
+    portOfDischarge: transportPortOfDischarge,
+    mode: transportMode,
+    allowEstimate: allowTransportEstimate,
+    result: transportResult,
+    loading: transportLoading,
+    error: transportError,
+    selectedPort: selectedTransportPort,
+  } = workspace.transport
 
   useEffect(() => {
     void fetchMethod2Machines()
@@ -369,90 +395,22 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
     )
   }, [machineLibrary])
 
-  useEffect(() => {
-    let cancelled = false
-    void fetchNaicsOptions()
-      .then((options) => {
-        if (!cancelled) {
-          setNaicsOptions(options)
-          setNaicsError(null)
-        }
-      })
-      .catch((fetchError) => {
-        if (!cancelled) {
-          setNaicsOptions([])
-          setNaicsError(fetchError instanceof Error ? fetchError.message : String(fetchError))
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const selectedTransportPort = useMemo(
-    () => TRANSPORT_PORTS.find((item) => item.country.toLowerCase() === transportOrigin.trim().toLowerCase()),
-    [transportOrigin],
-  )
-
-  useEffect(() => {
-    if (selectedTransportPort) {
-      setTransportPortOfLoading(selectedTransportPort.loadingPorts[0])
-    }
-  }, [selectedTransportPort])
-
-  const naicsByCode = useMemo(() => naicsCatalogByCode(naicsOptions), [naicsOptions])
-
-  const {
-    allocationSum,
-    totalAmount: totalSgd,
-    hasInvoiceTotal,
-    allocationValid,
-    remaining,
-    segments: allocationSegments,
-    percentages: allocationPercentages,
-  } = useMemo(
-    () =>
-      deriveAllocationState({
-        categories: METHOD2_CATEGORIES,
-        form,
-        lineItems: {
-          raw: rawItems,
-          fabrication: fabItems,
-          surface: surfaceItems,
-        },
-        totalAmountKey: 'total_amount_sgd',
-        requireInvoiceTotal: false,
-        reconcileAllocationToTotal: false,
-      }),
-    [fabItems, form, rawItems, surfaceItems],
-  )
-
   const machineTypes = useMemo(
     () => Array.from(new Set(machineLibrary.map((machine) => machine.machineType))),
     [machineLibrary],
   )
 
-  const components = useMemo(() => buildComponents(result, transportSummary), [result, transportSummary])
+  const transportSummary = useMemo(() => {
+    if (!transportResult) return 'No transport calculation yet'
+    const emissions = transportResult.transport.chosen_emissions_kg ?? 0
+    return `${kg.format(emissions)} kg CO2e via ${transportResult.transport.chosen_mode}`
+  }, [transportResult])
 
-  function invalidateResult() {
-    calculationRequestId.current += 1
-    setCalculateLoading(false)
-    setResult(null)
-    setError(null)
-    clearHistoryWarning()
-  }
+  const components = useMemo(() => buildComponents(result, transportSummary), [result, transportSummary])
 
   function invalidateMachiningResult() {
     setMachiningResult(null)
     setMachiningError(null)
-  }
-
-  function invalidateTransport() {
-    transportRequestId.current += 1
-    setTransportLoading(false)
-    setTransportResult(null)
-    setTransportSummary('No transport calculation yet')
-    invalidateResult()
   }
 
   const fixedContext = useMemo(() => {
@@ -509,47 +467,13 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
     onDocumentDeleted: removeDocumentCitations,
   })
 
-  function updateField(key: Method1FormKey, value: string) {
-    setForm((prev) => ({ ...prev, [key]: value }))
-    invalidateResult()
-  }
-
-  function updateItem(category: CategoryId, index: number, fields: Partial<LineItem>) {
-    if (category === 'raw') setRawItems((items) => updateLineItem(items, index, fields))
-    if (category === 'fabrication') setFabItems((items) => updateLineItem(items, index, fields))
-    if (category === 'surface') setSurfaceItems((items) => updateLineItem(items, index, fields))
-    invalidateResult()
-  }
-
-  function addItem(category: CategoryId) {
-    if (category === 'raw') setRawItems((items) => addLineItem(items, '331110'))
-    if (category === 'fabrication') setFabItems((items) => addLineItem(items, '332710'))
-    if (category === 'surface') setSurfaceItems((items) => addLineItem(items, '332812'))
-    invalidateResult()
-  }
-
-  function removeItem(category: CategoryId, index: number) {
-    if (category === 'raw') setRawItems((items) => removeLineItem(items, index))
-    if (category === 'fabrication') setFabItems((items) => removeLineItem(items, index))
-    if (category === 'surface') setSurfaceItems((items) => removeLineItem(items, index))
-    invalidateResult()
-  }
+  const updateField = workspace.updateField
+  const updateItem = workspace.updateItem
+  const addItem = workspace.addItem
+  const removeItem = workspace.removeItem
 
   function applyAmountPreset(rawPct: number, fabPct: number, surfacePct: number) {
-    if (!hasInvoiceTotal) return
-    const raw = Number(((totalSgd * rawPct) / 100).toFixed(2))
-    const fab = Number(((totalSgd * fabPct) / 100).toFixed(2))
-    const surface = Number((totalSgd - raw - fab).toFixed(2))
-    setRawItems([{ amount: String(raw), naics: rawItems[0]?.naics ?? form.naics_raw_material }])
-    setFabItems([{ amount: String(fab), naics: fabItems[0]?.naics ?? form.naics_fabrication }])
-    setSurfaceItems([{ amount: String(surface), naics: surfaceItems[0]?.naics ?? form.naics_surface_treatment }])
-    setForm((prev) => ({
-      ...prev,
-      raw_material_sgd: String(raw),
-      fabrication_sgd: String(fab),
-      surface_treatment_sgd: String(surface),
-    }))
-    invalidateResult()
+    workspace.applyPreset({ raw: rawPct, fabrication: fabPct, surface: surfacePct })
   }
 
   function applyDefaultSplit() {
@@ -557,58 +481,12 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
   }
 
   function distributeEqually() {
-    if (!hasInvoiceTotal) return
-    const share = Number((totalSgd / 3).toFixed(2))
-    const raw = share
-    const fab = share
-    const surface = Number((totalSgd - raw - fab).toFixed(2))
-    setRawItems([{ amount: String(raw), naics: rawItems[0]?.naics ?? form.naics_raw_material }])
-    setFabItems([{ amount: String(fab), naics: fabItems[0]?.naics ?? form.naics_fabrication }])
-    setSurfaceItems([{ amount: String(surface), naics: surfaceItems[0]?.naics ?? form.naics_surface_treatment }])
-    setForm((prev) => ({
-      ...prev,
-      raw_material_sgd: String(raw),
-      fabrication_sgd: String(fab),
-      surface_treatment_sgd: String(surface),
-    }))
-    invalidateResult()
+    workspace.distributeEqually()
   }
 
   async function handleTransportCalculate(event?: React.SyntheticEvent) {
     if (event) event.preventDefault()
-    setTransportError(null)
-    setTransportResult(null)
-    setTransportSummary('No transport calculation yet')
-    invalidateResult()
-    const transportRequest = buildTransportCalculationRequest({
-      weight: transportWeight,
-      origin: transportOrigin,
-      portOfLoading: transportPortOfLoading,
-      portOfDischarge: transportPortOfDischarge,
-      mode: transportMode,
-      matchedPort: selectedTransportPort,
-      allowEstimate: allowTransportEstimate,
-    })
-    if (!transportRequest.ok) {
-      setTransportError(transportRequest.error)
-      return
-    }
-
-    const requestId = ++transportRequestId.current
-    setTransportLoading(true)
-    try {
-      const response = await calculateEcoTransitTransport(transportRequest.request)
-      if (requestId !== transportRequestId.current) return
-      const emissions = response.transport.chosen_emissions_kg ?? 0
-      setTransportResult(response)
-      setTransportSummary(`${kg.format(emissions)} kg CO2e via ${response.transport.chosen_mode}`)
-    } catch (err) {
-      if (requestId === transportRequestId.current) {
-        setTransportError(err instanceof Error ? err.message : String(err))
-      }
-    } finally {
-      if (requestId === transportRequestId.current) setTransportLoading(false)
-    }
+    await workspace.transport.run()
   }
 
   function handleMachiningCalculate() {
@@ -645,17 +523,15 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
   }
 
   async function handleCalculate() {
-    setResult(null)
-    setError(null)
-    clearHistoryWarning()
+    workspace.calculation.prepare()
 
     if (!allocationValid) {
-      setError('Enter at least one raw material or surface treatment amount before calculating Method 2.')
+      workspace.calculation.fail('Enter at least one raw material or surface treatment amount before calculating Method 2.')
       return
     }
 
     if (!transportResult) {
-      setError('Calculate transport before calculating Method 2 so transportation is included.')
+      workspace.calculation.fail('Calculate transport before calculating Method 2 so transportation is included.')
       return
     }
 
@@ -663,7 +539,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
     const surfSum = surfaceItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.surface_treatment_sgd)
     const year = Number(form.year)
     if (!isSupportedCalculationYear(year)) {
-      setError(
+      workspace.calculation.fail(
         `Enter a valid assessment year from ${MIN_CALCULATION_YEAR} to ${MAX_CALCULATION_YEAR}.`,
       )
       return
@@ -671,57 +547,49 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
 
     const transportEmissions = transportResult?.transport?.chosen_emissions_kg ?? 0
 
-    const requestId = ++calculationRequestId.current
-    setCalculateLoading(true)
-    try {
-      const calculationRequest = {
-        part_id: form.invoice_id.trim() || demoPart.partId,
-        year,
-        raw_material_sgd: rawSum,
-        surface_treatment_sgd: surfSum,
-        naics: {
-          raw_material: (rawItems[0]?.naics ?? form.naics_raw_material).trim(),
-          fabrication: (fabItems[0]?.naics ?? form.naics_fabrication).trim(),
-          surface_treatment: (surfaceItems[0]?.naics ?? form.naics_surface_treatment).trim(),
-        },
-        transport_emissions_kg: transportEmissions,
-        transport_source: transportResult.transport.source,
-        machining_entries: rows.map((row) => ({
-          machine_type: row.machineType,
-          duty_level: row.dutyLevel,
-          operating_hours: Number(row.operatingHours),
-        })),
-      }
-      const response = await calculateMethod2(calculationRequest)
-      if (requestId !== calculationRequestId.current) return
-      setResult(response)
-      setMachiningResult({
-        entries: response.machining.entries.map((entry, index) => ({
-          id: rows[index]?.id ?? `machine-result-${index}`,
-          machineType: entry.machineType,
-          dutyLevel: entry.dutyLevel,
-          operatingHours: entry.operatingHours,
-          avgKW: entry.avgKW,
-          hourlyEmission: entry.hourlyEmission,
-          emissions: entry.emissions,
-        })),
-        total: response.machining.total,
-      })
-      setMachiningError(null)
-
-      await saveCalculationHistory({
-        method: 'method2',
-        request: calculationRequest,
-        result: response,
-        transport: toCalculationHistoryTransport(transportResult),
-      })
-    } catch (err) {
-      if (requestId === calculationRequestId.current) {
-        setError(err instanceof Error ? err.message : String(err))
-      }
-    } finally {
-      if (requestId === calculationRequestId.current) setCalculateLoading(false)
+    const calculationRequest = {
+      part_id: form.invoice_id.trim() || demoPart.partId,
+      year,
+      raw_material_sgd: rawSum,
+      surface_treatment_sgd: surfSum,
+      naics: {
+        raw_material: (rawItems[0]?.naics ?? form.naics_raw_material).trim(),
+        fabrication: (fabItems[0]?.naics ?? form.naics_fabrication).trim(),
+        surface_treatment: (surfaceItems[0]?.naics ?? form.naics_surface_treatment).trim(),
+      },
+      transport_emissions_kg: transportEmissions,
+      transport_source: transportResult.transport.source,
+      machining_entries: rows.map((row) => ({
+        machine_type: row.machineType,
+        duty_level: row.dutyLevel,
+        operating_hours: Number(row.operatingHours),
+      })),
     }
+    await workspace.calculation.run(
+      () => calculateMethod2(calculationRequest),
+      async (response) => {
+        setMachiningResult({
+          entries: response.machining.entries.map((entry, index) => ({
+            id: rows[index]?.id ?? `machine-result-${index}`,
+            machineType: entry.machineType,
+            dutyLevel: entry.dutyLevel,
+            operatingHours: entry.operatingHours,
+            avgKW: entry.avgKW,
+            hourlyEmission: entry.hourlyEmission,
+            emissions: entry.emissions,
+          })),
+          total: response.machining.total,
+        })
+        setMachiningError(null)
+
+        await saveCalculationHistory({
+          method: 'method2',
+          request: calculationRequest,
+          result: response,
+          transport: toCalculationHistoryTransport(transportResult),
+        })
+      },
+    )
   }
 
   return (
@@ -835,32 +703,13 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
                   transportResult={transportResult}
                   allowTransportEstimate={allowTransportEstimate}
                   selectedTransportPort={selectedTransportPort}
-                  setTransportWeight={(value) => {
-                    setTransportWeight(value)
-                    invalidateTransport()
-                  }}
-                  setTransportOrigin={(value) => {
-                    setTransportOrigin(value)
-                    invalidateTransport()
-                  }}
-                  setTransportPortOfLoading={(value) => {
-                    setTransportPortOfLoading(value)
-                    invalidateTransport()
-                  }}
-                  setTransportPortOfDischarge={(value) => {
-                    setTransportPortOfDischarge(value)
-                    invalidateTransport()
-                  }}
-                  setTransportMode={(value) => {
-                    setTransportMode(value)
-                    invalidateTransport()
-                  }}
-                  setTransportResult={setTransportResult}
-                  setTransportError={setTransportError}
-                  setAllowTransportEstimate={(value) => {
-                    setAllowTransportEstimate(value)
-                    invalidateTransport()
-                  }}
+                  setTransportWeight={workspace.transport.setWeight}
+                  setTransportOrigin={workspace.transport.setOrigin}
+                  setTransportPortOfLoading={workspace.transport.setPortOfLoading}
+                  setTransportPortOfDischarge={workspace.transport.setPortOfDischarge}
+                  setTransportMode={workspace.transport.setMode}
+                  setAllowTransportEstimate={workspace.transport.setAllowEstimate}
+                  resetTransport={workspace.transport.reset}
                   handleTransportCalculate={handleTransportCalculate}
                 />
 
@@ -901,7 +750,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
                             if (!machine) return
                             setRows((current) => [...current, { id: `machine-${Date.now()}`, machineType: machine.machineType, dutyLevel: machine.dutyLevel, operatingHours: '1' }])
                             invalidateMachiningResult()
-                            invalidateResult()
+                            workspace.calculation.invalidate()
                           }}
                           disabled={machineLibrary.length === 0}
                         >
@@ -932,7 +781,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
                               onValueChange={(value) => {
                                 setRows((current) => current.map((item) => item.id === row.id ? { ...item, machineType: value, dutyLevel: machineLibrary.find((machine) => machine.machineType === value)?.dutyLevel ?? '' } : item))
                                 invalidateMachiningResult()
-                                invalidateResult()
+                                workspace.calculation.invalidate()
                               }}
                             >
                               <SelectTrigger><SelectValue placeholder="Select machine" /></SelectTrigger>
@@ -948,7 +797,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
                               onValueChange={(value) => {
                                 setRows((current) => current.map((item) => item.id === row.id ? { ...item, dutyLevel: value } : item))
                                 invalidateMachiningResult()
-                                invalidateResult()
+                                workspace.calculation.invalidate()
                               }}
                             >
                               <SelectTrigger><SelectValue placeholder="Select duty" /></SelectTrigger>
@@ -964,7 +813,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
                               onChange={(event) => {
                                 setRows((current) => current.map((item) => item.id === row.id ? { ...item, operatingHours: event.target.value } : item))
                                 invalidateMachiningResult()
-                                invalidateResult()
+                                workspace.calculation.invalidate()
                               }}
                             />
                             <p className="mt-1 text-xs text-muted-foreground">
@@ -981,7 +830,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
                               onClick={() => {
                                 setRows((current) => current.filter((item) => item.id !== row.id))
                                 invalidateMachiningResult()
-                                invalidateResult()
+                                workspace.calculation.invalidate()
                               }}
                               disabled={rows.length === 1}
                               aria-label="Remove machining entry"
