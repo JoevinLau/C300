@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
 import type React from 'react'
+import { requestLocalApi } from '@/lib/local-api'
 
 export type Method2Citation = {
   document_id: string
@@ -17,13 +18,11 @@ export type Method2ChatMessage = {
 }
 
 type UseMethod2ChatOptions = {
-  apiBase: string
   workspaceId: string
   calculationContext: unknown
 }
 
 export function useMethod2Chat({
-  apiBase,
   workspaceId,
   calculationContext,
 }: UseMethod2ChatOptions) {
@@ -55,27 +54,26 @@ export function useMethod2Chat({
     setChatLoading(true)
 
     try {
-      const response = await fetch(`${apiBase}/method2-chat`, {
+      const data = await requestLocalApi({
+        path: '/method2-chat',
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        json: {
           workspace_id: workspaceId,
           message,
           calculation_context: calculationContext,
           messages: messages.slice(-6).map(({ role, content }) => ({ role, content })),
-        }),
+        },
       })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(data?.detail ? String(data.detail) : response.statusText)
-      }
+      const record = data && typeof data === 'object'
+        ? (data as Record<string, unknown>)
+        : {}
       setMessages((current) => [
         ...current,
         {
           role: 'assistant',
-          content: typeof data.reply === 'string' ? data.reply : 'No reply returned.',
-          citations: Array.isArray(data.citations) ? data.citations : [],
-          grounded: data.grounded === true,
+          content: typeof record.reply === 'string' ? record.reply : 'No reply returned.',
+          citations: Array.isArray(record.citations) ? record.citations as Method2Citation[] : [],
+          grounded: record.grounded === true,
         },
       ])
     } catch (error) {

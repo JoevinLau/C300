@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { ElectronApi } from '../shared/electron-api'
+import type { ElectronApi, LocalApiRequest } from '../shared/electron-api'
 import type { CalculateRequest } from '../shared/calculator-types'
 import type {
   CalculationHistoryListOptions,
@@ -12,6 +12,8 @@ const electronApi: ElectronApi = {
   ping: () => 'pong',
   calculateEmissions: (payload: CalculateRequest) =>
     ipcRenderer.invoke('calculator:calculate', payload),
+  requestLocalApi: (request: LocalApiRequest) =>
+    ipcRenderer.invoke('local-api:request', request),
   saveCalculationHistory: (input: SaveCalculationHistoryInput) =>
     ipcRenderer.invoke('calculation-history:save', input),
   listCalculationHistory: (options?: CalculationHistoryListOptions) =>

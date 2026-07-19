@@ -20,11 +20,29 @@ export type {
   UseeioCalculationHistoryDetail,
 } from './calculation-history-types'
 
+export type LocalApiMethod = 'GET' | 'POST' | 'DELETE'
+
+export interface LocalApiFile {
+  fieldName: string
+  name: string
+  contentType: string
+  bytes: Uint8Array
+}
+
+export interface LocalApiRequest {
+  path: string
+  method?: LocalApiMethod
+  json?: unknown
+  fields?: Record<string, string>
+  files?: LocalApiFile[]
+}
+
 export interface ElectronApi {
   platform: NodeJS.Platform
   versions: NodeJS.ProcessVersions
   ping: () => string
   calculateEmissions: (payload: CalculateRequest) => Promise<CalculateResponse>
+  requestLocalApi: (request: LocalApiRequest) => Promise<unknown>
   saveCalculationHistory: (
     input: SaveCalculationHistoryInput,
   ) => Promise<CalculationHistoryDetail>

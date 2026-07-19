@@ -10,7 +10,7 @@ Desktop app for **carbon emissions estimation** from supplier and portfolio spen
 - **Method 2** (`#method-2`) — Hybrid emissions prototype with a supplier-document RAG assistant. Upload PDF or XLSX evidence, ask grounded questions, and inspect the retrieved source excerpts behind each answer.
 - **Method 3** — Listed on the home screen; not implemented yet.
 
-Method 1 calls `POST /calculate` on the API. In Electron, requests go through the main process (`calculator:calculate` IPC) to avoid renderer CORS issues; the renderer can also call the API directly when running outside Electron.
+In Electron, local API requests go through the preload bridge and main process to avoid packaged-renderer CORS issues. This includes Method 1, Method 2, transport, NAICS, and RAG document requests. The renderer uses direct HTTP only when running outside Electron.
 
 ## UI overview
 
@@ -28,7 +28,7 @@ The renderer is organized as a workflow dashboard:
 ```text
 ┌─────────────────┐     IPC (Electron)      ┌──────────────────┐
 │  React renderer │ ────────────────────► │  Electron main   │
-│  (Vite :5173)   │     fetch (browser)   │  api-client.ts   │
+│  (Vite :5173)   │  fetch (browser only) │  api-client.ts   │
 └────────┬────────┘                       └────────┬─────────┘
          │                                         │
          └─────────────────┬───────────────────────┘

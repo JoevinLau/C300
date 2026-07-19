@@ -117,7 +117,6 @@ type ComponentView = {
 }
 
 const kg = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 })
-const API_BASE = 'http://127.0.0.1:8000'
 const WORKSPACE_ID = 'method2-demo'
 
 const demoPart = {
@@ -478,7 +477,6 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
     setExpandedCitation,
     setInput,
   } = useMethod2Chat({
-    apiBase: API_BASE,
     workspaceId: WORKSPACE_ID,
     calculationContext: fixedContext,
   })
@@ -493,7 +491,6 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
     uploadDocuments,
     uploading,
   } = useMethod2Documents({
-    apiBase: API_BASE,
     workspaceId: WORKSPACE_ID,
     onDocumentDeleted: removeDocumentCitations,
   })

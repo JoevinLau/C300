@@ -5,13 +5,14 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
 import http from 'node:http'
 
-import { postCalculate } from './api-client'
+import { postCalculate, requestLocalApi } from './api-client'
 import { CalculationHistoryStore } from './calculation-history-store'
 import type { CalculateRequest } from '../shared/calculator-types'
 import type {
   CalculationHistoryListOptions,
   SaveCalculationHistoryInput,
 } from '../shared/calculation-history-types'
+import type { LocalApiRequest } from '../shared/electron-api'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 let apiProcess: ChildProcess | null = null
@@ -31,6 +32,9 @@ function getCalculationHistoryStore(): CalculationHistoryStore {
 function registerApiHandlers() {
   ipcMain.handle('calculator:calculate', async (_event, payload: CalculateRequest) => {
     return postCalculate(payload)
+  })
+  ipcMain.handle('local-api:request', async (_event, request: LocalApiRequest) => {
+    return requestLocalApi(request)
   })
 
   ipcMain.handle(

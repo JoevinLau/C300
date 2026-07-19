@@ -9,6 +9,7 @@ import type {
   Method2MachineReference,
   NaicsOption,
 } from '../../shared/calculator-types'
+import { requestLocalApi } from './local-api'
 
 export type {
   CalculateRequest,
@@ -22,8 +23,6 @@ export type {
   NaicsOption,
 }
 
-const API_BASES = ['http://127.0.0.1:8000', 'http://localhost:8000']
-const API_BASE = API_BASES[0]
 const TRANSPORT_DISTANCES_TO_SINGAPORE_KM: Record<string, number> = {
   Singapore: 50,
   China: 3600,
@@ -51,75 +50,6 @@ const TRANSPORT_FACTORS_KG_PER_TKM: Record<string, number> = {
   truck: 0.12,
   air: 1.2,
   rail: 0.035,
-}
-
-function formatApiError(detail: unknown): string {
-  if (typeof detail === 'string') return detail
-  if (Array.isArray(detail)) {
-    return detail
-      .map((item) => {
-        if (item && typeof item === 'object' && 'msg' in item) {
-          const record = item as { msg: string; loc?: unknown }
-          const field = Array.isArray(record.loc)
-            ? record.loc.filter((part) => part !== 'body').join('.')
-            : ''
-          return field ? `${field}: ${record.msg}` : String(record.msg)
-        }
-        return JSON.stringify(item)
-      })
-      .join('; ')
-  }
-  return 'Calculation failed. Check your inputs and that the API on port 8000 is running.'
-}
-
-async function fetchCalculate(payload: CalculateRequest): Promise<CalculateResponse> {
-  const response = await fetch(`${API_BASE}/calculate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-
-  const body: unknown = await response.json().catch(() => null)
-
-  if (!response.ok) {
-    const detail =
-      body && typeof body === 'object' && 'detail' in body
-        ? (body as { detail: unknown }).detail
-        : `Request failed (${response.status})`
-    throw new Error(formatApiError(detail))
-  }
-
-  return body as CalculateResponse
-}
-
-async function fetchJsonFromApi(path: string, init?: RequestInit): Promise<unknown> {
-  let lastError: unknown = null
-
-  for (const base of API_BASES) {
-    try {
-      const response = await fetch(`${base}${path}`, init)
-      const body: unknown = await response.json().catch(() => null)
-
-      if (!response.ok) {
-        const detail =
-          body && typeof body === 'object' && 'detail' in body
-            ? (body as { detail: unknown }).detail
-            : `Request failed (${response.status})`
-        throw new Error(formatApiError(detail))
-      }
-
-      return body
-    } catch (error) {
-      lastError = error
-      if (error instanceof Error && error.message !== 'Failed to fetch') {
-        throw error
-      }
-    }
-  }
-
-  throw new Error(
-    'Cannot connect to the local API server on port 8000. Start the FastAPI backend, then try Calculate transport again.',
-  )
 }
 
 function isEcoTransitScraperLocationError(error: unknown) {
@@ -174,7 +104,11 @@ export async function calculateEmissions(
     return window.electronAPI.calculateEmissions(payload)
   }
 
-  return fetchCalculate(payload)
+  return requestLocalApi({
+    path: '/calculate',
+    method: 'POST',
+    json: payload,
+  }) as Promise<CalculateResponse>
 }
 
 export async function calculateEcoTransitTransport(
@@ -182,10 +116,10 @@ export async function calculateEcoTransitTransport(
 ): Promise<EcoTransitResponse> {
   let body: unknown
   try {
-    body = await fetchJsonFromApi('/ecotransit', {
+    body = await requestLocalApi({
+      path: '/ecotransit',
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      json: payload,
     })
   } catch (error) {
     if (isEcoTransitScraperLocationError(error)) {
@@ -198,7 +132,7 @@ export async function calculateEcoTransitTransport(
 }
 
 export async function fetchMethod2Machines(): Promise<Method2MachineReference[]> {
-  const body = await fetchJsonFromApi('/method2/machines')
+  const body = await requestLocalApi({ path: '/method2/machines' })
   const machines = body && typeof body === 'object' && 'machines' in body
     ? (body as { machines: unknown }).machines
     : null
@@ -213,10 +147,10 @@ export async function fetchMethod2Machines(): Promise<Method2MachineReference[]>
 export async function calculateMethod2(
   payload: Method2CalculateRequest,
 ): Promise<Method2CalculateResponse> {
-  const body = await fetchJsonFromApi('/method2/calculate', {
+  const body = await requestLocalApi({
+    path: '/method2/calculate',
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    json: payload,
   })
 
   return body as Method2CalculateResponse
@@ -224,10 +158,9 @@ export async function calculateMethod2(
 
 export async function fetchNaicsOptions(): Promise<NaicsOption[]> {
   try {
-    const response = await fetch(`${API_BASE}/naics`)
-    const body: unknown = await response.json().catch(() => null)
+    const body = await requestLocalApi({ path: '/naics' })
 
-    if (!response.ok || !Array.isArray(body)) {
+    if (!Array.isArray(body)) {
       throw new Error('Failed to fetch NAICS options from API')
     }
 

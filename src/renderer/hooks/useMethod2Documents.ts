@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { requestLocalApi } from '@/lib/local-api'
 
 export type Method2Document = {
   document_id: string
@@ -11,7 +12,6 @@ export type Method2Document = {
 }
 
 type UseMethod2DocumentsOptions = {
-  apiBase: string
   workspaceId: string
   onDocumentDeleted: (documentId: string) => void
 }
@@ -24,7 +24,6 @@ function getDocumentRequestError(error: unknown) {
 }
 
 export function useMethod2Documents({
-  apiBase,
   workspaceId,
   onDocumentDeleted,
 }: UseMethod2DocumentsOptions) {
@@ -40,17 +39,9 @@ export function useMethod2Documents({
       setDocumentsLoading(true)
       if (clearExistingError) setDocumentError('')
       try {
-        const response = await fetch(
-          `${apiBase}/rag/documents?workspace_id=${encodeURIComponent(workspaceId)}`,
-        )
-        const data = await response.json().catch(() => null)
-        if (!response.ok) {
-          throw new Error(
-            data && typeof data.detail === 'string'
-              ? data.detail
-              : 'Unable to load documents.',
-          )
-        }
+        const data = await requestLocalApi({
+          path: `/rag/documents?workspace_id=${encodeURIComponent(workspaceId)}`,
+        })
         setDocuments(Array.isArray(data) ? data : [])
       } catch (error) {
         setDocumentError(getDocumentRequestError(error))
@@ -58,7 +49,7 @@ export function useMethod2Documents({
         setDocumentsLoading(false)
       }
     },
-    [apiBase, workspaceId],
+    [workspaceId],
   )
 
   useEffect(() => {
@@ -69,24 +60,22 @@ export function useMethod2Documents({
     if (files.length === 0) return
     setUploading(true)
     setDocumentError('')
-    const formData = new FormData()
-    formData.append('workspace_id', workspaceId)
-    files.forEach((file) => formData.append('files', file))
 
     try {
-      const response = await fetch(`${apiBase}/rag/documents`, {
+      const data = await requestLocalApi({
+        path: '/rag/documents',
         method: 'POST',
-        body: formData,
+        fields: { workspace_id: workspaceId },
+        files: await Promise.all(
+          files.map(async (file) => ({
+            fieldName: 'files',
+            name: file.name,
+            contentType: file.type || 'application/octet-stream',
+            bytes: new Uint8Array(await file.arrayBuffer()),
+          })),
+        ),
       })
-      const data = await response.json().catch(() => null)
-      if (!response.ok) {
-        throw new Error(
-          data && typeof data.detail === 'string'
-            ? data.detail
-            : 'Document indexing failed.',
-        )
-      }
-      const results = Array.isArray(data?.documents)
+      const results = data && typeof data === 'object' && 'documents' in data && Array.isArray(data.documents)
         ? (data.documents as Method2Document[])
         : []
       const failures = results.filter((document) => document.status === 'error')
@@ -113,18 +102,10 @@ export function useMethod2Documents({
   async function deleteDocument(documentId: string) {
     setDocumentError('')
     try {
-      const response = await fetch(
-        `${apiBase}/rag/documents/${encodeURIComponent(documentId)}?workspace_id=${encodeURIComponent(workspaceId)}`,
-        { method: 'DELETE' },
-      )
-      if (!response.ok) {
-        const data = await response.json().catch(() => null)
-        throw new Error(
-          data && typeof data.detail === 'string'
-            ? data.detail
-            : 'Unable to delete document.',
-        )
-      }
+      await requestLocalApi({
+        path: `/rag/documents/${encodeURIComponent(documentId)}?workspace_id=${encodeURIComponent(workspaceId)}`,
+        method: 'DELETE',
+      })
       setDocuments((current) =>
         current.filter((document) => document.document_id !== documentId),
       )

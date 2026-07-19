@@ -3,6 +3,7 @@ import { ArrowLeft, Upload, FileSpreadsheet, Check, X, AlertCircle, Loader2, Glo
 import * as XLSX from 'xlsx'
 
 import { AppBackground } from '@/components/AppBackground'
+import { requestLocalApi } from '@/lib/local-api'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -171,8 +172,6 @@ async function fetchAllCategories(
   return results
 }
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() || 'http://127.0.0.1:8000'
-
 function cleanMaterialToken(rawName: string): string {
   if (!rawName) return ''
 
@@ -198,18 +197,13 @@ function getNaicsCategoryLabel(code: string, category?: string | null): string {
 }
 
 async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, init)
-  const body: unknown = await response.json().catch(() => null)
-
-  if (!response.ok) {
-    const detail =
-      body && typeof body === 'object' && 'detail' in body
-        ? (body as { detail: unknown }).detail
-        : `Request failed (${response.status})`
-    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
-  }
-
-  return body as T
+  const method = init?.method === 'POST'
+    ? 'POST'
+    : init?.method === 'DELETE'
+      ? 'DELETE'
+      : 'GET'
+  const json = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined
+  return requestLocalApi({ path, method, json }) as Promise<T>
 }
 
 async function fetchLlmNaicsSuggestion(materialName: string): Promise<NaicsFactorOption | null> {

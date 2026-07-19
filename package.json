@@ -9,7 +9,7 @@
     "build": "electron-vite build",
     "package:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1",
     "preview": "node scripts/predev.cjs && electron-vite preview",
-    "test": "node --test src/main/calculation-history-store.test.mts src/renderer/lib/calculation-workflow.test.mts",
+    "test": "node --test src/main/api-client.test.mts src/main/calculation-history-store.test.mts src/renderer/lib/calculation-workflow.test.mts src/renderer/lib/local-api.test.mts",
     "typecheck": "tsc --noEmit",
     "postinstall": "node scripts/patch-electron-vite-spawn.cjs"
   },
