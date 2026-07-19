@@ -5,7 +5,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
@@ -48,9 +48,25 @@ from rag_service import (
     UnsupportedDocumentError,
 )
 from db import DatabaseUnavailable, execute_with_retry
-
-# Models and request/response schemas
-from pydantic import BaseModel, Field, model_validator
+from models import (
+    BatchCalculationResult,
+    BatchCalculationRow,
+    CalculationDetails,
+    ChatCitation,
+    ChatResponse,
+    CostBreakdown,
+    EcoTransitRequest,
+    EmissionBreakdown,
+    InputData,
+    MappingLearnRequest,
+    Method2ChatRequest,
+    Method2InputData,
+    NaicsConfirmRequest,
+    NaicsOption,
+    OutputData,
+    RagDocument,
+    RagUploadResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -171,214 +187,6 @@ async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSON
     return JSONResponse(status_code=500, content={"detail": f"Internal server error: {exc}"})
 
 
-class BatchCalculationRow(BaseModel):
-    # Kept compatible with how calculate_batch endpoint uses model_dump()
-    invoice_id: str
-    year: int
-    total_amount_sgd: float
-    sgd_amounts: dict
-    naics: dict
-
-
-class Allocation(BaseModel):
-    raw_material_pct: float = Field(..., ge=0)
-    fabrication_pct: float = Field(..., ge=0)
-    surface_treatment_pct: float = Field(..., ge=0)
-
-    @model_validator(mode="after")
-    def validate_allocation_total(self) -> "Allocation":
-        total = self.raw_material_pct + self.fabrication_pct + self.surface_treatment_pct
-        if abs(total - 100) > 0.01:
-            raise ValueError("Allocation percentages must add up to 100.")
-        return self
-
-
-class Naics(BaseModel):
-    raw_material: str = Field(..., min_length=6, max_length=6)
-    fabrication: str = Field(..., min_length=6, max_length=6)
-    surface_treatment: str = Field(..., min_length=6, max_length=6)
-
-
-class SgdAmountsInput(BaseModel):
-    raw_material: float = Field(..., ge=0)
-    fabrication: float = Field(..., ge=0)
-    surface_treatment: float = Field(..., ge=0)
-
-
-class Method1LineItemInput(BaseModel):
-    category: Literal["raw_material", "fabrication", "surface_treatment"]
-    amount_sgd: float = Field(..., gt=0)
-    naics_code: str = Field(..., min_length=6, max_length=6)
-
-
-class InputData(BaseModel):
-    invoice_id: str = Field(..., min_length=1)
-    year: int = Field(..., ge=MIN_CALCULATION_YEAR, le=MAX_CALCULATION_YEAR)
-    total_amount_sgd: float = Field(..., gt=0)
-    sgd_amounts: SgdAmountsInput | None = None
-    allocation: Allocation | None = None
-    naics: Naics
-    line_items: list[Method1LineItemInput] | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_amounts(cls, data: object) -> object:
-        if not isinstance(data, dict):
-            return data
-
-        total = data.get("total_amount_sgd")
-        sgd_amounts = data.get("sgd_amounts")
-        allocation = data.get("allocation")
-
-        if sgd_amounts is None and allocation is not None and total is not None:
-            data = {
-                **data,
-                "sgd_amounts": {
-                    "raw_material": total * allocation["raw_material_pct"] / 100.0,
-                    "fabrication": total * allocation["fabrication_pct"] / 100.0,
-                    "surface_treatment": total * allocation["surface_treatment_pct"] / 100.0,
-                },
-            }
-
-        return data
-
-    @model_validator(mode="after")
-    def validate_sgd_amounts_sum(self) -> "InputData":
-        if self.sgd_amounts is None:
-            raise ValueError("sgd_amounts or allocation is required")
-
-        component_sum = (
-            self.sgd_amounts.raw_material
-            + self.sgd_amounts.fabrication
-            + self.sgd_amounts.surface_treatment
-        )
-        if abs(component_sum - self.total_amount_sgd) > 0.01:
-            raise ValueError(
-                "sgd_amounts must sum to total_amount_sgd "
-                f"(got {component_sum:.2f} vs {self.total_amount_sgd:.2f})"
-            )
-        return self
-
-
-class SgdAmounts(BaseModel):
-    raw_material: float
-    fabrication: float
-    surface_treatment: float
-
-
-class UsdAmounts(BaseModel):
-    raw_material: float
-    fabrication: float
-    surface_treatment: float
-
-
-class Usd2022Amounts(BaseModel):
-    raw_material: float
-    fabrication: float
-    surface_treatment: float
-
-
-class EmissionFactors(BaseModel):
-    raw_material: float
-    fabrication: float
-    surface_treatment: float
-
-
-class Method1LineItemResult(BaseModel):
-    category: Literal["raw_material", "fabrication", "surface_treatment"]
-    amount_sgd: float
-    amount_usd: float
-    amount_usd2022: float
-    naics_code: str
-    factor: float
-    emission: float
-
-
-class CalculationDetails(BaseModel):
-    fx_rate: float
-    inflation_index: float
-    year: int
-    sgd_amounts: SgdAmounts
-    usd_amounts: UsdAmounts
-    usd2022_amounts: Usd2022Amounts
-    factors: EmissionFactors
-    line_items: list[Method1LineItemResult] | None = None
-
-
-class CostBreakdown(BaseModel):
-    raw_material_usd2022: float
-    fabrication_usd2022: float
-    surface_treatment_usd2022: float
-
-
-class EmissionBreakdown(BaseModel):
-    raw_material: float
-    fabrication: float
-    surface_treatment: float
-    total: float
-
-
-class OutputData(BaseModel):
-    invoice_id: str
-    calculation: CalculationDetails
-    costs: CostBreakdown
-    emissions: EmissionBreakdown
-
-
-class NaicsOption(BaseModel):
-    code: str
-    description: str
-    category: str | None = None
-    kgco2e_per_usd: float | None = None
-
-
-class MappingLearnRequest(BaseModel):
-    keyword: str
-    naics_code: str
-    description: str
-    category: str
-
-
-class NaicsConfirmRequest(BaseModel):
-    material_token: str
-    mapped_naics: str
-    user_id: str
-
-
-class EcoTransitRequest(BaseModel):
-    port_of_loading: str = Field(..., min_length=1)
-    port_of_discharge: str = Field("Singapore", min_length=1)
-    weight_kg: float = Field(..., gt=0)
-    transport_mode: str = Field(
-        "sea", pattern="^(sea|land|air|rail|truck|vessel|ship)$"
-    )
-    origin_country: str | None = None
-    allow_estimate: bool = False
-
-
-class Method2Naics(BaseModel):
-    raw_material: str = Field(..., min_length=6, max_length=6)
-    surface_treatment: str = Field(..., min_length=6, max_length=6)
-    fabrication: str = Field("333517", min_length=6, max_length=6)
-
-
-class Method2MachiningEntry(BaseModel):
-    machine_type: str = Field(..., min_length=1)
-    duty_level: str = Field(..., min_length=1)
-    operating_hours: float = Field(..., ge=0)
-
-
-class Method2InputData(BaseModel):
-    part_id: str = Field(..., min_length=1)
-    year: int = Field(..., ge=MIN_CALCULATION_YEAR, le=MAX_CALCULATION_YEAR)
-    raw_material_sgd: float = Field(..., ge=0)
-    surface_treatment_sgd: float = Field(..., ge=0)
-    naics: Method2Naics
-    transport_emissions_kg: float = Field(0, ge=0)
-    transport_source: str = "EcoTransit World"
-    machining_entries: list[Method2MachiningEntry] = Field(default_factory=list)
-
-
 # ---------- ENDPOINTS ----------
 
 
@@ -411,9 +219,13 @@ async def confirm_naics(data: NaicsConfirmRequest):
     )
 
 
-@app.post("/api/calculate/batch")
+@app.post(
+    "/api/calculate/batch",
+    response_model=list[BatchCalculationResult],
+    response_model_exclude_none=True,
+)
 async def calculate_batch(rows: list[BatchCalculationRow]):
-    return calculate_batch_emissions([row.model_dump() for row in rows])
+    return calculate_batch_emissions([row.model_dump(exclude_none=True) for row in rows])
 
 
 @app.post("/learn-mapping")
@@ -450,46 +262,6 @@ def calculate_emissions(data: InputData):
         costs=CostBreakdown(**result["costs"]),
         emissions=EmissionBreakdown(**result["emissions"]),
     )
-
-
-class RagDocument(BaseModel):
-    document_id: str
-    filename: str
-    file_type: str
-    content_hash: str
-    chunk_count: int
-    status: str
-    error: str | None = None
-
-
-class RagUploadResult(BaseModel):
-    documents: list[RagDocument]
-
-
-class ChatHistoryMessage(BaseModel):
-    role: Literal["user", "assistant"]
-    content: str = Field(..., min_length=1, max_length=8000)
-
-
-class Method2ChatRequest(BaseModel):
-    workspace_id: str = Field(..., min_length=1, max_length=100)
-    message: str = Field(..., min_length=1, max_length=8000)
-    calculation_context: dict[str, Any] = Field(default_factory=dict)
-    messages: list[ChatHistoryMessage] = Field(default_factory=list, max_length=12)
-
-
-class ChatCitation(BaseModel):
-    document_id: str
-    filename: str
-    location: str
-    excerpt: str
-    score: float
-
-
-class ChatResponse(BaseModel):
-    reply: str
-    citations: list[ChatCitation]
-    grounded: bool
 
 
 def _rag_http_error(exc: RagError) -> HTTPException:

@@ -236,26 +236,67 @@ class BatchCalculationResult(BatchCalculationRow):
     total_kgco2e: float
 
 
+class Method2Naics(StrictApiModel):
+    raw_material: str = Field(..., pattern=r"^\d{6}$")
+    surface_treatment: str = Field(..., pattern=r"^\d{6}$")
+    fabrication: str = Field("333517", pattern=r"^\d{6}$")
+
+
+class Method2MachiningEntry(StrictApiModel):
+    machine_type: str = Field(..., min_length=1)
+    duty_level: str = Field(..., min_length=1)
+    operating_hours: float = Field(..., ge=0)
+
+
+class Method2InputData(StrictApiModel):
+    part_id: str = Field(..., min_length=1)
+    year: int = Field(..., ge=MIN_CALCULATION_YEAR, le=MAX_CALCULATION_YEAR)
+    raw_material_sgd: float = Field(..., ge=0)
+    surface_treatment_sgd: float = Field(..., ge=0)
+    naics: Method2Naics
+    transport_emissions_kg: float = Field(0, ge=0)
+    transport_source: str = "EcoTransit World"
+    machining_entries: list[Method2MachiningEntry] = Field(default_factory=list)
+
+
+class RagDocument(StrictApiModel):
+    document_id: str
+    filename: str
+    file_type: str
+    content_hash: str
+    chunk_count: int
+    status: str
+    error: str | None = None
+
+
+class RagUploadResult(StrictApiModel):
+    documents: list[RagDocument]
+
+
+class ChatHistoryMessage(StrictApiModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1, max_length=8000)
+
+
+class Method2ChatRequest(StrictApiModel):
+    workspace_id: str = Field(..., min_length=1, max_length=100)
+    message: str = Field(..., min_length=1, max_length=8000)
+    calculation_context: dict[str, Any] = Field(default_factory=dict)
+    messages: list[ChatHistoryMessage] = Field(default_factory=list, max_length=12)
+
+
+class ChatCitation(StrictApiModel):
+    document_id: str
+    filename: str
+    location: str
+    excerpt: str
+    score: float
+
+
 class ChatResponse(StrictApiModel):
     reply: str
-
-
-class Method2ActivityInput(StrictApiModel):
-    part_id: str = Field(..., min_length=1, max_length=128)
-    part_name: str | None = None
-    supplier: str | None = None
-    year: int = Field(..., ge=MIN_CALCULATION_YEAR, le=MAX_CALCULATION_YEAR)
-    material: str = Field(..., min_length=1)
-    weight_kg: float = Field(..., gt=0)
-    raw_material_cost_sgd: float = Field(0, ge=0)
-    machining_cost_sgd: float = Field(0, ge=0)
-    surface_treatment_cost_sgd: float = Field(0, ge=0)
-    machine_power_kw: float | None = Field(None, ge=0)
-    machine_hours: float | None = Field(None, ge=0)
-    grid_country_code: str = Field("SG", min_length=2, max_length=2)
-    transport_distance_km: float | None = Field(None, ge=0)
-    transport_mode: Literal["sea", "land", "air", "rail", "truck", "vessel", "ship"] | None = None
-    surface_treatment: str | None = None
+    citations: list[ChatCitation]
+    grounded: bool
 
 
 class EcoTransitRequest(StrictApiModel):

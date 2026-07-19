@@ -19,6 +19,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import type {
+  BatchCalculationRequestRow,
+  BatchCalculationResult,
+} from '../../shared/calculator-types'
 
 type TargetField =
   | 'supplier'
@@ -50,7 +54,7 @@ interface MappedRow {
   confidence_level?: 'exact' | 'partial' | 'low'
 }
 
-interface BatchCalculationResult extends MappedRow {
+interface BatchCalculationDisplayRow extends MappedRow {
   mapped_naics: string
   naics_description?: string
   kgco2e_per_usd: number
@@ -304,7 +308,7 @@ function NaicsMappingPage() {
   const [mappedData, setMappedData] = useState<MappedRow[]>([])
   const [hasFetchedNaics, setHasFetchedNaics] = useState(false)
   const [confirmedData, setConfirmedData] = useState<MappedRow[] | null>(null)
-  const [calculationResults, setCalculationResults] = useState<BatchCalculationResult[] | null>(null)
+  const [calculationResults, setCalculationResults] = useState<BatchCalculationDisplayRow[] | null>(null)
   const [calculationLoading, setCalculationLoading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -679,22 +683,27 @@ function NaicsMappingPage() {
 
     setCalculationLoading(true)
     try {
+      const batchRows: BatchCalculationRequestRow[] = rows.map(row => ({
+        supplier: row.supplier,
+        material: row.material_name,
+        weight: Number(row.weight || 0),
+        qty: Number(row.qty || 0),
+        total_amount_sgd: Number(row.total_amount_sgd || 0),
+        mapped_naics: row.naics_code,
+      }))
       const results = await fetchApi<BatchCalculationResult[]>('/api/calculate/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(rows.map(row => ({
-          supplier: row.supplier,
-          material: row.material_name,
-          weight: Number(row.weight || 0),
-          qty: Number(row.qty || 0),
-          total_amount_sgd: Number(row.total_amount_sgd || 0),
-          mapped_naics: row.naics_code,
-        }))),
+        body: JSON.stringify(batchRows),
       })
 
       setCalculationResults(results.map((result, index) => ({
-        ...rows[index],
         ...result,
+        ...rows[index],
+        mapped_naics: result.mapped_naics,
+        kgco2e_per_usd: result.kgco2e_per_usd,
+        total_kgco2e: result.total_kgco2e,
+        data_source: result.data_source,
         kgco2e: String(result.kgco2e_per_usd ?? rows[index].kgco2e),
         description: result.naics_description || rows[index].description,
       })))

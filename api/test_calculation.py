@@ -14,6 +14,7 @@ if str(API_DIR) not in sys.path:
     sys.path.insert(0, str(API_DIR))
 
 import main
+import models
 import service
 from db import DatabaseUnavailable
 from calculation import method2_calculations
@@ -102,6 +103,12 @@ class CalculationApiTests(unittest.TestCase):
             ),
         )
 
+    def test_routes_use_the_authoritative_contract_module(self):
+        self.assertIs(main.BatchCalculationRow, models.BatchCalculationRow)
+        self.assertIs(main.InputData, models.InputData)
+        self.assertIs(main.Method2InputData, models.Method2InputData)
+        self.assertIs(main.Method2ChatRequest, models.Method2ChatRequest)
+
     def test_readiness_requires_the_reference_database(self):
         with patch.object(main, "check_reference_database", return_value=None), patch.object(
             main, "check_rag_storage", return_value=None
@@ -138,6 +145,38 @@ class CalculationApiTests(unittest.TestCase):
         self.assertEqual(second.json()["calculation"]["factors"]["raw_material"], 1.25)
         self.assertEqual(first.json()["emissions"]["raw_material"], 15.0)
         self.assertEqual(second.json()["emissions"]["raw_material"], 75.0)
+
+    def test_batch_calculation_accepts_the_naics_mapping_renderer_contract(self):
+        payload = [
+            {
+                "supplier": "Example Supplier",
+                "material": "Steel plate",
+                "weight": 12.5,
+                "qty": 2,
+                "total_amount_sgd": 1250.0,
+                "mapped_naics": "331110",
+            }
+        ]
+        expected = [
+            {
+                **payload[0],
+                "naics_description": "Iron and Steel Mills",
+                "kgco2e_per_usd": 0.25,
+                "data_source": "USEEIO",
+                "total_kgco2e": 312.5,
+            }
+        ]
+
+        with patch.object(
+            main,
+            "calculate_batch_emissions",
+            return_value=expected,
+        ) as calculate:
+            response = self.client.post("/api/calculate/batch", json=payload)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), expected)
+        calculate.assert_called_once_with(payload)
 
     def test_line_item_naics_codes_control_item_and_category_results(self):
         payload = calculation_payload()

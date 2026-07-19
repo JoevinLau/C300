@@ -85,6 +85,28 @@ export interface NaicsOption {
   kgco2e_per_usd?: number
 }
 
+export interface BatchCalculationRequestRow {
+  supplier?: string
+  material?: string
+  material_name?: string
+  weight?: number
+  qty?: number
+  total_amount_sgd: number
+  mapped_naics?: string
+  naics_code?: string
+  description?: string
+  kgco2e?: string
+  category?: string
+}
+
+export interface BatchCalculationResult extends BatchCalculationRequestRow {
+  mapped_naics: string
+  naics_description: string
+  kgco2e_per_usd: number
+  total_kgco2e: number
+  data_source?: string
+}
+
 export interface EcoTransitRequest {
   port_of_loading: string
   port_of_discharge: string
