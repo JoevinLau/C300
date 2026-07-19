@@ -65,6 +65,7 @@ import {
   type Method1FormKey,
 } from '@/components/Method1SharedInputs'
 import { cn } from '@/lib/utils'
+import { createMethod2WorkspaceId } from '@/lib/rag-workspace'
 import { toCalculationHistoryTransport } from '@/lib/calculation-history'
 import {
   addLineItem,
@@ -117,7 +118,6 @@ type ComponentView = {
 }
 
 const kg = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 })
-const WORKSPACE_ID = 'method2-demo'
 
 const demoPart = {
   partId: 'M2-DEMO-001',
@@ -297,6 +297,7 @@ function ResultsPanel({
 }
 
 export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
+  const [workspaceId] = useState(createMethod2WorkspaceId)
   const [form, setForm] = useState<Record<Method1FormKey, string>>(defaultSpendForm)
   const [naicsOptions, setNaicsOptions] = useState<NaicsOption[]>([])
   const [naicsError, setNaicsError] = useState<string | null>(null)
@@ -490,7 +491,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
     setExpandedCitation,
     setInput,
   } = useMethod2Chat({
-    workspaceId: WORKSPACE_ID,
+    workspaceId,
     calculationContext: fixedContext,
   })
 
@@ -504,7 +505,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
     uploadDocuments,
     uploading,
   } = useMethod2Documents({
-    workspaceId: WORKSPACE_ID,
+    workspaceId,
     onDocumentDeleted: removeDocumentCitations,
   })
 

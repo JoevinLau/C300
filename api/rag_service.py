@@ -17,6 +17,7 @@ SUPPORTED_EXTENSIONS = {".pdf", ".xlsx", ".xls"}
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 DEFAULT_TOP_K = 6
 DEFAULT_SCORE_THRESHOLD = 0.25
+INDEX_SCHEMA_VERSION = 1
 
 
 class RagError(Exception):
@@ -67,6 +68,13 @@ class VectorRecord:
     text: str
     embedding: list[float]
     metadata: dict[str, str | int]
+
+
+@dataclass(frozen=True)
+class WorkspaceIndex:
+    schema_version: int
+    documents: list[DocumentRecord]
+    vectors: list[VectorRecord]
 
 
 def _safe_workspace_id(workspace_id: str) -> str:
@@ -295,51 +303,218 @@ class RagService:
         workspace_dir.mkdir(parents=True, exist_ok=True)
         return workspace_dir
 
-    def _manifest_path(self, workspace_id: str) -> Path:
+    def _legacy_manifest_path(self, workspace_id: str) -> Path:
         return self._workspace_dir(workspace_id) / "documents.json"
 
-    def _vectors_path(self, workspace_id: str) -> Path:
+    def _legacy_vectors_path(self, workspace_id: str) -> Path:
         return self._workspace_dir(workspace_id) / "vectors.json"
 
-    def _load_manifest(self, workspace_id: str) -> list[DocumentRecord]:
-        path = self._manifest_path(workspace_id)
+    def _index_path(self, workspace_id: str) -> Path:
+        return self._workspace_dir(workspace_id) / "index.json"
+
+    def _backup_index_path(self, workspace_id: str) -> Path:
+        return self._workspace_dir(workspace_id) / "index.backup.json"
+
+    def _load_legacy_manifest(self, workspace_id: str) -> list[DocumentRecord]:
+        path = self._legacy_manifest_path(workspace_id)
         if not path.exists():
             return []
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
             return [DocumentRecord(**item) for item in payload]
         except (OSError, ValueError, TypeError) as exc:
-            raise RagError(f"Failed to read document index: {exc}") from exc
+            raise RagError(f"Failed to read legacy document index: {exc}") from exc
 
-    def _save_manifest(
-        self, workspace_id: str, documents: list[DocumentRecord]
-    ) -> None:
-        path = self._manifest_path(workspace_id)
-        temporary_path = path.with_suffix(".tmp")
-        temporary_path.write_text(
-            json.dumps([asdict(document) for document in documents], indent=2),
-            encoding="utf-8",
-        )
-        temporary_path.replace(path)
-
-    def _load_vectors(self, workspace_id: str) -> list[VectorRecord]:
-        path = self._vectors_path(workspace_id)
+    def _load_legacy_vectors(self, workspace_id: str) -> list[VectorRecord]:
+        path = self._legacy_vectors_path(workspace_id)
         if not path.exists():
             return []
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
             return [VectorRecord(**item) for item in payload]
         except (OSError, ValueError, TypeError) as exc:
-            raise RagError(f"Failed to read vector index: {exc}") from exc
+            raise RagError(f"Failed to read legacy vector index: {exc}") from exc
 
-    def _save_vectors(self, workspace_id: str, vectors: list[VectorRecord]) -> None:
-        path = self._vectors_path(workspace_id)
-        temporary_path = path.with_suffix(".tmp")
-        temporary_path.write_text(
-            json.dumps([asdict(vector) for vector in vectors]),
-            encoding="utf-8",
+    def _validate_index(self, index: WorkspaceIndex) -> None:
+        if index.schema_version != INDEX_SCHEMA_VERSION:
+            raise RagError(
+                "Unsupported RAG index schema version "
+                f"{index.schema_version}; expected {INDEX_SCHEMA_VERSION}."
+            )
+
+        documents_by_id: dict[str, DocumentRecord] = {}
+        for document in index.documents:
+            if document.document_id in documents_by_id:
+                raise RagError(
+                    f"RAG index contains duplicate document id {document.document_id}."
+                )
+            if document.chunk_count < 1:
+                raise RagError(
+                    f"RAG document {document.document_id} has no indexed chunks."
+                )
+            documents_by_id[document.document_id] = document
+
+        vector_ids: set[str] = set()
+        chunk_counts = {document_id: 0 for document_id in documents_by_id}
+        for vector in index.vectors:
+            if vector.id in vector_ids:
+                raise RagError(f"RAG index contains duplicate vector id {vector.id}.")
+            vector_ids.add(vector.id)
+
+            document_id = str(vector.metadata.get("document_id", ""))
+            document = documents_by_id.get(document_id)
+            if document is None:
+                raise RagError(
+                    f"RAG vector {vector.id} references missing document {document_id}."
+                )
+            if str(vector.metadata.get("filename", "")) != document.filename:
+                raise RagError(
+                    f"RAG vector {vector.id} filename does not match its document."
+                )
+            if not str(vector.metadata.get("location", "")).strip():
+                raise RagError(f"RAG vector {vector.id} has no source location.")
+            chunk_counts[document_id] += 1
+
+        for document_id, document in documents_by_id.items():
+            if chunk_counts[document_id] != document.chunk_count:
+                raise RagError(
+                    f"RAG document {document_id} expects {document.chunk_count} chunks "
+                    f"but has {chunk_counts[document_id]}."
+                )
+
+    def _decode_index(self, path: Path) -> WorkspaceIndex:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise TypeError("root must be an object")
+            documents = [
+                DocumentRecord(**item) for item in payload.get("documents", [])
+            ]
+            vectors = [VectorRecord(**item) for item in payload.get("vectors", [])]
+            index = WorkspaceIndex(
+                schema_version=payload.get("schema_version"),
+                documents=documents,
+                vectors=vectors,
+            )
+            self._validate_index(index)
+            return index
+        except (AttributeError, OSError, ValueError, TypeError) as exc:
+            raise RagError(f"Failed to read RAG index {path.name}: {exc}") from exc
+
+    def _reconcile_legacy_index(self, workspace_id: str) -> WorkspaceIndex:
+        documents = self._load_legacy_manifest(workspace_id)
+        vectors = self._load_legacy_vectors(workspace_id)
+        vectors_by_document: dict[str, list[VectorRecord]] = {}
+        for vector in vectors:
+            document_id = str(vector.metadata.get("document_id", ""))
+            vectors_by_document.setdefault(document_id, []).append(vector)
+
+        reconciled_documents = []
+        complete_document_ids = set()
+        for document in documents:
+            document_vectors = vectors_by_document.get(document.document_id, [])
+            if len(document_vectors) == document.chunk_count:
+                reconciled_documents.append(document)
+                complete_document_ids.add(document.document_id)
+
+        reconciled_vectors = [
+            vector
+            for vector in vectors
+            if str(vector.metadata.get("document_id", "")) in complete_document_ids
+        ]
+        index = WorkspaceIndex(
+            schema_version=INDEX_SCHEMA_VERSION,
+            documents=reconciled_documents,
+            vectors=reconciled_vectors,
         )
-        temporary_path.replace(path)
+        self._validate_index(index)
+        return index
+
+    def _load_index(self, workspace_id: str) -> WorkspaceIndex:
+        primary_path = self._index_path(workspace_id)
+        if primary_path.exists():
+            try:
+                return self._decode_index(primary_path)
+            except RagError as primary_error:
+                backup_path = self._backup_index_path(workspace_id)
+                if backup_path.exists():
+                    try:
+                        return self._decode_index(backup_path)
+                    except RagError as backup_error:
+                        raise RagError(
+                            f"Primary and backup RAG indexes are invalid: "
+                            f"{primary_error} {backup_error}"
+                        ) from backup_error
+                raise primary_error
+
+        legacy_manifest = self._legacy_manifest_path(workspace_id)
+        legacy_vectors = self._legacy_vectors_path(workspace_id)
+        if legacy_manifest.exists() or legacy_vectors.exists():
+            index = self._reconcile_legacy_index(workspace_id)
+            self._save_index(workspace_id, index.documents, index.vectors)
+            return index
+
+        return WorkspaceIndex(INDEX_SCHEMA_VERSION, [], [])
+
+    @staticmethod
+    def _serialize_index(index: WorkspaceIndex) -> str:
+        return json.dumps(
+            {
+                "schema_version": index.schema_version,
+                "documents": [asdict(document) for document in index.documents],
+                "vectors": [asdict(vector) for vector in index.vectors],
+            },
+            indent=2,
+        )
+
+    @staticmethod
+    def _atomic_write(path: Path, contents: str) -> None:
+        temporary_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            with temporary_path.open("w", encoding="utf-8") as handle:
+                handle.write(contents)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_path, path)
+            if os.name != "nt":
+                directory_fd = os.open(path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+        finally:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def _save_index(
+        self,
+        workspace_id: str,
+        documents: list[DocumentRecord],
+        vectors: list[VectorRecord],
+    ) -> None:
+        index = WorkspaceIndex(INDEX_SCHEMA_VERSION, documents, vectors)
+        self._validate_index(index)
+        serialized = self._serialize_index(index)
+        primary_path = self._index_path(workspace_id)
+        backup_path = self._backup_index_path(workspace_id)
+
+        try:
+            if primary_path.exists():
+                try:
+                    self._decode_index(primary_path)
+                except RagError:
+                    pass
+                else:
+                    self._atomic_write(
+                        backup_path, primary_path.read_text(encoding="utf-8")
+                    )
+            else:
+                self._atomic_write(backup_path, serialized)
+            self._atomic_write(primary_path, serialized)
+        except OSError as exc:
+            raise RagError(f"Failed to commit RAG workspace index: {exc}") from exc
 
     def close(self) -> None:
         return None
@@ -372,7 +547,7 @@ class RagService:
 
     def list_documents(self, workspace_id: str) -> list[DocumentRecord]:
         with self._lock:
-            return self._load_manifest(workspace_id)
+            return list(self._load_index(workspace_id).documents)
 
     def ingest(
         self, workspace_id: str, filename: str, contents: bytes
@@ -381,7 +556,8 @@ class RagService:
         extension = Path(filename).suffix.lower()
 
         with self._lock:
-            documents = self._load_manifest(workspace_id)
+            index = self._load_index(workspace_id)
+            documents = index.documents
             duplicate = next(
                 (
                     document
@@ -409,7 +585,7 @@ class RagService:
             replaced_ids = {document.document_id for document in replaced}
             vectors = [
                 vector
-                for vector in self._load_vectors(workspace_id)
+                for vector in index.vectors
                 if str(vector.metadata.get("document_id")) not in replaced_ids
             ]
 
@@ -454,44 +630,46 @@ class RagService:
             remaining = [
                 document for document in documents if document.filename != filename
             ]
-            self._save_vectors(workspace_id, vectors)
-            self._save_manifest(workspace_id, [*remaining, record])
+            self._save_index(workspace_id, [*remaining, record], vectors)
             return record
 
     def delete_document(self, workspace_id: str, document_id: str) -> bool:
         with self._lock:
-            documents = self._load_manifest(workspace_id)
+            index = self._load_index(workspace_id)
+            documents = index.documents
             if not any(
                 document.document_id == document_id for document in documents
             ):
                 return False
-            self._save_vectors(
-                workspace_id,
-                [
-                    vector
-                    for vector in self._load_vectors(workspace_id)
-                    if str(vector.metadata.get("document_id")) != document_id
-                ],
-            )
-            self._save_manifest(
+            self._save_index(
                 workspace_id,
                 [
                     document
                     for document in documents
                     if document.document_id != document_id
                 ],
+                [
+                    vector
+                    for vector in index.vectors
+                    if str(vector.metadata.get("document_id")) != document_id
+                ],
             )
             return True
 
     def search(self, workspace_id: str, query: str) -> list[SearchResult]:
-        if not query.strip() or not self.list_documents(workspace_id):
+        if not query.strip():
+            return []
+
+        with self._lock:
+            index = self._load_index(workspace_id)
+        if not index.documents:
             return []
 
         query_embedding = self._embed([query])[0]
         scored = sorted(
             (
                 (_cosine_similarity(query_embedding, vector.embedding), vector)
-                for vector in self._load_vectors(workspace_id)
+                for vector in index.vectors
             ),
             key=lambda item: item[0],
             reverse=True,
