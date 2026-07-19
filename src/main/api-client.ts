@@ -1,12 +1,20 @@
 import type { CalculateRequest, CalculateResponse } from '../shared/calculator-types'
 import type { LocalApiMethod, LocalApiRequest } from '../shared/electron-api'
 
-const API_BASE = 'http://127.0.0.1:8000'
+const DEFAULT_API_PORT = 8000
+let apiBase = `http://127.0.0.1:${DEFAULT_API_PORT}`
 const DEFAULT_TIMEOUT_MS = 60_000
 
 interface LocalApiRequestOptions {
   timeoutMs?: number
   signal?: AbortSignal
+}
+
+export function configureLocalApiPort(port: number): void {
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new RangeError(`Invalid local API port: ${port}`)
+  }
+  apiBase = `http://127.0.0.1:${port}`
 }
 
 const ALLOWED_ROUTES: Array<{ methods: LocalApiMethod[]; path: RegExp }> = [
@@ -41,14 +49,14 @@ function formatApiError(detail: unknown): string {
       })
       .join('; ')
   }
-  return `API request failed (${API_BASE})`
+  return `API request failed (${apiBase})`
 }
 
 function resolveAllowedUrl(request: LocalApiRequest): { method: LocalApiMethod; url: URL } {
   const method = request.method ?? 'GET'
-  const url = new URL(request.path, API_BASE)
+  const url = new URL(request.path, apiBase)
   const allowed =
-    url.origin === API_BASE &&
+    url.origin === apiBase &&
     ALLOWED_ROUTES.some(
       (route) => route.methods.includes(method) && route.path.test(url.pathname),
     )

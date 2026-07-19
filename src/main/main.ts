@@ -5,7 +5,8 @@ import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import http from 'node:http'
 
-import { postCalculate, requestLocalApi } from './api-client'
+import { configureLocalApiPort, postCalculate, requestLocalApi } from './api-client'
+import { selectAvailablePort } from './backend-port'
 import { BackendSupervisor, type BackendStatus } from './backend-supervisor'
 import { CalculationHistoryStore } from './calculation-history-store'
 import type { CalculateRequest } from '../shared/calculator-types'
@@ -21,7 +22,8 @@ let usingExistingApi = false
 let backendFailurePromptOpen = false
 let calculationHistoryStore: CalculationHistoryStore | null = null
 const API_HOST = '127.0.0.1'
-const API_PORT = 8000
+const DEFAULT_API_PORT = 8000
+let apiPort = DEFAULT_API_PORT
 
 function getCalculationHistoryStore(): CalculationHistoryStore {
   if (!calculationHistoryStore) {
@@ -123,12 +125,12 @@ function resolvePythonExecutable(venvPythons: string[]): string | null {
   return null
 }
 
-function probeApiReadiness() {
+function probeApiReadiness(port = apiPort) {
   return new Promise<boolean>((resolve, reject) => {
     const request = http.get(
       {
         hostname: API_HOST,
-        port: API_PORT,
+        port,
         path: '/health/ready',
         timeout: 1500,
       },
@@ -182,7 +184,7 @@ function probeApiReadiness() {
   })
 }
 
-function createBackendSupervisor() {
+function createBackendSupervisor(port: number) {
   const projectRoot = path.join(__dirname, '..', '..')
   const ragDataDir = path.join(app.getPath('userData'), 'rag-data')
   const playwrightBrowsersDir = app.isPackaged
@@ -193,6 +195,7 @@ function createBackendSupervisor() {
     ELECTRON_RUN_AS_NODE: undefined,
     PLAYWRIGHT_BROWSERS_PATH: playwrightBrowsersDir,
     RAG_DATA_DIR: ragDataDir,
+    C300_API_PORT: String(port),
   }
 
   const launch = () => {
@@ -235,14 +238,14 @@ function createBackendSupervisor() {
 
   return new BackendSupervisor({
     launch,
-    probe: probeApiReadiness,
+    probe: () => probeApiReadiness(port),
     onStatusChange: handleBackendStatusChange,
   })
 }
 
 function handleBackendStatusChange(status: BackendStatus) {
   if (status.state === 'ready') {
-    console.log(`FastAPI is ready on http://${API_HOST}:${API_PORT}.`)
+    console.log(`FastAPI is ready on http://${API_HOST}:${apiPort}.`)
     return
   }
   if (status.state === 'restarting') {
@@ -288,23 +291,31 @@ async function promptForBackendRecovery(error?: string) {
 async function startApiServer() {
   let existingReady = false
   try {
-    existingReady = await probeApiReadiness()
+    existingReady = await probeApiReadiness(DEFAULT_API_PORT)
   } catch {
     // A C300 API with failed dependencies is not safe to reuse.
   }
   if (existingReady) {
-    if (process.env.C300_REUSE_EXISTING_API !== '1') {
-      throw new Error(
-        `A C300 API is already running on port ${API_PORT}. Stop it, or set C300_REUSE_EXISTING_API=1 to reuse it intentionally.`,
-      )
+    if (process.env.C300_REUSE_EXISTING_API === '1') {
+      apiPort = DEFAULT_API_PORT
+      configureLocalApiPort(apiPort)
+      usingExistingApi = true
+      console.log(`Reusing FastAPI on http://${API_HOST}:${apiPort}.`)
+      return
     }
-    usingExistingApi = true
-    console.log(`Reusing FastAPI on http://${API_HOST}:${API_PORT}.`)
-    return
   }
 
   usingExistingApi = false
-  backendSupervisor ??= createBackendSupervisor()
+  if (!backendSupervisor) {
+    apiPort = await selectAvailablePort(DEFAULT_API_PORT)
+    configureLocalApiPort(apiPort)
+    if (apiPort !== DEFAULT_API_PORT) {
+      console.warn(
+        `Port ${DEFAULT_API_PORT} is occupied; starting managed FastAPI on port ${apiPort}.`,
+      )
+    }
+    backendSupervisor = createBackendSupervisor(apiPort)
+  }
   await backendSupervisor.start()
 }
 

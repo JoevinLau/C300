@@ -40,9 +40,15 @@ jobs:
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Type-check application
+        run: pnpm typecheck
+
       - name: Build installer
         shell: powershell
         run: pnpm package:win
+
+      - name: Run test suites
+        run: pnpm test
 
       - name: Smoke-test bundled FastAPI backend
         shell: powershell
@@ -64,7 +70,7 @@ jobs:
               }
               try {
                 $response = Invoke-RestMethod -Uri "http://127.0.0.1:8000/" -TimeoutSec 2
-                if ($response.message -eq "API is running!") {
+                if ($response.service -eq "c300-api" -and $response.status -eq "live") {
                   $ready = $true
                   break
                 }

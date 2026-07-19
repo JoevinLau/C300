@@ -803,4 +803,7 @@ def calculate_method2(data: Method2InputData):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    configured_port = int(os.getenv("C300_API_PORT", "8000"))
+    if configured_port < 1 or configured_port > 65535:
+        raise ValueError(f"Invalid C300_API_PORT: {configured_port}")
+    uvicorn.run(app, host="127.0.0.1", port=configured_port)

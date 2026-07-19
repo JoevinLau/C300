@@ -226,12 +226,15 @@ The response contains `reply`, `grounded`, and `citations`. Each citation includ
 | `pnpm build` | Production build to `out/` |
 | `pnpm package:win` | Build the self-contained Windows installer (Windows only) |
 | `pnpm preview` | Preview the built app |
+| `pnpm test` | Run all Node and Python tests |
 | `pnpm typecheck` | TypeScript check (`tsc --noEmit`) |
 
-Backend calculation and RAG tests:
+`pnpm test` discovers `src/**/*.test.mts` and `api/test_*.py`. The EcoTransit
+browser probes are intentionally manual and live in `scripts/manual-ecotransit-*.py`.
+Run one only when testing the external calculator itself:
 
 ```sh
-python3 -m unittest api.test_calculation api.test_rag -v
+python3 scripts/manual-ecotransit-smoke.py
 ```
 
 ## Project structure
@@ -254,7 +257,7 @@ src/
   renderer/         React UI workbench (pages, components, Tailwind)
   shared/           calculator-types, naics-catalog, electron-api
 
-scripts/            predev and electron-vite spawn patch (Windows)
+scripts/            test runner, manual probes, predev, and Windows tooling
 out/                Build output (gitignored)
 ```
 

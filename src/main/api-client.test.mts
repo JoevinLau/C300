@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { requestLocalApi } from './api-client.ts'
+import { configureLocalApiPort, requestLocalApi } from './api-client.ts'
 
 
 test('allows known backend routes and rejects arbitrary URLs', async () => {
@@ -93,6 +93,27 @@ test('aborts a stalled backend request after the configured deadline', async () 
       /Local API request timed out after 20 ms/,
     )
   } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('targets the managed backend port selected at startup', async () => {
+  const originalFetch = globalThis.fetch
+  let requestedUrl = ''
+  globalThis.fetch = async (input) => {
+    requestedUrl = String(input)
+    return new Response(JSON.stringify({ machines: [] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  try {
+    configureLocalApiPort(43123)
+    await requestLocalApi({ path: '/method2/machines' })
+    assert.equal(requestedUrl, 'http://127.0.0.1:43123/method2/machines')
+  } finally {
+    configureLocalApiPort(8000)
     globalThis.fetch = originalFetch
   }
 })
