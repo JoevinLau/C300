@@ -109,6 +109,8 @@ DB_PORT=4000
 DB_USER=your_db_user
 DB_PASSWORD=your_db_password
 DB_NAME=carbon_emission_db
+# Optional; defaults to 3 for fast desktop startup.
+DB_POOL_SIZE=3
 
 # Optional licensed provider. Without these, transport requires explicit
 # per-request consent before a clearly marked local estimate is produced.

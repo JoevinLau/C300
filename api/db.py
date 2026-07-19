@@ -22,6 +22,9 @@ load_dotenv(API_DIR / ".env", override=True)
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+# mysql-connector creates every pooled connection eagerly. Three covers the
+# desktop app's concurrent startup requests without serially opening ten TLS connections.
+DEFAULT_DB_POOL_SIZE = 3
 
 _pool_lock = threading.Lock()
 _pool: pooling.MySQLConnectionPool | None = None
@@ -83,7 +86,7 @@ def init_pool(force: bool = False) -> pooling.MySQLConnectionPool:
         if _pool is not None and not force:
             return _pool
 
-        pool_size = _env_int("DB_POOL_SIZE", 10)
+        pool_size = _env_int("DB_POOL_SIZE", DEFAULT_DB_POOL_SIZE)
         if pool_size < 1:
             raise DatabaseUnavailable("DB_POOL_SIZE must be at least 1.")
 

@@ -9,6 +9,7 @@ import { configureLocalApiPort, postCalculate, requestLocalApi } from './api-cli
 import { selectAvailablePort } from './backend-port'
 import { BackendSupervisor, type BackendStatus } from './backend-supervisor'
 import { CalculationHistoryStore } from './calculation-history-store'
+import { openWindowWhileBackendStarts } from './startup'
 import type { CalculateRequest } from '../shared/calculator-types'
 import type {
   CalculationHistoryListOptions,
@@ -319,7 +320,17 @@ async function startApiServer() {
   await backendSupervisor.start()
 }
 
-app.whenReady().then(async () => {
+function openAppWindow() {
+  void openWindowWhileBackendStarts({
+    openWindow: createWindow,
+    startBackend: startApiServer,
+    onBackendFailure: async (error) => {
+      await promptForBackendRecovery(error instanceof Error ? error.message : String(error))
+    },
+  })
+}
+
+app.whenReady().then(() => {
   try {
     calculationHistoryStore = new CalculationHistoryStore(
       path.join(app.getPath('userData'), 'calculation-history.sqlite3'),
@@ -329,25 +340,11 @@ app.whenReady().then(async () => {
   }
 
   registerApiHandlers()
-  try {
-    await startApiServer()
-  } catch (error) {
-    await promptForBackendRecovery(error instanceof Error ? error.message : String(error))
-    if (!usingExistingApi && backendSupervisor?.status.state !== 'ready') return
-  }
-  createWindow()
+  openAppWindow()
 
-  app.on('activate', async () => {
+  app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      if (!usingExistingApi && backendSupervisor?.status.state !== 'ready') {
-        try {
-          await startApiServer()
-        } catch (error) {
-          await promptForBackendRecovery(error instanceof Error ? error.message : String(error))
-          return
-        }
-      }
-      createWindow()
+      openAppWindow()
     }
   })
 })

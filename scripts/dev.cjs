@@ -3,14 +3,16 @@
 const { spawnSync } = require('node:child_process')
 const { join } = require('node:path')
 
-console.log('Preparing Windows Electron runtime...')
-const predev = spawnSync(process.execPath, [join(__dirname, 'predev.cjs')], {
-  stdio: 'inherit',
-  env: process.env,
-})
+if (process.platform === 'win32') {
+  console.log('Preparing Windows Electron runtime...')
+  const predev = spawnSync(process.execPath, [join(__dirname, 'predev.cjs')], {
+    stdio: 'inherit',
+    env: process.env,
+  })
 
-if (predev.status !== 0) {
-  process.exit(predev.status ?? 1)
+  if (predev.status !== 0) {
+    process.exit(predev.status ?? 1)
+  }
 }
 
 const env = { ...process.env }
