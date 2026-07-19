@@ -1,13 +1,7 @@
-# calculator.py — delegates to calculation/engine.py (authoritative USEEIO formula).
-import sys
-from pathlib import Path
+# calculator.py — stable entry point for the factor-aware USEEIO calculation service.
 from typing import Any
 
-_ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
-
-from calculation.engine import compute_emissions as _compute_emissions  # noqa: E402
+from service import compute_emissions as _compute_emissions
 
 
 def compute_emissions(payload: dict[str, Any]) -> dict[str, Any]:
