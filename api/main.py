@@ -23,7 +23,6 @@ if str(ROOT_DIR) not in sys.path:
 from ecotransit_scraper import calculate_ecotransit
 from calculator import compute_emissions
 from dev_data import MAX_CALCULATION_YEAR, MIN_CALCULATION_YEAR
-from calculation.transport_data import DISTANCES_TO_SINGAPORE_KM, EMISSION_FACTORS_KG_PER_TKM
 from calculation.method2_calculations import (
     MachineReferenceDataUnavailable,
     compute_method2,
@@ -32,6 +31,7 @@ from calculation.method2_calculations import (
 from service import (
     calculate_batch_emissions,
     calculate_ecotransit_transport,
+    calculate_local_transport_estimate,
     confirm_naics_mapping,
     fetch_naics_for_material,
     get_naics_factor_by_code,
@@ -104,44 +104,17 @@ def _normalize_transport_country(value: str | None) -> str:
 
 def estimate_transport_response(data: "EcoTransitRequest", reason: str | None = None) -> dict[str, Any]:
     origin = _normalize_transport_country(data.origin_country) or _normalize_transport_country(data.port_of_loading)
-    distance_km = DISTANCES_TO_SINGAPORE_KM.get(origin)
-    if distance_km is None:
-        raise HTTPException(
-            status_code=400,
-            detail=f"No local transport estimate is available for '{origin}'.",
-        )
-    mode = data.transport_mode.lower().strip()
-    factor = EMISSION_FACTORS_KG_PER_TKM.get(mode)
-    if factor is None:
-        raise HTTPException(
-            status_code=400,
-            detail=f"No local transport factor is available for '{mode}'.",
-        )
-    weight_tonnes = data.weight_kg / 1000.0
-    emissions_kg = weight_tonnes * distance_km * factor
-
-    raw = {
-        "estimated": True,
-        "reason": reason or "EcoTransit API credentials are not configured.",
-        "factor_kgco2_per_tonne_km": factor,
-        "weight_tonnes": weight_tonnes,
-    }
-
-    return {
-        "transport": {
-            "origin": origin or data.origin_country or data.port_of_loading,
-            "port_of_loading": data.port_of_loading,
-            "port_of_discharge": data.port_of_discharge,
-            "weight_kg": data.weight_kg,
-            "chosen_mode": data.transport_mode,
-            "chosen_emissions_kg": emissions_kg,
-            "distance_km": distance_km,
-            "energy_mj": None,
-            "source": "Local transport estimate (EcoTransit sign-in/API unavailable)",
-            "estimated": True,
-            "raw": raw,
-        }
-    }
+    result = calculate_local_transport_estimate(
+        port_of_loading=data.port_of_loading,
+        port_of_discharge=data.port_of_discharge,
+        weight_kg=data.weight_kg,
+        transport_mode=data.transport_mode,
+        origin_country=origin,
+    )
+    result["transport"]["raw"]["reason"] = (
+        reason or "EcoTransit API credentials are not configured."
+    )
+    return result
 
 
 def get_ai_key() -> str:
@@ -223,9 +196,13 @@ async def confirm_naics(data: NaicsConfirmRequest):
     "/api/calculate/batch",
     response_model=list[BatchCalculationResult],
     response_model_exclude_none=True,
+    response_model_exclude_unset=True,
 )
 async def calculate_batch(rows: list[BatchCalculationRow]):
-    return calculate_batch_emissions([row.model_dump(exclude_none=True) for row in rows])
+    return calculate_batch_emissions([
+        row.model_dump(exclude_none=True, exclude_unset=True)
+        for row in rows
+    ])
 
 
 @app.post("/learn-mapping")

@@ -91,6 +91,7 @@ export interface BatchCalculationRequestRow {
   material_name?: string
   weight?: number
   qty?: number
+  year?: number
   total_amount_sgd: number
   mapped_naics?: string
   naics_code?: string

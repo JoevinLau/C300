@@ -5,6 +5,8 @@ from collections.abc import Callable
 from fastapi import HTTPException
 from mysql.connector import Error as MySQLError
 
+from calculation.engine import calculate_spend_component, calculate_spend_emissions
+from dev_data import MAX_CALCULATION_YEAR
 from repositories.reference_data import DEFAULT_REFERENCE_DATA, ReferenceDataRepository
 from services.common import log_db_error as _log_db_error
 
@@ -13,6 +15,7 @@ def _calculate_batch_emissions_with_factors(
     rows: list[dict],
     factors: dict[str, dict],
     naics_codes: list[str],
+    references_by_year: dict[int, tuple[float, float, float]],
 ) -> list[dict]:
     missing = [code for code in naics_codes if code not in factors]
     if missing:
@@ -34,13 +37,21 @@ def _calculate_batch_emissions_with_factors(
 
         factor = factors[code]
         kgco2e_per_usd = float(factor["kgco2e_per_usd"])
+        year = int(row.get("year") or MAX_CALCULATION_YEAR)
+        fx_rate, inflation_index, base_inflation_index = references_by_year[year]
+        _, _, total_kgco2e = calculate_spend_component(
+            amount,
+            fx_rate,
+            base_inflation_index / inflation_index,
+            kgco2e_per_usd,
+        )
         results.append({
             **row,
             "mapped_naics": code,
             "naics_description": factor["description"],
             "kgco2e_per_usd": kgco2e_per_usd,
             "data_source": factor["data_source"],
-            "total_kgco2e": amount * kgco2e_per_usd,
+            "total_kgco2e": total_kgco2e,
         })
 
     return results
@@ -72,8 +83,29 @@ def calculate_batch_emissions(
             }
             for row in factor_rows
         }
+        years = sorted({int(row.get("year") or MAX_CALCULATION_YEAR) for row in rows})
+        _, base_inflation = repository.fx_and_inflation(2022)
+        if not base_inflation:
+            raise HTTPException(status_code=400, detail="No inflation index for year 2022")
+        references_by_year: dict[int, tuple[float, float, float]] = {}
+        for year in years:
+            fx_row, inflation_row = repository.fx_and_inflation(year)
+            if not fx_row:
+                raise HTTPException(status_code=400, detail=f"No exchange rate for year {year}")
+            if not inflation_row:
+                raise HTTPException(status_code=400, detail=f"No inflation index for year {year}")
+            references_by_year[year] = (
+                float(fx_row["rate_to_usd"]),
+                float(inflation_row["index_value"]),
+                float(base_inflation["index_value"]),
+            )
 
-        return _calculate_batch_emissions_with_factors(rows, factors, naics_codes)
+        return _calculate_batch_emissions_with_factors(
+            rows,
+            factors,
+            naics_codes,
+            references_by_year,
+        )
     except HTTPException:
         raise
     except MySQLError as exc:
@@ -101,93 +133,30 @@ def compute_emissions(
     fx_rate, inflation_index = get_fx_and_inflation(year)
     _, index_2022 = get_fx_and_inflation(2022)
 
-    inflation_ratio = index_2022 / inflation_index
-
-    results = {}
-    total_emission = 0.0
-    line_item_results: list[dict] = []
-
-    for key in ("raw_material", "fabrication", "surface_treatment"):
-        results[key] = {
-            "sgd": 0.0,
-            "usd": 0.0,
-            "usd2022": 0.0,
-            "emission": 0.0,
+    canonical_line_items = [
+        {
+            **item,
+            "factor": get_kgco2e_per_usd(str(item.get("naics_code", "")).strip()),
         }
+        for item in line_items
+    ]
+    factors = {
+        category: get_kgco2e_per_usd(naics[category])
+        for category in ("raw_material", "fabrication", "surface_treatment")
+    } if not line_items else {}
 
-    if line_items:
-        for item in line_items:
-            category = str(item.get("category", "")).strip()
-            if category not in results:
-                raise HTTPException(status_code=400, detail=f"Invalid line item category: {category}")
-
-            amt_sgd = float(item.get("amount_sgd", 0))
-            if amt_sgd <= 0:
-                continue
-
-            naics_code = str(item.get("naics_code", "")).strip()
-            factor = get_kgco2e_per_usd(naics_code)
-            amt_usd = amt_sgd * fx_rate
-            amt_usd2022 = amt_usd * inflation_ratio
-            emission = amt_usd2022 * factor
-
-            results[category]["sgd"] += amt_sgd
-            results[category]["usd"] += amt_usd
-            results[category]["usd2022"] += amt_usd2022
-            results[category]["emission"] += emission
-            total_emission += emission
-
-            line_item_results.append({
-                "category": category,
-                "amount_sgd": amt_sgd,
-                "amount_usd": amt_usd,
-                "amount_usd2022": amt_usd2022,
-                "naics_code": naics_code,
-                "factor": factor,
-                "emission": emission,
-            })
-    else:
-        for key in ("raw_material", "fabrication", "surface_treatment"):
-            amt_sgd = float(sgd_amounts.get(key, 0))
-            factor = get_kgco2e_per_usd(naics[key])
-            amt_usd = amt_sgd * fx_rate
-            amt_usd2022 = amt_usd * inflation_ratio
-            emission = amt_usd2022 * factor
-
-            results[key] = {
-                "sgd": amt_sgd,
-                "usd": amt_usd,
-                "usd2022": amt_usd2022,
-                "emission": emission,
-            }
-            total_emission += emission
-
-    for key, value in results.items():
-        value["factor"] = value["emission"] / value["usd2022"] if value["usd2022"] > 0 else 0.0
-
-    calculation = {
-        "fx_rate": fx_rate,
-        "inflation_index": inflation_index,
-        "year": year,
-        "sgd_amounts": {k: v["sgd"] for k, v in results.items()},
-        "usd_amounts": {k: v["usd"] for k, v in results.items()},
-        "usd2022_amounts": {k: v["usd2022"] for k, v in results.items()},
-        "factors": {k: v["factor"] for k, v in results.items()},
-    }
-    if line_item_results:
-        calculation["line_items"] = line_item_results
-
-    return {
-        "calculation": calculation,
-        "costs": {
-            "raw_material_usd2022": results["raw_material"]["usd2022"],
-            "fabrication_usd2022": results["fabrication"]["usd2022"],
-            "surface_treatment_usd2022": results["surface_treatment"]["usd2022"],
-        },
-        "emissions": {
-            "raw_material": results["raw_material"]["emission"],
-            "fabrication": results["fabrication"]["emission"],
-            "surface_treatment": results["surface_treatment"]["emission"],
-            "total": total_emission,
-        },
-    }
+    try:
+        return calculate_spend_emissions(
+            year=year,
+            amounts_sgd={
+                category: float(sgd_amounts.get(category, 0))
+                for category in ("raw_material", "fabrication", "surface_treatment")
+            },
+            factors=factors,
+            fx_rate=fx_rate,
+            inflation_index=inflation_index,
+            base_inflation_index=index_2022,
+            line_items=canonical_line_items,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

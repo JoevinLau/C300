@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 
+from calculation.engine import calculate_machine_emission
+
 try:
     from repositories.reference_data import DEFAULT_REFERENCE_DATA, ReferenceDataRepository
 except ModuleNotFoundError:
@@ -61,7 +63,11 @@ class DatabaseMachineDataSource:
             row["grid_factor"] = float(grid_factor["kgco2e_per_kwh"])
             row["grid_year"] = int(grid_factor["year"])
             row["grid_source"] = str(grid_factor["data_source"])
-            row["hourly_emission"] = float(row["avg_operating_load_kw"]) * row["grid_factor"]
+            row["hourly_emission"] = calculate_machine_emission(
+                float(row["avg_operating_load_kw"]),
+                1.0,
+                row["grid_factor"],
+            )
         return rows
 
     def list_machines(self) -> list[MachineReference]:
@@ -159,7 +165,11 @@ def compute_machining_emissions(
             )
         else:
             machine = data_source.get_machine(entry.machine_type, entry.duty_level)
-        emissions = machine.hourly_emission * entry.operating_hours
+        emissions = calculate_machine_emission(
+            machine.avg_kw,
+            entry.operating_hours,
+            machine.grid_factor,
+        )
         total += emissions
         entry_results.append(
             {

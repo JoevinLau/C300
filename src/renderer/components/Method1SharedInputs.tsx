@@ -36,6 +36,7 @@ import {
   type LineItem,
 } from '@/lib/calculation-workflow'
 import { cn } from '@/lib/utils'
+import { allocateRouteEmissions } from '@/features/transport/transport-calculations'
 import type { EcoTransitResponse, NaicsOption } from '../../shared/calculator-types'
 import { Layers } from 'lucide-react'
 
@@ -182,16 +183,6 @@ const TRANSPORT_COUNTRIES = TRANSPORT_PORTS
   .map((item) => item.country)
   .sort((a, b) => a.localeCompare(b))
 
-const TRANSPORT_EMISSION_FACTORS_KG_PER_TKM: Record<string, number> = {
-  sea: 0.015,
-  ship: 0.015,
-  vessel: 0.015,
-  land: 0.12,
-  truck: 0.12,
-  rail: 0.035,
-  air: 1.2,
-}
-
 type Coordinate = { lat: number; lon: number }
 
 const ROUTE_POINT_COORDINATES: Record<string, Coordinate> = {
@@ -273,15 +264,13 @@ function distanceKmBetween(a: Coordinate, b: Coordinate): number {
 
 export function buildRouteLegEmissions(
   routeProcess: string[],
-  transportMode: string,
+  _transportMode: string,
   transportResult: EcoTransitResponse | null,
 ): RouteLegEmission[] {
   const routeLegs = routeProcess.slice(0, -1).map((from, index) => ({
     from,
     to: routeProcess[index + 1],
   }))
-  const weightTonnes = (transportResult?.transport.weight_kg ?? 0) / 1000
-  const factor = TRANSPORT_EMISSION_FACTORS_KG_PER_TKM[transportMode.toLowerCase()] ?? TRANSPORT_EMISSION_FACTORS_KG_PER_TKM.sea
   const coordinateLegs = routeLegs.map((leg) => {
     const fromCoordinate = coordinateForRoutePoint(leg.from)
     const toCoordinate = coordinateForRoutePoint(leg.to)
@@ -289,30 +278,18 @@ export function buildRouteLegEmissions(
     return {
       ...leg,
       distanceKm,
-      emissionsKg: distanceKm != null && weightTonnes > 0 ? distanceKm * weightTonnes * factor : null,
-      estimated: true,
     }
   })
-
-  if (coordinateLegs.every((leg) => leg.emissionsKg != null)) return coordinateLegs
-
-  const totalDistance = transportResult?.transport.distance_km
-  const knownDistance = coordinateLegs.reduce((sum, leg) => sum + (leg.distanceKm ?? 0), 0)
-  const missingLegs = coordinateLegs.filter((leg) => leg.distanceKm == null).length
-  const fallbackDistance =
-    totalDistance != null && missingLegs > 0
-      ? Math.max(totalDistance - knownDistance, 0) / missingLegs
-      : null
-
-  return coordinateLegs.map((leg) => {
-    if (leg.distanceKm != null) return leg
-    return {
+  const allocations = allocateRouteEmissions(
+    coordinateLegs.map((leg) => leg.distanceKm),
+    transportResult?.transport.distance_km ?? null,
+    transportResult?.transport.chosen_emissions_kg ?? null,
+  )
+  return coordinateLegs.map((leg, index) => ({
       ...leg,
-      distanceKm: fallbackDistance,
-      emissionsKg: fallbackDistance != null && weightTonnes > 0 ? fallbackDistance * weightTonnes * factor : null,
+      ...allocations[index],
       estimated: true,
-    }
-  })
+  }))
 }
 
 function sortNaicsOptions(options: NaicsOption[], preferredCode: string): NaicsOption[] {

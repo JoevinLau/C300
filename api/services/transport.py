@@ -9,6 +9,7 @@ from urllib.request import Request, urlopen
 from fastapi import HTTPException
 from mysql.connector import Error as MySQLError
 
+from calculation.engine import calculate_transport_emission
 from calculation.transport_data import DISTANCES_TO_SINGAPORE_KM, EMISSION_FACTORS_KG_PER_TKM
 from repositories.reference_data import DEFAULT_REFERENCE_DATA, ReferenceDataRepository
 from services.common import log_db_error as _log_db_error
@@ -179,7 +180,7 @@ def calculate_local_transport_estimate(
 
     factor, factor_source = _local_transport_factor(transport_mode, repository)
     weight_tonnes = weight_kg / 1000.0
-    co2e_kg = weight_tonnes * distance_km * factor
+    co2e_kg = calculate_transport_emission(weight_kg, distance_km, factor)
 
     return {
         "transport": {
@@ -191,7 +192,7 @@ def calculate_local_transport_estimate(
             "chosen_emissions_kg": co2e_kg,
             "distance_km": distance_km,
             "energy_mj": None,
-            "source": f"Local estimate ({factor_source})",
+            "source": f"Local transport estimate ({factor_source})",
             "estimated": True,
             "raw": {
                 "method": "weight_tonnes * distance_km * kgco2e_per_tonne_km",

@@ -16,6 +16,7 @@ if str(API_DIR) not in sys.path:
 import main
 import models
 import service
+from services.emissions import calculate_batch_emissions as calculate_batch_with_repository
 from db import DatabaseUnavailable
 from calculation import method2_calculations
 
@@ -177,6 +178,31 @@ class CalculationApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json(), expected)
         calculate.assert_called_once_with(payload)
+
+    def test_batch_calculation_uses_method1_currency_conversion(self):
+        class Repository:
+            def naics_factors(self, _codes):
+                return [{
+                    "naics_code": "331110",
+                    "description": "Iron and Steel Mills",
+                    "kgco2e_per_usd": 2.0,
+                    "data_source": "USEEIO",
+                }]
+
+            def fx_and_inflation(self, year):
+                return {"rate_to_usd": 0.5}, {"index_value": 100.0}
+
+        result = calculate_batch_with_repository(
+            [{
+                "material": "Steel",
+                "year": 2024,
+                "total_amount_sgd": 100.0,
+                "mapped_naics": "331110",
+            }],
+            repository=Repository(),
+        )
+
+        self.assertEqual(result[0]["total_kgco2e"], 100.0)
 
     def test_line_item_naics_codes_control_item_and_category_results(self):
         payload = calculation_payload()

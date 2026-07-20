@@ -1,46 +1,6 @@
 import pandas as pd
 
-# ------------------------------
-# 1. Reference Tables
-# ------------------------------
-
-FX_TABLE = {
-    2023: 0.75,
-    2024: 0.74,
-    2025: 0.73,
-}
-
-GDP_DEFLATOR = {
-    2022: 100.0,
-    2023: 103.2,
-    2024: 106.5,
-    2025: 109.0,
-}
-
-USEEIO_FACTORS = {
-    "metal": 0.85,       # placeholder: kg CO2 / USD
-    "machining": 0.45,
-    "surface": 1.20,
-}
-
-# ------------------------------
-# 2. Helper functions
-# ------------------------------
-
-
-def convert_sgd_to_usd(amount_sgd: float, year: int) -> float:
-    rate = FX_TABLE.get(year)
-    if rate is None:
-        raise ValueError(f"No FX rate for year {year}")
-    return amount_sgd * rate
-
-
-def convert_to_2022_usd(amount_usd: float, year: int) -> float:
-    gdp_year = GDP_DEFLATOR.get(year)
-    gdp_2022 = GDP_DEFLATOR[2022]
-    if gdp_year is None:
-        raise ValueError(f"No GDP deflator for year {year}")
-    return amount_usd * (gdp_2022 / gdp_year)
+from calculation.engine import USEEIO_FACTORS, compute_component_emission
 
 
 # ------------------------------
@@ -93,35 +53,27 @@ def process_emissions():
     raw_df, surface_df, machining_df = load_data()
 
     # METAL
-    raw_df["usd"] = raw_df.apply(
-        lambda x: convert_sgd_to_usd(x.cost_sgd, x.year), axis=1
+    raw_df[["usd", "usd_2022", "metal_emission"]] = raw_df.apply(
+        lambda x: pd.Series(compute_component_emission(
+            x.cost_sgd, x.year, USEEIO_FACTORS["metal"]
+        )),
+        axis=1,
     )
-    raw_df["usd_2022"] = raw_df.apply(
-        lambda x: convert_to_2022_usd(x.usd, x.year), axis=1
-    )
-    raw_df["metal_emission"] = raw_df["usd_2022"] * USEEIO_FACTORS["metal"]
 
     # SURFACE
-    surface_df["usd"] = surface_df.apply(
-        lambda x: convert_sgd_to_usd(x.cost_sgd, x.year), axis=1
-    )
-    surface_df["usd_2022"] = surface_df.apply(
-        lambda x: convert_to_2022_usd(x.usd, x.year), axis=1
-    )
-    surface_df["surface_emission"] = (
-        surface_df["usd_2022"] * USEEIO_FACTORS["surface"]
+    surface_df[["usd", "usd_2022", "surface_emission"]] = surface_df.apply(
+        lambda x: pd.Series(compute_component_emission(
+            x.cost_sgd, x.year, USEEIO_FACTORS["surface"]
+        )),
+        axis=1,
     )
 
     # MACHINING
-    machining_df["usd"] = machining_df.apply(
-        lambda x: convert_sgd_to_usd(x.machining_cost_sgd, x.invoice_year),
+    machining_df[["usd", "usd_2022", "machining_emission"]] = machining_df.apply(
+        lambda x: pd.Series(compute_component_emission(
+            x.machining_cost_sgd, x.invoice_year, USEEIO_FACTORS["machining"]
+        )),
         axis=1,
-    )
-    machining_df["usd_2022"] = machining_df.apply(
-        lambda x: convert_to_2022_usd(x.usd, x.invoice_year), axis=1
-    )
-    machining_df["machining_emission"] = (
-        machining_df["usd_2022"] * USEEIO_FACTORS["machining"]
     )
 
     # MERGE per part_id

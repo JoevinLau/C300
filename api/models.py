@@ -212,6 +212,11 @@ class BatchCalculationRow(StrictApiModel):
     material_name: str | None = Field(None, min_length=1, max_length=255)
     weight: float | None = Field(None, ge=0)
     qty: float | None = Field(None, ge=0)
+    year: int = Field(
+        MAX_CALCULATION_YEAR,
+        ge=MIN_CALCULATION_YEAR,
+        le=MAX_CALCULATION_YEAR,
+    )
     total_amount_sgd: float = Field(..., ge=0)
     mapped_naics: str | None = Field(None, pattern=r"^\d{6}$")
     naics_code: str | None = Field(None, pattern=r"^\d{6}$")
