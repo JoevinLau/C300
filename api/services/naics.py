@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from difflib import SequenceMatcher
 import logging
 import os
 import re
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import HTTPException
 from mysql.connector import Error as MySQLError
 
 from db import get_conn
+from repositories.reference_data import DEFAULT_REFERENCE_DATA, ReferenceDataRepository
 from services.common import log_db_error as _log_db_error
 
 logger = logging.getLogger(__name__)
@@ -63,17 +63,12 @@ def _official_factor_to_option(row: dict, source: str, confidence: str) -> dict:
     }
 
 
-def _fetch_official_factor(cur, naics_code: str) -> dict:
-    cur.execute(
-        """
-        SELECT naics_code, description, category, kgco2e_per_usd, data_source
-        FROM official_naics_factors
-        WHERE naics_code = %s
-        LIMIT 1
-        """,
-        (naics_code,),
-    )
-    official_hit = cur.fetchone()
+def _require_official_factor(
+    repository: ReferenceDataRepository,
+    cur,
+    naics_code: str,
+) -> dict:
+    official_hit = repository.naics_factor_from_cursor(cur, naics_code)
     if not official_hit:
         raise HTTPException(
             status_code=409,
@@ -83,19 +78,6 @@ def _fetch_official_factor(cur, naics_code: str) -> dict:
             ),
         )
     return official_hit
-
-
-def _lookup_official_factor(cur, naics_code: str) -> dict | None:
-    cur.execute(
-        """
-        SELECT naics_code, description, category, kgco2e_per_usd, data_source
-        FROM official_naics_factors
-        WHERE naics_code = %s
-        LIMIT 1
-        """,
-        (naics_code,),
-    )
-    return cur.fetchone()
 
 
 def _find_normalized_dictionary_hit(cur, token: str, user_id: str) -> tuple[dict | None, str]:
@@ -145,7 +127,12 @@ def _find_normalized_dictionary_hit(cur, token: str, user_id: str) -> tuple[dict
     return None, ""
 
 
-def search_naics_mappings(keyword: str, user_id: str = DEFAULT_USER_ID) -> dict:
+def search_naics_mappings(
+    keyword: str,
+    user_id: str = DEFAULT_USER_ID,
+    *,
+    repository: ReferenceDataRepository = DEFAULT_REFERENCE_DATA,
+) -> dict:
     token = _normalize_material_token(keyword)
     if not token:
         raise HTTPException(status_code=400, detail="Search keyword is required.")
@@ -167,7 +154,7 @@ def search_naics_mappings(keyword: str, user_id: str = DEFAULT_USER_ID) -> dict:
         )
         dictionary_hit = cur.fetchone()
         if dictionary_hit:
-            official_hit = _fetch_official_factor(cur, dictionary_hit["mapped_naics"])
+            official_hit = _require_official_factor(repository, cur, dictionary_hit["mapped_naics"])
 
             return {
                 "query": keyword,
@@ -178,7 +165,7 @@ def search_naics_mappings(keyword: str, user_id: str = DEFAULT_USER_ID) -> dict:
 
         dictionary_hit, dictionary_confidence = _find_normalized_dictionary_hit(cur, token, user_id)
         if dictionary_hit:
-            official_hit = _fetch_official_factor(cur, dictionary_hit["mapped_naics"])
+            official_hit = _require_official_factor(repository, cur, dictionary_hit["mapped_naics"])
 
             return {
                 "query": keyword,
@@ -189,17 +176,7 @@ def search_naics_mappings(keyword: str, user_id: str = DEFAULT_USER_ID) -> dict:
             }
 
         # Fast exact lookup for direct NAICS-code inputs or exact descriptions.
-        cur.execute(
-            """
-            SELECT naics_code, description, category, kgco2e_per_usd, data_source
-            FROM official_naics_factors
-            WHERE naics_code = %s
-                OR UPPER(description) = %s
-            LIMIT 1
-            """,
-            (token, token),
-        )
-        official_exact = cur.fetchone()
+        official_exact = repository.exact_naics_factor_from_cursor(cur, token)
         if official_exact:
             return {
                 "query": keyword,
@@ -208,40 +185,7 @@ def search_naics_mappings(keyword: str, user_id: str = DEFAULT_USER_ID) -> dict:
                 "matches": [_official_factor_to_option(official_exact, "official_exact", "exact")],
             }
 
-        # Tier 2: official NAICS factor search. TiDB may reject MySQL MATCH/AGAINST,
-        # so use LIKE fallback instead of failing the whole request.
-        try:
-            cur.execute(
-                """
-                SELECT
-                    naics_code,
-                    description,
-                    category,
-                    kgco2e_per_usd,
-                    data_source,
-                    MATCH(description) AGAINST (%s IN NATURAL LANGUAGE MODE) AS score
-                FROM official_naics_factors
-                WHERE MATCH(description) AGAINST (%s IN NATURAL LANGUAGE MODE)
-                ORDER BY score DESC, naics_code
-                LIMIT 10
-                """,
-                (token, token),
-            )
-        except MySQLError as exc:
-            _log_db_error("Official NAICS fulltext search failed; falling back to LIKE search", exc, token=token)
-            search_terms = [part for part in re.split(r"\s+", token) if len(part) >= 2] or [token]
-            where_clause = " OR ".join(["UPPER(description) LIKE %s"] * len(search_terms))
-            cur.execute(
-                f"""
-                SELECT naics_code, description, category, kgco2e_per_usd, data_source
-                FROM official_naics_factors
-                WHERE {where_clause}
-                ORDER BY naics_code
-                LIMIT 10
-                """,
-                tuple(f"%{term}%" for term in search_terms),
-            )
-        rows = cur.fetchall() or []
+        rows = repository.search_naics_factors_from_cursor(cur, token)
         if rows:
             return {
                 "query": keyword,
@@ -277,7 +221,11 @@ def search_naics_mappings(keyword: str, user_id: str = DEFAULT_USER_ID) -> dict:
             conn.close()
 
 
-def suggest_naics_with_llm(material: str) -> dict:
+def suggest_naics_with_llm(
+    material: str,
+    *,
+    repository: ReferenceDataRepository = DEFAULT_REFERENCE_DATA,
+) -> dict:
     token = _normalize_material_token(material)
     if not token:
         raise HTTPException(status_code=400, detail="Material token is required.")
@@ -327,7 +275,7 @@ def suggest_naics_with_llm(material: str) -> dict:
                     continue
 
                 for code in candidate_codes:
-                    official = _lookup_official_factor(cur, code)
+                    official = repository.naics_factor_from_cursor(cur, code)
                     if official:
                         return {
                             "material_token": token,
@@ -362,6 +310,8 @@ def confirm_naics_mapping(
     material_token: str,
     mapped_naics: str,
     user_id: str = DEFAULT_USER_ID,
+    *,
+    repository: ReferenceDataRepository = DEFAULT_REFERENCE_DATA,
 ) -> dict:
     token = _normalize_material_token(material_token)
     code = str(mapped_naics or "").strip()
@@ -376,16 +326,7 @@ def confirm_naics_mapping(
         conn = get_conn()
         cur = conn.cursor(dictionary=True)
 
-        cur.execute(
-            """
-            SELECT naics_code, description, category, kgco2e_per_usd, data_source
-            FROM official_naics_factors
-            WHERE naics_code = %s
-            LIMIT 1
-            """,
-            (code,),
-        )
-        official = cur.fetchone()
+        official = repository.naics_factor_from_cursor(cur, code)
         if not official:
             raise HTTPException(status_code=400, detail="Invalid NAICS Code")
 
@@ -430,24 +371,17 @@ def confirm_naics_mapping(
 
 
 
-def get_naics_factor_by_code(naics_code: str) -> dict:
+def get_naics_factor_by_code(
+    naics_code: str,
+    *,
+    repository: ReferenceDataRepository = DEFAULT_REFERENCE_DATA,
+) -> dict:
     code = str(naics_code or "").strip()
     if not re.fullmatch(r"\d{6}", code):
         raise HTTPException(status_code=400, detail="Invalid NAICS Code")
 
     try:
-        conn = get_conn()
-        cur = conn.cursor(dictionary=True)
-        cur.execute(
-            """
-            SELECT naics_code, description, category, kgco2e_per_usd, data_source
-            FROM official_naics_factors
-            WHERE naics_code = %s
-            LIMIT 1
-            """,
-            (code,),
-        )
-        official = cur.fetchone()
+        official = repository.naics_factor(code)
         if not official:
             raise HTTPException(status_code=404, detail="NAICS Code not found")
 
@@ -460,11 +394,6 @@ def get_naics_factor_by_code(naics_code: str) -> dict:
             status_code=503,
             detail="Authoritative NAICS reference data is unavailable.",
         ) from exc
-    finally:
-        if "cur" in locals() and cur:
-            cur.close()
-        if "conn" in locals() and conn:
-            conn.close()
 
 
 def fetch_naics_for_material(name: str) -> dict:
@@ -487,40 +416,15 @@ def save_material_mapping(keyword: str, naics_code: str, description: str = "", 
 def list_naics_options(
     category: Optional[str] = None,
     *,
-    connection_factory: Callable[[], Any] = get_conn,
+    repository: ReferenceDataRepository = DEFAULT_REFERENCE_DATA,
 ) -> list[dict]:
     """
     List available NAICS codes with descriptions from official_naics_factors.
     """
     try:
-        conn = connection_factory()
-    except MySQLError as exc:
-        _log_db_error("Database unavailable while listing NAICS options", exc)
-        raise HTTPException(
-            status_code=503,
-            detail="Authoritative NAICS reference data is unavailable.",
-        ) from exc
-
-    try:
-        cur = conn.cursor(dictionary=True)
-        params: tuple[object, ...] = ()
-        category_filter = ""
-        if category:
-            category_filter = "WHERE category = %s"
-            params = (category,)
-
-        cur.execute(
-            f"""
-            SELECT naics_code, description, category, kgco2e_per_usd, data_source
-            FROM official_naics_factors
-            {category_filter}
-            ORDER BY naics_code
-            """,
-            params,
-        )
-
+        rows = repository.list_naics_factors(category)
         options: list[dict] = []
-        for row in cur.fetchall() or []:
+        for row in rows:
             code = str(row.get("naics_code", "")).strip()
             if not code:
                 continue
@@ -542,7 +446,3 @@ def list_naics_options(
             status_code=503,
             detail="Authoritative NAICS reference data is unavailable.",
         ) from exc
-    finally:
-        if "cur" in locals() and cur:
-            cur.close()
-        conn.close()

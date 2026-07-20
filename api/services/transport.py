@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from mysql.connector import Error as MySQLError
 
 from calculation.transport_data import DISTANCES_TO_SINGAPORE_KM, EMISSION_FACTORS_KG_PER_TKM
-from db import get_conn
+from repositories.reference_data import DEFAULT_REFERENCE_DATA, ReferenceDataRepository
 from services.common import log_db_error as _log_db_error
 
 
@@ -135,7 +135,10 @@ def _normalized_transport_mode(transport_mode: str) -> str:
     return mode
 
 
-def _local_transport_factor(transport_mode: str) -> tuple[float, str]:
+def _local_transport_factor(
+    transport_mode: str,
+    repository: ReferenceDataRepository,
+) -> tuple[float, str]:
     mode = _normalized_transport_mode(transport_mode)
     db_modes = {
         "sea": ("sea", "vessel", "ship"),
@@ -145,26 +148,7 @@ def _local_transport_factor(transport_mode: str) -> tuple[float, str]:
     }.get(mode, (mode,))
 
     try:
-        conn = get_conn()
-        try:
-            cur = conn.cursor(dictionary=True)
-            try:
-                placeholders = ", ".join(["%s"] * len(db_modes))
-                cur.execute(
-                    f"""
-                    SELECT transport_mode, kgco2e_per_tonne_km, data_source
-                    FROM method2_transport_emission_factors
-                    WHERE transport_mode IN ({placeholders})
-                    ORDER BY valid_from DESC, id DESC
-                    LIMIT 1
-                    """,
-                    db_modes,
-                )
-                row = cur.fetchone()
-            finally:
-                cur.close()
-        finally:
-            conn.close()
+        row = repository.transport_factor(db_modes)
         if row:
             return float(row["kgco2e_per_tonne_km"]), str(row["data_source"])
     except MySQLError as exc:
@@ -182,6 +166,8 @@ def calculate_local_transport_estimate(
     weight_kg: float,
     transport_mode: str,
     origin_country: str | None = None,
+    *,
+    repository: ReferenceDataRepository = DEFAULT_REFERENCE_DATA,
 ) -> dict:
     origin = (origin_country or port_of_loading).strip()
     distance_km = DISTANCES_TO_SINGAPORE_KM.get(origin)
@@ -191,7 +177,7 @@ def calculate_local_transport_estimate(
             detail=f"No local transport distance is available for '{origin}'.",
         )
 
-    factor, factor_source = _local_transport_factor(transport_mode)
+    factor, factor_source = _local_transport_factor(transport_mode, repository)
     weight_tonnes = weight_kg / 1000.0
     co2e_kg = weight_tonnes * distance_km * factor
 

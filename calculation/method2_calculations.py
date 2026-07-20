@@ -5,6 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 
+try:
+    from repositories.reference_data import DEFAULT_REFERENCE_DATA, ReferenceDataRepository
+except ModuleNotFoundError:
+    from api.repositories.reference_data import DEFAULT_REFERENCE_DATA, ReferenceDataRepository
+
 
 @dataclass(frozen=True)
 class MachineReference:
@@ -37,51 +42,18 @@ class MachineDataSource(Protocol):
 class DatabaseMachineDataSource:
     """Machine source backed by Method 2 database tables."""
 
-    def __init__(self, country_code: str = "SG") -> None:
+    def __init__(
+        self,
+        country_code: str = "SG",
+        repository: ReferenceDataRepository = DEFAULT_REFERENCE_DATA,
+    ) -> None:
         self.country_code = country_code
-
-    def _grid_factor(self, cursor: Any) -> dict[str, Any]:
-        cursor.execute(
-            """
-            SELECT country_code, year, kgco2e_per_kwh, data_source
-            FROM method2_grid_electricity_factors
-            WHERE country_code = %s
-            ORDER BY year DESC, id DESC
-            LIMIT 1
-            """,
-            (self.country_code,),
-        )
-        row = cursor.fetchone()
-        if not row:
-            raise ValueError(f"No grid electricity factor found for {self.country_code}")
-        return dict(row)
+        self.repository = repository
 
     def _rows(self) -> list[dict[str, Any]]:
-        try:
-            from db import get_conn
-        except ModuleNotFoundError:
-            from api.db import get_conn
-
-        conn = get_conn()
-        try:
-            cursor = conn.cursor(dictionary=True)
-            try:
-                grid_factor = self._grid_factor(cursor)
-                cursor.execute(
-                    """
-                    SELECT machine_name, duty_level, avg_operating_load_kw, country_code, data_source
-                    FROM method2_machine_profiles
-                    WHERE country_code = %s
-                    ORDER BY machine_name, duty_level
-                    """,
-                    (self.country_code,),
-                )
-                rows = cursor.fetchall()
-            finally:
-                cursor.close()
-        finally:
-            conn.close()
-
+        grid_factor, rows = self.repository.machine_references(self.country_code)
+        if not grid_factor:
+            raise ValueError(f"No grid electricity factor found for {self.country_code}")
         if not rows:
             raise ValueError(f"No machine profiles found for {self.country_code}")
 

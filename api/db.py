@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import threading
 import time
+from collections.abc import Callable
 from typing import Any, Iterator, Sequence, TypeVar
 
 import mysql.connector
@@ -213,6 +214,29 @@ def execute_with_retry(
                 cur.close()
 
     return _with_retry("database query", run)
+
+
+def read_with_retry(
+    operation_name: str,
+    reader: Callable[[mysql.connector.cursor.MySQLCursor], T],
+    *,
+    dictionary: bool = True,
+    connection_factory: Callable[[], mysql.connector.MySQLConnection] = get_conn,
+) -> T:
+    """Run a read-only cursor operation through the shared retry policy."""
+
+    def run() -> T:
+        conn = connection_factory()
+        try:
+            cur = conn.cursor(dictionary=dictionary)
+            try:
+                return reader(cur)
+            finally:
+                cur.close()
+        finally:
+            conn.close()
+
+    return _with_retry(operation_name, run)
 
 
 async def get_db() -> Iterator[mysql.connector.MySQLConnection]:

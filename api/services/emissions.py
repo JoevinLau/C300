@@ -5,7 +5,7 @@ from collections.abc import Callable
 from fastapi import HTTPException
 from mysql.connector import Error as MySQLError
 
-from db import get_conn
+from repositories.reference_data import DEFAULT_REFERENCE_DATA, ReferenceDataRepository
 from services.common import log_db_error as _log_db_error
 
 
@@ -46,7 +46,11 @@ def _calculate_batch_emissions_with_factors(
     return results
 
 
-def calculate_batch_emissions(rows: list[dict]) -> list[dict]:
+def calculate_batch_emissions(
+    rows: list[dict],
+    *,
+    repository: ReferenceDataRepository = DEFAULT_REFERENCE_DATA,
+) -> list[dict]:
     if not rows:
         return []
 
@@ -59,32 +63,14 @@ def calculate_batch_emissions(rows: list[dict]) -> list[dict]:
         raise HTTPException(status_code=400, detail="At least one mapped_naics value is required.")
 
     try:
-        conn = get_conn()
-    except MySQLError as exc:
-        _log_db_error("Database unavailable during batch calculation", exc, naics_codes=naics_codes)
-        raise HTTPException(
-            status_code=503,
-            detail="Authoritative NAICS reference data is unavailable.",
-        ) from exc
-
-    try:
-        cur = conn.cursor(dictionary=True)
-        placeholders = ", ".join(["%s"] * len(naics_codes))
-        cur.execute(
-            f"""
-            SELECT naics_code, description, category, kgco2e_per_usd, data_source
-            FROM official_naics_factors
-            WHERE naics_code IN ({placeholders})
-            """,
-            tuple(naics_codes),
-        )
+        factor_rows = repository.naics_factors(naics_codes)
         factors = {
             str(row["naics_code"]): {
                 "description": row.get("description"),
                 "kgco2e_per_usd": float(row["kgco2e_per_usd"]),
                 "data_source": row.get("data_source"),
             }
-            for row in cur.fetchall() or []
+            for row in factor_rows
         }
 
         return _calculate_batch_emissions_with_factors(rows, factors, naics_codes)
@@ -96,10 +82,6 @@ def calculate_batch_emissions(rows: list[dict]) -> list[dict]:
             status_code=503,
             detail="Authoritative NAICS reference data is unavailable.",
         ) from exc
-    finally:
-        if "cur" in locals() and cur:
-            cur.close()
-        conn.close()
 
 
 def compute_emissions(
