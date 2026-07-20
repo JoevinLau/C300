@@ -1,14 +1,9 @@
 import { useCallback, useState } from 'react'
 import type React from 'react'
 import { requestLocalApi } from '@/lib/local-api'
+import type { Method2Citation } from '../../shared/backend-capabilities'
 
-export type Method2Citation = {
-  document_id: string
-  filename: string
-  location: string
-  excerpt: string
-  score: number
-}
+export type { Method2Citation } from '../../shared/backend-capabilities'
 
 export type Method2ChatMessage = {
   role: 'user' | 'assistant'
@@ -54,16 +49,17 @@ export function useMethod2Chat({
     setChatLoading(true)
 
     try {
-      const data = await requestLocalApi({
-        path: '/method2-chat',
-        method: 'POST',
-        json: {
-          workspace_id: workspaceId,
-          message,
-          calculation_context: calculationContext,
-          messages: messages.slice(-6).map(({ role, content }) => ({ role, content })),
-        },
-      })
+      const request = {
+        workspace_id: workspaceId,
+        message,
+        calculation_context: calculationContext && typeof calculationContext === 'object'
+          ? calculationContext as Record<string, unknown>
+          : {},
+        messages: messages.slice(-6).map(({ role, content }) => ({ role, content })),
+      }
+      const data = window.electronAPI?.backend
+        ? await window.electronAPI.backend.sendMethod2Chat(request)
+        : await requestLocalApi({ path: '/method2-chat', method: 'POST', json: request })
       const record = data && typeof data === 'object'
         ? (data as Record<string, unknown>)
         : {}

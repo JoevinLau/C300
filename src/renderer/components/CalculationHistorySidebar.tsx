@@ -276,11 +276,11 @@ export function CalculationHistorySidebar({
     setListError(null)
 
     try {
-      if (!window.electronAPI?.listCalculationHistory) {
+      if (!window.electronAPI?.history) {
         throw new Error('Calculation history is unavailable in this app session.')
       }
 
-      const nextItems = await window.electronAPI.listCalculationHistory({
+      const nextItems = await window.electronAPI.history.list({
         limit: PAGE_SIZE,
         offset: 0,
         method: methodFilter,
@@ -369,7 +369,10 @@ export function CalculationHistorySidebar({
     setListError(null)
 
     try {
-      const nextItems = await window.electronAPI.listCalculationHistory({
+      if (!window.electronAPI?.history) {
+        throw new Error('Calculation history is unavailable in this app session.')
+      }
+      const nextItems = await window.electronAPI.history.list({
         limit: PAGE_SIZE,
         offset: items.length,
         method: methodFilter,
@@ -397,7 +400,10 @@ export function CalculationHistorySidebar({
     setIsDetailLoading(true)
 
     try {
-      const detail = await window.electronAPI.getCalculationHistory(summary.id)
+      if (!window.electronAPI?.history) {
+        throw new Error('Calculation history is unavailable in this app session.')
+      }
+      const detail = await window.electronAPI.history.get(summary.id)
       if (requestId !== detailRequestRef.current) return
       if (!detail) throw new Error('This saved calculation could not be found.')
       setSelectedDetail(detail)

@@ -26,8 +26,8 @@ export type {
 export async function calculateEmissions(
   payload: CalculateRequest,
 ): Promise<CalculateResponse> {
-  if (window.electronAPI?.calculateEmissions) {
-    return window.electronAPI.calculateEmissions(payload)
+  if (window.electronAPI?.backend) {
+    return window.electronAPI.backend.calculateUseeio(payload)
   }
 
   return requestLocalApi({
@@ -40,6 +40,9 @@ export async function calculateEmissions(
 export async function calculateEcoTransitTransport(
   payload: EcoTransitRequest,
 ): Promise<EcoTransitResponse> {
+  if (window.electronAPI?.backend) {
+    return window.electronAPI.backend.calculateTransport(payload)
+  }
   const body = await requestLocalApi({
     path: '/ecotransit',
     method: 'POST',
@@ -49,7 +52,9 @@ export async function calculateEcoTransitTransport(
 }
 
 export async function fetchMethod2Machines(): Promise<Method2MachineReference[]> {
-  const body = await requestLocalApi({ path: '/method2/machines' })
+  const body = window.electronAPI?.backend
+    ? await window.electronAPI.backend.listMethod2Machines()
+    : await requestLocalApi({ path: '/method2/machines' })
   const machines = body && typeof body === 'object' && 'machines' in body
     ? (body as { machines: unknown }).machines
     : null
@@ -64,6 +69,9 @@ export async function fetchMethod2Machines(): Promise<Method2MachineReference[]>
 export async function calculateMethod2(
   payload: Method2CalculateRequest,
 ): Promise<Method2CalculateResponse> {
+  if (window.electronAPI?.backend) {
+    return window.electronAPI.backend.calculateMethod2(payload)
+  }
   const body = await requestLocalApi({
     path: '/method2/calculate',
     method: 'POST',
@@ -75,7 +83,9 @@ export async function calculateMethod2(
 
 export async function fetchNaicsOptions(): Promise<NaicsOption[]> {
   try {
-    const body = await requestLocalApi({ path: '/naics' })
+    const body = window.electronAPI?.backend
+      ? await window.electronAPI.backend.listNaicsOptions()
+      : await requestLocalApi({ path: '/naics' })
 
     if (!Array.isArray(body)) {
       throw new Error('Failed to fetch NAICS options from API')

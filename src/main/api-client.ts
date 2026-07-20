@@ -1,5 +1,5 @@
 import type { CalculateRequest, CalculateResponse } from '../shared/calculator-types'
-import type { LocalApiMethod, LocalApiRequest } from '../shared/electron-api'
+import type { LocalApiMethod, LocalApiRequest } from '../shared/local-api-types'
 
 const DEFAULT_API_PORT = 8000
 let apiBase = `http://127.0.0.1:${DEFAULT_API_PORT}`
@@ -81,10 +81,10 @@ async function parseResponse(response: Response): Promise<unknown> {
   }
 }
 
-export async function requestLocalApi(
+export async function requestLocalApi<T = unknown>(
   request: LocalApiRequest,
   options: LocalApiRequestOptions = {},
-): Promise<unknown> {
+): Promise<T> {
   const { method, url } = resolveAllowedUrl(request)
   const headers = new Headers()
   let body: BodyInit | undefined
@@ -129,7 +129,7 @@ export async function requestLocalApi(
           : `Request failed (${response.status})`
       throw new Error(formatApiError(detail))
     }
-    return responseBody
+    return responseBody as T
   } catch (error) {
     if (timedOut) {
       throw new Error(`Local API request timed out after ${timeoutMs} ms.`, {

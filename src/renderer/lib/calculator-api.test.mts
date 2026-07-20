@@ -11,8 +11,10 @@ test('does not replace an EcoTransit failure with a renderer-side estimate', asy
     configurable: true,
     value: {
       electronAPI: {
-        requestLocalApi: async () => {
-          throw new Error('EcoTransit location field was unavailable')
+        backend: {
+          calculateTransport: async () => {
+            throw new Error('EcoTransit location field was unavailable')
+          },
         },
       },
     },

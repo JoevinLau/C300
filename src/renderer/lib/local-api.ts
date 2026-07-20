@@ -1,4 +1,4 @@
-import type { LocalApiRequest } from '../../shared/electron-api'
+import type { LocalApiRequest } from '../../shared/local-api-types'
 
 const configuredApiBase = (
   import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }
@@ -77,10 +77,6 @@ async function fetchLocalApi(base: string, request: LocalApiRequest): Promise<un
 }
 
 export async function requestLocalApi(request: LocalApiRequest): Promise<unknown> {
-  if (typeof window !== 'undefined' && window.electronAPI?.requestLocalApi) {
-    return window.electronAPI.requestLocalApi(request)
-  }
-
   let lastError: unknown = null
   for (const base of API_BASES) {
     try {

@@ -1,4 +1,4 @@
-import type { CalculateRequest, CalculateResponse } from './calculator-types'
+import type { BackendCapabilities } from './backend-capabilities'
 import type {
   CalculationHistoryDetail,
   CalculationHistoryListOptions,
@@ -6,7 +6,6 @@ import type {
   SaveCalculationHistoryInput,
 } from './calculation-history-types'
 
-export type { CalculateRequest, CalculateResponse }
 export type {
   CalculationHistoryDetail,
   CalculationHistoryListOptions,
@@ -20,34 +19,15 @@ export type {
   UseeioCalculationHistoryDetail,
 } from './calculation-history-types'
 
-export type LocalApiMethod = 'GET' | 'POST' | 'DELETE'
-
-export interface LocalApiFile {
-  fieldName: string
-  name: string
-  contentType: string
-  bytes: Uint8Array
-}
-
-export interface LocalApiRequest {
-  path: string
-  method?: LocalApiMethod
-  json?: unknown
-  fields?: Record<string, string>
-  files?: LocalApiFile[]
-}
-
 export interface ElectronApi {
-  platform: NodeJS.Platform
-  versions: NodeJS.ProcessVersions
-  ping: () => string
-  calculateEmissions: (payload: CalculateRequest) => Promise<CalculateResponse>
-  requestLocalApi: (request: LocalApiRequest) => Promise<unknown>
-  saveCalculationHistory: (
-    input: SaveCalculationHistoryInput,
-  ) => Promise<CalculationHistoryDetail>
-  listCalculationHistory: (
-    options?: CalculationHistoryListOptions,
-  ) => Promise<CalculationHistorySummary[]>
-  getCalculationHistory: (id: string) => Promise<CalculationHistoryDetail | null>
+  app: {
+    platform: NodeJS.Platform
+    versions: NodeJS.ProcessVersions
+  }
+  backend: BackendCapabilities
+  history: {
+    save(input: SaveCalculationHistoryInput): Promise<CalculationHistoryDetail>
+    list(options?: CalculationHistoryListOptions): Promise<CalculationHistorySummary[]>
+    get(id: string): Promise<CalculationHistoryDetail | null>
+  }
 }

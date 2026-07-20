@@ -10,13 +10,13 @@ import {
   type BackendRuntimeStatus,
 } from './backend-runtime'
 import { CalculationHistoryStore } from './calculation-history-store'
+import { createBackendHandlers } from './backend-ipc'
 import { openWindowWhileBackendStarts } from './startup'
-import type { CalculateRequest } from '../shared/calculator-types'
+import { BACKEND_CHANNELS } from '../shared/backend-capabilities'
 import type {
   CalculationHistoryListOptions,
   SaveCalculationHistoryInput,
 } from '../shared/calculation-history-types'
-import type { LocalApiRequest } from '../shared/electron-api'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 let backendRuntime: DesktopBackendRuntime | null = null
@@ -48,18 +48,20 @@ function getCalculationHistoryStore(): CalculationHistoryStore {
 }
 
 function registerApiHandlers() {
-  ipcMain.handle('calculator:calculate', async (_event, payload: CalculateRequest) => {
-    assertBackendReady()
-    return postCalculate(payload)
+  const backendHandlers = createBackendHandlers({
+    calculate: postCalculate,
+    request: requestLocalApi,
   })
-  ipcMain.handle('local-api:request', async (_event, request: LocalApiRequest) => {
-    assertBackendReady()
-    return requestLocalApi(request)
+  Object.entries(BACKEND_CHANNELS).forEach(([capability, channel]) => {
+    ipcMain.handle(channel, (_event, ...args: unknown[]) => {
+      assertBackendReady()
+      const handler = backendHandlers[capability as keyof typeof backendHandlers]
+      return Reflect.apply(handler, undefined, args)
+    })
   })
 
-  ipcMain.handle(
-    'calculation-history:save',
-    (_event, input: SaveCalculationHistoryInput) => getCalculationHistoryStore().save(input),
+  ipcMain.handle('calculation-history:save', (_event, input: SaveCalculationHistoryInput) =>
+    getCalculationHistoryStore().save(input),
   )
   ipcMain.handle(
     'calculation-history:list',

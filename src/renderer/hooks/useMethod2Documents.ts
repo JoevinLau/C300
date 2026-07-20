@@ -1,15 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { requestLocalApi } from '@/lib/local-api'
+import type { Method2Document } from '../../shared/backend-capabilities'
 
-export type Method2Document = {
-  document_id: string
-  filename: string
-  file_type: string
-  content_hash: string
-  chunk_count: number
-  status: string
-  error: string | null
-}
+export type { Method2Document } from '../../shared/backend-capabilities'
 
 type UseMethod2DocumentsOptions = {
   workspaceId: string
@@ -39,9 +32,11 @@ export function useMethod2Documents({
       setDocumentsLoading(true)
       if (clearExistingError) setDocumentError('')
       try {
-        const data = await requestLocalApi({
-          path: `/rag/documents?workspace_id=${encodeURIComponent(workspaceId)}`,
-        })
+        const data = window.electronAPI?.backend
+          ? await window.electronAPI.backend.listDocuments(workspaceId)
+          : await requestLocalApi({
+            path: `/rag/documents?workspace_id=${encodeURIComponent(workspaceId)}`,
+          })
         setDocuments(Array.isArray(data) ? data : [])
       } catch (error) {
         setDocumentError(getDocumentRequestError(error))
@@ -62,19 +57,21 @@ export function useMethod2Documents({
     setDocumentError('')
 
     try {
-      const data = await requestLocalApi({
-        path: '/rag/documents',
-        method: 'POST',
-        fields: { workspace_id: workspaceId },
-        files: await Promise.all(
-          files.map(async (file) => ({
-            fieldName: 'files',
-            name: file.name,
-            contentType: file.type || 'application/octet-stream',
-            bytes: new Uint8Array(await file.arrayBuffer()),
-          })),
-        ),
-      })
+      const uploadFiles = await Promise.all(
+        files.map(async (file) => ({
+          name: file.name,
+          contentType: file.type || 'application/octet-stream',
+          bytes: new Uint8Array(await file.arrayBuffer()),
+        })),
+      )
+      const data = window.electronAPI?.backend
+        ? await window.electronAPI.backend.uploadDocuments(workspaceId, uploadFiles)
+        : await requestLocalApi({
+          path: '/rag/documents',
+          method: 'POST',
+          fields: { workspace_id: workspaceId },
+          files: uploadFiles.map((file) => ({ ...file, fieldName: 'files' })),
+        })
       const results = data && typeof data === 'object' && 'documents' in data && Array.isArray(data.documents)
         ? (data.documents as Method2Document[])
         : []
@@ -102,10 +99,14 @@ export function useMethod2Documents({
   async function deleteDocument(documentId: string) {
     setDocumentError('')
     try {
-      await requestLocalApi({
-        path: `/rag/documents/${encodeURIComponent(documentId)}?workspace_id=${encodeURIComponent(workspaceId)}`,
-        method: 'DELETE',
-      })
+      if (window.electronAPI?.backend) {
+        await window.electronAPI.backend.deleteDocument(workspaceId, documentId)
+      } else {
+        await requestLocalApi({
+          path: `/rag/documents/${encodeURIComponent(documentId)}?workspace_id=${encodeURIComponent(workspaceId)}`,
+          method: 'DELETE',
+        })
+      }
       setDocuments((current) =>
         current.filter((document) => document.document_id !== documentId),
       )

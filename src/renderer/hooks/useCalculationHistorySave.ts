@@ -21,11 +21,11 @@ export function useCalculationHistorySave(onSaved?: () => void) {
       setHistoryWarning(null)
 
       try {
-        if (!window.electronAPI?.saveCalculationHistory) {
+        if (!window.electronAPI?.history) {
           throw new Error('Calculation history is only available in the desktop app.')
         }
 
-        await window.electronAPI.saveCalculationHistory(input)
+        await window.electronAPI.history.save(input)
         onSaved?.()
         return true
       } catch (error) {

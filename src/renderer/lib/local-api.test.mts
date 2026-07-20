@@ -4,40 +4,7 @@ import test from 'node:test'
 import { requestLocalApi } from './local-api.ts'
 
 
-test('routes local API requests through Electron IPC when available', async () => {
-  const requests: unknown[] = []
-  const originalWindow = globalThis.window
-  const originalFetch = globalThis.fetch
-
-  Object.defineProperty(globalThis, 'window', {
-    configurable: true,
-    value: {
-      electronAPI: {
-        requestLocalApi: async (request: unknown) => {
-          requests.push(request)
-          return { machines: [] }
-        },
-      },
-    },
-  })
-  globalThis.fetch = async () => {
-    throw new Error('Renderer fetch must not run inside Electron')
-  }
-
-  try {
-    const result = await requestLocalApi({ path: '/method2/machines' })
-    assert.deepEqual(result, { machines: [] })
-    assert.deepEqual(requests, [{ path: '/method2/machines' }])
-  } finally {
-    Object.defineProperty(globalThis, 'window', {
-      configurable: true,
-      value: originalWindow,
-    })
-    globalThis.fetch = originalFetch
-  }
-})
-
-test('uses HTTP only when the Electron bridge is unavailable', async () => {
+test('uses HTTP for the browser development fallback', async () => {
   const requestedUrls: string[] = []
   const originalWindow = globalThis.window
   const originalFetch = globalThis.fetch
