@@ -163,11 +163,13 @@ configured.
 ## Project layout
 
 ```text
-api/                    FastAPI routes, calculations, database, and RAG
-calculation/            Shared calculation logic and reference helpers
+api/                    FastAPI routes, services, repositories, and RAG
+calculation/            Production calculation engine and reference helpers
+calculation/prototypes/ Archived spreadsheet-based experiments and sample data
 src/main/               Electron lifecycle, backend supervision, and IPC
 src/preload/            Restricted renderer bridge
-src/renderer/           React pages and components
+src/renderer/features/  React workflows grouped by business capability
+src/renderer/components/ Shared application shell and UI primitives
 src/shared/             Shared TypeScript contracts
 scripts/                Test, development, and packaging scripts
 build/                  PyInstaller and installer configuration

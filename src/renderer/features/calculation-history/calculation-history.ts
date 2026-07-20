@@ -1,5 +1,5 @@
 import type { EcoTransitResponse } from '@/lib/calculator-api'
-import type { CalculationHistoryTransport } from '../../shared/calculation-history-types'
+import type { CalculationHistoryTransport } from '../../../shared/calculation-history-types'
 
 export function toCalculationHistoryTransport(
   response: EcoTransitResponse | null | undefined,

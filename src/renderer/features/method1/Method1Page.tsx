@@ -24,8 +24,8 @@ import {
   type CategoryId,
   type LineItem,
   type Method1FormKey as FormKey,
-} from '@/components/Method1SharedInputs'
-import { CalculationProcessPanel, ResultsPanel } from '@/components/useeio/Method1ResultsPanels'
+} from '@/features/calculation-workspace/CalculationSharedInputs'
+import { CalculationProcessPanel, ResultsPanel } from './Method1ResultsPanels'
 import { calculateEcoTransitTransport, calculateEmissions, fetchNaicsOptions, type CalculateResponse } from '@/lib/calculator-api'
 import { Button } from '@/components/ui/button'
 import {
@@ -44,13 +44,13 @@ import {
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { toCalculationHistoryTransport } from '@/lib/calculation-history'
+import { toCalculationHistoryTransport } from '@/features/calculation-history/calculation-history'
 import {
   isSupportedCalculationYear,
   MAX_CALCULATION_YEAR,
   MIN_CALCULATION_YEAR,
-} from '@/lib/calculation-workflow'
-import { useCalculationHistorySave } from '@/hooks/useCalculationHistorySave'
+} from '@/features/calculation-workspace/calculation-workflow'
+import { useCalculationHistorySave } from '@/features/calculation-history/useCalculationHistorySave'
 import { cn } from '@/lib/utils'
 import { useCalculationWorkspace } from '@/features/calculation-workspace/useCalculationWorkspace'
 

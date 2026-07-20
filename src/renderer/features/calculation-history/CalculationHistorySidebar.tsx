@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { CalculationHistoryDetails } from '@/components/CalculationHistoryDetails'
+import { CalculationHistoryDetails } from './CalculationHistoryDetails'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
@@ -22,7 +22,7 @@ import type {
   CalculationHistoryDetail,
   CalculationHistoryMethod,
   CalculationHistorySummary,
-} from '../../shared/calculation-history-types'
+} from '../../../shared/calculation-history-types'
 
 const PAGE_SIZE = 12
 

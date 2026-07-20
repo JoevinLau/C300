@@ -1,9 +1,9 @@
 import { useCallback, useState } from 'react'
 import type React from 'react'
 import { requestLocalApi } from '@/lib/local-api'
-import type { Method2Citation } from '../../shared/backend-capabilities'
+import type { Method2Citation } from '../../../shared/backend-capabilities'
 
-export type { Method2Citation } from '../../shared/backend-capabilities'
+export type { Method2Citation } from '../../../shared/backend-capabilities'
 
 export type Method2ChatMessage = {
   role: 'user' | 'assistant'

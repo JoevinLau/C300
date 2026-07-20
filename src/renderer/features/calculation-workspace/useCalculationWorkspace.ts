@@ -13,7 +13,7 @@ import {
   updateLineItem,
   type TransportCalculationRequest,
   type TransportMode,
-} from '../../lib/calculation-workflow.ts'
+} from './calculation-workflow.ts'
 import {
   applyAllocationPreset,
   createRequestGate,

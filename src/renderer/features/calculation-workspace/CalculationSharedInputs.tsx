@@ -34,10 +34,10 @@ import {
   parseAmount,
   pctFromAmount,
   type LineItem,
-} from '@/lib/calculation-workflow'
+} from './calculation-workflow'
 import { cn } from '@/lib/utils'
 import { allocateRouteEmissions } from '@/features/transport/transport-calculations'
-import type { EcoTransitResponse, NaicsOption } from '../../shared/calculator-types'
+import type { EcoTransitResponse, NaicsOption } from '../../../shared/calculator-types'
 import { Layers } from 'lucide-react'
 
 export const currency = new Intl.NumberFormat('en-SG', {

@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 
 import { AppBackground } from '@/components/AppBackground'
-import { CalculationHistorySidebar } from '@/components/CalculationHistorySidebar'
+import { CalculationHistorySidebar } from '@/features/calculation-history/CalculationHistorySidebar'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -21,9 +21,9 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 
-const Method1Page = lazy(() => import('@/pages/Method1Page'))
-const Method2Page = lazy(() => import('@/pages/Method2Page'))
-const NaicsMappingPage = lazy(() => import('@/pages/NaicsMappingPage'))
+const Method1Page = lazy(() => import('@/features/method1/Method1Page'))
+const Method2Page = lazy(() => import('@/features/method2/Method2Page'))
+const NaicsMappingPage = lazy(() => import('@/features/naics-mapping/NaicsMappingPage'))
 
 const modules = [
   {

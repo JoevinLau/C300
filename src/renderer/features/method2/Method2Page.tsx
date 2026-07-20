@@ -62,18 +62,18 @@ import {
   type CategoryId,
   type LineItem,
   type Method1FormKey,
-} from '@/components/Method1SharedInputs'
+} from '@/features/calculation-workspace/CalculationSharedInputs'
 import { cn } from '@/lib/utils'
-import { createMethod2WorkspaceId } from '@/lib/rag-workspace'
-import { toCalculationHistoryTransport } from '@/lib/calculation-history'
+import { createMethod2WorkspaceId } from './rag-workspace'
+import { toCalculationHistoryTransport } from '@/features/calculation-history/calculation-history'
 import {
   isSupportedCalculationYear,
   MAX_CALCULATION_YEAR,
   MIN_CALCULATION_YEAR,
-} from '@/lib/calculation-workflow'
-import { useCalculationHistorySave } from '@/hooks/useCalculationHistorySave'
-import { useMethod2Chat } from '@/hooks/useMethod2Chat'
-import { useMethod2Documents } from '@/hooks/useMethod2Documents'
+} from '@/features/calculation-workspace/calculation-workflow'
+import { useCalculationHistorySave } from '@/features/calculation-history/useCalculationHistorySave'
+import { useMethod2Chat } from './useMethod2Chat'
+import { useMethod2Documents } from './useMethod2Documents'
 import { useCalculationWorkspace } from '@/features/calculation-workspace/useCalculationWorkspace'
 import {
   createMethod2ResultProjection,

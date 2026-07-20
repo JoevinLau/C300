@@ -6,8 +6,8 @@ from typing import Any
 
 CATEGORIES = ("raw_material", "fabrication", "surface_treatment")
 
-# Legacy standalone inputs retained only for calculation/main.py. The desktop API
-# supplies authoritative values from its reference-data repository.
+# Prototype-only inputs retained for calculation/prototypes/main.py. The desktop
+# API supplies authoritative values from its reference-data repository.
 FX_TABLE: dict[int, float] = {
     2023: 0.75,
     2024: 0.74,

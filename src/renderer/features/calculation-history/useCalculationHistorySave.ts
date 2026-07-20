@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 
-import type { SaveCalculationHistoryInput } from '../../shared/calculation-history-types'
+import type { SaveCalculationHistoryInput } from '../../../shared/calculation-history-types'
 
 function getHistoryWarning(error: unknown): string {
   if (error instanceof Error) {

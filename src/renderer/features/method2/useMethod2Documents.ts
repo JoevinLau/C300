@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { requestLocalApi } from '@/lib/local-api'
-import type { Method2Document } from '../../shared/backend-capabilities'
+import type { Method2Document } from '../../../shared/backend-capabilities'
 
-export type { Method2Document } from '../../shared/backend-capabilities'
+export type { Method2Document } from '../../../shared/backend-capabilities'
 
 type UseMethod2DocumentsOptions = {
   workspaceId: string

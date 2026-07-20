@@ -20,11 +20,11 @@ import type {
   CalculationCategory,
   Method2CalculateRequest,
   Method2CalculateResponse,
-} from '../../shared/calculator-types'
+} from '../../../shared/calculator-types'
 import type {
   CalculationHistoryDetail,
   CalculationHistoryTransport,
-} from '../../shared/calculation-history-types'
+} from '../../../shared/calculation-history-types'
 
 const sgd = new Intl.NumberFormat('en-SG', {
   style: 'currency',

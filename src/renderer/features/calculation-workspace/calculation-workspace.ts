@@ -2,7 +2,7 @@ import {
   parseAmount,
   type AllocationCategoryInput,
   type LineItem,
-} from '../../lib/calculation-workflow.ts'
+} from './calculation-workflow.ts'
 
 export interface CalculationWorkspaceCategory<
   CategoryId extends string,

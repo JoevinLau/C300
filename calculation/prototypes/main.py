@@ -1,40 +1,20 @@
 import pandas as pd
 
-try:
-    from calculation.engine import (
-        FX_TABLE,
-        GDP_DEFLATOR,
-        USEEIO_FACTORS,
-        calculate_transport_emission,
-        compute_component_emission,
-        compute_from_sgd_amounts,
-        convert_sgd_to_usd,
-        convert_to_2022_usd,
-    )
-except ModuleNotFoundError:
-    from engine import (
-        FX_TABLE,
-        GDP_DEFLATOR,
-        USEEIO_FACTORS,
-        calculate_transport_emission,
-        compute_component_emission,
-        compute_from_sgd_amounts,
-        convert_sgd_to_usd,
-        convert_to_2022_usd,
-    )
-
-try:
-    from calculation.transport_data import (
-        DISTANCES_TO_SINGAPORE_KM,
-        EMISSION_FACTORS_KG_PER_TKM,
-        DEFAULT_WEIGHT_KG,
-    )
-except ModuleNotFoundError:
-    from transport_data import (
-        DISTANCES_TO_SINGAPORE_KM,
-        EMISSION_FACTORS_KG_PER_TKM,
-        DEFAULT_WEIGHT_KG,
-    )
+from calculation.engine import (
+    FX_TABLE,
+    GDP_DEFLATOR,
+    USEEIO_FACTORS,
+    calculate_transport_emission,
+    compute_component_emission,
+    compute_from_sgd_amounts,
+    convert_sgd_to_usd,
+    convert_to_2022_usd,
+)
+from calculation.transport_data import (
+    DEFAULT_WEIGHT_KG,
+    DISTANCES_TO_SINGAPORE_KM,
+    EMISSION_FACTORS_KG_PER_TKM,
+)
 
 
 # ------------------------------

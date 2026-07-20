@@ -13,8 +13,8 @@ import { PDFDownloadLink } from '@react-pdf/renderer'
 import {
   METHOD1_CATEGORIES as CATEGORIES,
   currency,
-} from '@/components/Method1SharedInputs'
-import { UseeioResultsPdf } from '@/components/UseeioResultsPdf'
+} from '@/features/calculation-workspace/CalculationSharedInputs'
+import { UseeioResultsPdf } from './UseeioResultsPdf'
 import { Button, buttonVariants } from '@/components/ui/button'
 import {
   createUseeioResultProjection,
