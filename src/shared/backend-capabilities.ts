@@ -8,6 +8,11 @@ import type {
   Method2CalculateRequest,
   Method2CalculateResponse,
   Method2MachineReference,
+  Method3BasisRequest,
+  Method3CalculateRequest,
+  Method3CalculateResponse,
+  Method3CalculationBasis,
+  Method3ReferenceDataResponse,
   NaicsOption,
 } from './calculator-types'
 
@@ -26,6 +31,9 @@ export const BACKEND_CHANNELS = {
   uploadDocuments: 'backend:upload-documents',
   deleteDocument: 'backend:delete-document',
   sendMethod2Chat: 'backend:send-method2-chat',
+  listMethod3ReferenceData: 'backend:list-method3-reference-data',
+  getMethod3Basis: 'backend:get-method3-basis',
+  calculateMethod3: 'backend:calculate-method3',
 } as const satisfies Record<keyof BackendCapabilities, string>
 
 export interface NaicsMatch {
@@ -108,4 +116,7 @@ export interface BackendCapabilities {
   ): Promise<{ documents: Method2Document[] }>
   deleteDocument(workspaceId: string, documentId: string): Promise<null>
   sendMethod2Chat(request: Method2ChatRequest): Promise<Method2ChatResponse>
+  listMethod3ReferenceData(): Promise<Method3ReferenceDataResponse>
+  getMethod3Basis(request: Method3BasisRequest): Promise<Method3CalculationBasis>
+  calculateMethod3(request: Method3CalculateRequest): Promise<Method3CalculateResponse>
 }

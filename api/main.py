@@ -28,6 +28,12 @@ from calculation.method2_calculations import (
     compute_method2,
     list_machine_library,
 )
+from services.method3 import (
+    Method3ReferenceDataUnavailable,
+    calculate_method3 as compute_method3,
+    get_method3_basis,
+    list_method3_reference_data,
+)
 from service import (
     calculate_batch_emissions,
     calculate_ecotransit_transport,
@@ -61,6 +67,9 @@ from models import (
     MappingLearnRequest,
     Method2ChatRequest,
     Method2InputData,
+    Method3CalculateRequest,
+    Method3CalculateResponse,
+    Method3CalculationBasis,
     NaicsConfirmRequest,
     NaicsOption,
     OutputData,
@@ -544,6 +553,50 @@ def calculate_method2(data: Method2InputData):
     try:
         return compute_method2(payload, spend_calculator=compute_emissions)
     except MachineReferenceDataUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/method3/reference-data")
+def method3_reference_data():
+    try:
+        return list_method3_reference_data()
+    except Method3ReferenceDataUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except DatabaseUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/method3/basis", response_model=Method3CalculationBasis)
+def method3_basis(
+    purchase_year: int = Query(..., ge=2000, le=2100),
+    purchase_month: int = Query(..., ge=1, le=12),
+    purchase_type: str = Query(..., pattern=r"^(imported_raw_material|local_processing|overseas_processing)$"),
+    country_code: str = Query(..., pattern=r"^[A-Z]{3}$"),
+    sector_code: str = Query(..., min_length=2, max_length=32),
+):
+    try:
+        return get_method3_basis(
+            purchase_year=purchase_year,
+            purchase_month=purchase_month,
+            purchase_type=purchase_type,
+            country_code=country_code,
+            sector_code=sector_code,
+        )
+    except Method3ReferenceDataUnavailable as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except DatabaseUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/method3/calculate", response_model=Method3CalculateResponse)
+def method3_calculate(data: Method3CalculateRequest):
+    try:
+        return compute_method3(data.model_dump())
+    except Method3ReferenceDataUnavailable as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except DatabaseUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

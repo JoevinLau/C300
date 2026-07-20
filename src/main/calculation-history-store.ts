@@ -6,6 +6,8 @@ import type {
   CalculateResponse,
   Method2CalculateRequest,
   Method2CalculateResponse,
+  Method3CalculateRequest,
+  Method3CalculateResponse,
 } from '../shared/calculator-types'
 import type {
   CalculationHistoryDetail,
@@ -255,6 +257,58 @@ function validateMethod2Result(value: unknown, label: string): Method2CalculateR
   return record as unknown as Method2CalculateResponse
 }
 
+function validateMethod3Request(value: unknown, label: string): Method3CalculateRequest {
+  const record = requireRecord(value, label)
+  requireNonEmptyString(record.invoice_id, `${label}.invoice_id`)
+  requireNonEmptyString(record.purchase_description, `${label}.purchase_description`)
+  requireFiniteNumber(record.purchase_year, `${label}.purchase_year`)
+  requireFiniteNumber(record.purchase_month, `${label}.purchase_month`)
+  requireFiniteNumber(record.invoice_amount_sgd, `${label}.invoice_amount_sgd`)
+  requireNonEmptyString(record.purchase_type, `${label}.purchase_type`)
+  requireNonEmptyString(record.country_code, `${label}.country_code`)
+  requireNonEmptyString(record.sector_code, `${label}.sector_code`)
+  return record as unknown as Method3CalculateRequest
+}
+
+function validateMethod3Result(value: unknown, label: string): Method3CalculateResponse {
+  const record = requireRecord(value, label)
+  requireNonEmptyString(record.invoice_id, `${label}.invoice_id`)
+  requireNonEmptyString(record.purchase_description, `${label}.purchase_description`)
+  requireFiniteNumber(record.original_spend_sgd, `${label}.original_spend_sgd`)
+  requireFiniteNumber(record.normalized_spend_sgd, `${label}.normalized_spend_sgd`)
+  requireFiniteNumber(record.adjustment_factor, `${label}.adjustment_factor`)
+  requireFiniteNumber(record.adjustment_percent, `${label}.adjustment_percent`)
+  requireFiniteNumber(record.estimated_emissions_kgco2e, `${label}.estimated_emissions_kgco2e`)
+  requireFiniteNumber(record.estimated_emissions_tco2e, `${label}.estimated_emissions_tco2e`)
+  requireNonEmptyString(record.calculated_at, `${label}.calculated_at`)
+  const basis = requireRecord(record.basis, `${label}.basis`)
+  ;[
+    'dataset_version',
+    'country_code',
+    'country_name',
+    'sector_code',
+    'sector_name',
+    'purchase_type',
+    'purchase_type_label',
+    'price_index_type',
+    'price_index_label',
+    'purchase_period',
+    'price_basis',
+    'currency',
+    'factor_unit',
+    'factor_source',
+    'price_index_source',
+  ].forEach((field) => requireNonEmptyString(basis[field], `${label}.basis.${field}`))
+  ;[
+    'purchase_index',
+    'reference_price_year',
+    'reference_index',
+    'index_base_year',
+    'emission_factor',
+  ].forEach((field) => requireFiniteNumber(basis[field], `${label}.basis.${field}`))
+  return record as unknown as Method3CalculateResponse
+}
+
 function serializeSnapshot(value: unknown, label: string): string {
   let serialized: string | undefined
   try {
@@ -315,8 +369,8 @@ function normalizeListOptions(options: CalculationHistoryListOptions = {}) {
   if (!Number.isInteger(requestedOffset) || requestedOffset < 0) {
     throw new TypeError('History list offset must be a non-negative integer.')
   }
-  if (options.method !== undefined && options.method !== 'useeio' && options.method !== 'method2') {
-    throw new TypeError('History method must be either "useeio" or "method2".')
+  if (options.method !== undefined && options.method !== 'useeio' && options.method !== 'method2' && options.method !== 'method3') {
+    throw new TypeError('History method must be "useeio", "method2", or "method3".')
   }
 
   return {
@@ -327,7 +381,7 @@ function normalizeListOptions(options: CalculationHistoryListOptions = {}) {
 }
 
 function rowToSummary(row: SummaryRow): CalculationHistorySummary {
-  if (row.method !== 'useeio' && row.method !== 'method2') {
+  if (row.method !== 'useeio' && row.method !== 'method2' && row.method !== 'method3') {
     throw new Error(`Unknown calculation history method: ${row.method}`)
   }
 
@@ -380,6 +434,22 @@ function rowToDetail(row: DetailRow): CalculationHistoryDetail {
     }
   }
 
+  if (summary.method === 'method3') {
+    return {
+      ...summary,
+      method: 'method3',
+      request: validateMethod3Request(
+        parseJsonSnapshot<unknown>(row.request_json, 'request'),
+        'Stored Method 3 request',
+      ),
+      result: validateMethod3Result(
+        parseJsonSnapshot<unknown>(row.result_json, 'result'),
+        'Stored Method 3 result',
+      ),
+      transport: null,
+    }
+  }
+
   return {
     ...summary,
     method: 'method2',
@@ -416,6 +486,22 @@ function getSummaryValues(input: SaveCalculationHistoryInput): {
     }
   }
 
+
+  if (input.method === 'method3') {
+    return {
+      documentId: requireNonEmptyString(input.result.invoice_id, 'result.invoice_id'),
+      year: requireFiniteNumber(input.request.purchase_year, 'request.purchase_year'),
+      totalEmissionsKgCo2e: requireFiniteNumber(
+        input.result.estimated_emissions_kgco2e,
+        'result.estimated_emissions_kgco2e',
+      ),
+      totalAmountSgd: requireFiniteNumber(
+        input.request.invoice_amount_sgd,
+        'request.invoice_amount_sgd',
+      ),
+    }
+  }
+
   return {
     documentId: requireNonEmptyString(input.result.part_id, 'result.part_id'),
     year: requireFiniteNumber(input.result.calculation.year, 'result.calculation.year'),
@@ -446,7 +532,7 @@ export class CalculationHistoryStore {
 
       CREATE TABLE IF NOT EXISTS calculation_history (
         id TEXT PRIMARY KEY,
-        method TEXT NOT NULL CHECK (method IN ('useeio', 'method2')),
+        method TEXT NOT NULL CHECK (method IN ('useeio', 'method2', 'method3')),
         document_id TEXT NOT NULL,
         year INTEGER NOT NULL,
         total_emissions_kg_co2e REAL NOT NULL,
@@ -463,14 +549,43 @@ export class CalculationHistoryStore {
       CREATE INDEX IF NOT EXISTS calculation_history_method_created_at_idx
         ON calculation_history (method, created_at DESC);
     `)
+
+    const historySchema = this.#database
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'calculation_history'")
+      .get() as { sql?: string } | undefined
+    if (historySchema?.sql && !historySchema.sql.includes("'method3'")) {
+      this.#database.exec(`
+        BEGIN IMMEDIATE;
+        ALTER TABLE calculation_history RENAME TO calculation_history_legacy;
+        CREATE TABLE calculation_history (
+          id TEXT PRIMARY KEY,
+          method TEXT NOT NULL CHECK (method IN ('useeio', 'method2', 'method3')),
+          document_id TEXT NOT NULL,
+          year INTEGER NOT NULL,
+          total_emissions_kg_co2e REAL NOT NULL,
+          total_amount_sgd REAL NOT NULL,
+          request_json TEXT NOT NULL,
+          result_json TEXT NOT NULL,
+          transport_json TEXT,
+          created_at TEXT NOT NULL
+        ) STRICT;
+        INSERT INTO calculation_history SELECT * FROM calculation_history_legacy;
+        DROP TABLE calculation_history_legacy;
+        CREATE INDEX calculation_history_created_at_idx
+          ON calculation_history (created_at DESC);
+        CREATE INDEX calculation_history_method_created_at_idx
+          ON calculation_history (method, created_at DESC);
+        COMMIT;
+      `)
+    }
   }
 
   save(input: SaveCalculationHistoryInput): CalculationHistoryDetail {
-    if (!input || (input.method !== 'useeio' && input.method !== 'method2')) {
+    if (!input || (input.method !== 'useeio' && input.method !== 'method2' && input.method !== 'method3')) {
       throw new TypeError('Calculation history input must specify a supported method.')
     }
 
-    const transport = normalizeTransport(input.transport)
+    const transport = normalizeTransport('transport' in input ? input.transport : null)
     const requestJson = serializeSnapshot(input.request, 'request')
     const resultJson = serializeSnapshot(input.result, 'result')
     const validatedInput: SaveCalculationHistoryInput =
@@ -487,7 +602,8 @@ export class CalculationHistoryStore {
             ),
             transport,
           }
-        : {
+        : input.method === 'method2'
+        ? {
             method: 'method2',
             request: validateMethod2Request(
               parseJsonSnapshot<unknown>(requestJson, 'request'),
@@ -498,6 +614,17 @@ export class CalculationHistoryStore {
               'Method 2 result',
             ),
             transport,
+          }
+        : {
+            method: 'method3',
+            request: validateMethod3Request(
+              parseJsonSnapshot<unknown>(requestJson, 'request'),
+              'Method 3 request',
+            ),
+            result: validateMethod3Result(
+              parseJsonSnapshot<unknown>(resultJson, 'result'),
+              'Method 3 result',
+            ),
           }
     const summaryValues = getSummaryValues(validatedInput)
     const id = requireNonEmptyString(this.#createId(), 'history id')

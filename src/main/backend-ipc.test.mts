@@ -16,6 +16,13 @@ test('maps named capabilities to fixed backend routes', async () => {
   await handlers.searchNaics('steel & alloy')
   await handlers.deleteDocument('workspace/a', 'document?b')
   await handlers.confirmNaics('steel', '331110')
+  await handlers.getMethod3Basis({
+    purchase_year: 2026,
+    purchase_month: 5,
+    purchase_type: 'imported_raw_material',
+    country_code: 'CHN',
+    sector_code: '331313',
+  })
 
   assert.deepEqual(requests, [
     { path: '/api/naics/search?q=steel%20%26%20alloy' },
@@ -32,6 +39,9 @@ test('maps named capabilities to fixed backend routes', async () => {
         user_id: 'default',
       },
     },
+    {
+      path: '/method3/basis?purchase_year=2026&purchase_month=5&purchase_type=imported_raw_material&country_code=CHN&sector_code=331313',
+    },
   ])
 })
 
@@ -44,13 +54,16 @@ test('exposes every backend operation as a named handler', () => {
   assert.deepEqual(Object.keys(handlers).sort(), [
     'calculateBatch',
     'calculateMethod2',
+    'calculateMethod3',
     'calculateTransport',
     'calculateUseeio',
     'confirmNaics',
     'deleteDocument',
+    'getMethod3Basis',
     'getNaicsFactor',
     'listDocuments',
     'listMethod2Machines',
+    'listMethod3ReferenceData',
     'listNaicsOptions',
     'searchNaics',
     'sendMethod2Chat',

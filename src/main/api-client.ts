@@ -31,6 +31,9 @@ const ALLOWED_ROUTES: Array<{ methods: LocalApiMethod[]; path: RegExp }> = [
   { methods: ['GET', 'POST'], path: /^\/rag\/documents$/ },
   { methods: ['DELETE'], path: /^\/rag\/documents\/[^/]+$/ },
   { methods: ['POST'], path: /^\/method2-chat$/ },
+  { methods: ['GET'], path: /^\/method3\/reference-data$/ },
+  { methods: ['GET'], path: /^\/method3\/basis$/ },
+  { methods: ['POST'], path: /^\/method3\/calculate$/ },
 ]
 
 function formatApiError(detail: unknown): string {

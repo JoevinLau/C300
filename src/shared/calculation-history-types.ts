@@ -4,9 +4,11 @@ import type {
   EcoTransitResponse,
   Method2CalculateRequest,
   Method2CalculateResponse,
+  Method3CalculateRequest,
+  Method3CalculateResponse,
 } from './calculator-types'
 
-export type CalculationHistoryMethod = 'useeio' | 'method2'
+export type CalculationHistoryMethod = 'useeio' | 'method2' | 'method3'
 
 export type CalculationHistoryTransport = Omit<EcoTransitResponse['transport'], 'raw'>
 
@@ -40,9 +42,16 @@ export interface SaveMethod2CalculationHistoryInput {
   transport?: CalculationHistoryTransport | null
 }
 
+export interface SaveMethod3CalculationHistoryInput {
+  method: 'method3'
+  request: Method3CalculateRequest
+  result: Method3CalculateResponse
+}
+
 export type SaveCalculationHistoryInput =
   | SaveUseeioCalculationHistoryInput
   | SaveMethod2CalculationHistoryInput
+  | SaveMethod3CalculationHistoryInput
 
 export interface UseeioCalculationHistoryDetail extends CalculationHistorySummary {
   readonly method: 'useeio'
@@ -58,6 +67,14 @@ export interface Method2CalculationHistoryDetail extends CalculationHistorySumma
   readonly transport: CalculationHistoryTransport | null
 }
 
+export interface Method3CalculationHistoryDetail extends CalculationHistorySummary {
+  readonly method: 'method3'
+  readonly request: Method3CalculateRequest
+  readonly result: Method3CalculateResponse
+  readonly transport: null
+}
+
 export type CalculationHistoryDetail =
   | UseeioCalculationHistoryDetail
   | Method2CalculationHistoryDetail
+  | Method3CalculationHistoryDetail

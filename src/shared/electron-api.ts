@@ -13,8 +13,10 @@ export type {
   CalculationHistorySummary,
   CalculationHistoryTransport,
   Method2CalculationHistoryDetail,
+  Method3CalculationHistoryDetail,
   SaveCalculationHistoryInput,
   SaveMethod2CalculationHistoryInput,
+  SaveMethod3CalculationHistoryInput,
   SaveUseeioCalculationHistoryInput,
   UseeioCalculationHistoryDetail,
 } from './calculation-history-types'

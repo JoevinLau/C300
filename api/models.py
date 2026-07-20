@@ -329,3 +329,58 @@ class EcoTransitTransport(StrictApiModel):
 
 class EcoTransitResponse(StrictApiModel):
     transport: EcoTransitTransport
+
+
+Method3PurchaseType = Literal[
+    "imported_raw_material",
+    "local_processing",
+    "overseas_processing",
+]
+
+
+class Method3CalculateRequest(StrictApiModel):
+    invoice_id: str = Field(..., min_length=1, max_length=128)
+    purchase_description: str = Field(..., min_length=1, max_length=500)
+    purchase_year: int = Field(..., ge=2000, le=2100)
+    purchase_month: int = Field(..., ge=1, le=12)
+    invoice_amount_sgd: float = Field(..., gt=0)
+    purchase_type: Method3PurchaseType
+    country_code: str = Field(..., pattern=r"^[A-Z]{3}$")
+    sector_code: str = Field(..., min_length=2, max_length=32)
+
+
+class Method3CalculationBasis(StrictApiModel):
+    dataset_version: str
+    country_code: str
+    country_name: str
+    sector_code: str
+    sector_name: str
+    purchase_type: Method3PurchaseType
+    purchase_type_label: str
+    price_index_type: str
+    price_index_label: str
+    purchase_period: str
+    purchase_index: float
+    reference_price_year: int
+    reference_index: float
+    reference_index_method: Literal["annual_average"]
+    index_base_year: int
+    price_basis: Literal["purchaser_price"]
+    currency: Literal["SGD"]
+    emission_factor: float
+    factor_unit: Literal["kgCO2e/SGD"]
+    factor_source: str
+    price_index_source: str
+
+
+class Method3CalculateResponse(StrictApiModel):
+    invoice_id: str
+    purchase_description: str
+    original_spend_sgd: float
+    normalized_spend_sgd: float
+    adjustment_factor: float
+    adjustment_percent: float
+    estimated_emissions_kgco2e: float
+    estimated_emissions_tco2e: float
+    calculated_at: str
+    basis: Method3CalculationBasis

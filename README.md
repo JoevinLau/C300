@@ -12,7 +12,7 @@ required reference data is unavailable.
 | NAICS mapping | Available | Map suppliers, companies, and spend categories to NAICS codes. |
 | USEEIO / Method 1 | Available | Allocate invoice spend and apply NAICS emission factors. |
 | Method 2 | Available | Combine activity data with supplier-document evidence and grounded RAG chat. |
-| Method 3 | Planned | Shown in the UI but not implemented. |
+| Method 3 | Available | Normalise invoice spend to 2025 SGD and apply country-specific Open CEDA purchaser-price factors. |
 
 Calculation history is stored locally in SQLite. Method 2 documents are kept in
 assessment-scoped, versioned local indexes with atomic writes and backup
@@ -130,12 +130,49 @@ The manual backend defaults to `http://127.0.0.1:8000`. Useful endpoints:
 | `POST` | `/calculate` | Method 1 calculation. |
 | `GET` | `/method2/machines` | Method 2 machine reference data. |
 | `POST` | `/method2/calculate` | Method 2 calculation. |
+| `GET` | `/method3/reference-data` | Active Open CEDA countries, sectors, dataset, and purchase types. |
+| `GET` | `/method3/basis` | Read-only factor and annual-average price-index basis for a selection. |
+| `POST` | `/method3/calculate` | Method 3 Open CEDA spend-based calculation. |
 | `POST/GET/DELETE` | `/rag/documents` | Manage workspace documents. |
 | `POST` | `/method2-chat` | Grounded retrieval and answer generation. |
 | `POST` | `/ecotransit` | Transport calculation. |
 
 Interactive API documentation is available at `/docs` while FastAPI is
 running.
+
+## Method 3 reference data
+
+Method 3 uses the active Open CEDA dataset in 2025 SGD purchaser prices. Invoice
+spend is normalised with the selected SingStat monthly manufactured-goods index
+and the arithmetic average of all 12 months in the 2025 reference year.
+
+Apply the additive Method 3 schema migration:
+
+```powershell
+python scripts/apply_method3_schema.py
+```
+
+Validate and import Open CEDA 2025. The importer validates workbook sheets and
+source fields, retains dataset versions, and activates a version only after the
+complete country-sector factor import succeeds:
+
+```powershell
+python scripts/import_open_ceda.py --workbook "DB/Open CEDA 2025.xlsx" --dry-run
+python scripts/import_open_ceda.py --workbook "DB/Open CEDA 2025.xlsx"
+```
+
+Synchronise the Import Price Index and Domestic Supply Price Index monthly
+Manufactured Goods series from the official SingStat API:
+
+```powershell
+python scripts/sync_singstat_price_indices.py --dry-run
+python scripts/sync_singstat_price_indices.py
+```
+
+The imported Open CEDA dataset retains the required `CEDA by Watershed`
+attribution and source license metadata. Calculation history stores the exact
+factor, purchase-month index, and 2025 annual-average reference index snapshots
+needed to reproduce an earlier result.
 
 ## Windows installer
 

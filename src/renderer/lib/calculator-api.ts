@@ -7,6 +7,11 @@ import type {
   Method2CalculateRequest,
   Method2CalculateResponse,
   Method2MachineReference,
+  Method3BasisRequest,
+  Method3CalculateRequest,
+  Method3CalculateResponse,
+  Method3CalculationBasis,
+  Method3ReferenceDataResponse,
   NaicsOption,
 } from '../../shared/calculator-types'
 import { requestLocalApi } from './local-api.ts'
@@ -20,6 +25,11 @@ export type {
   Method2CalculateRequest,
   Method2CalculateResponse,
   Method2MachineReference,
+  Method3BasisRequest,
+  Method3CalculateRequest,
+  Method3CalculateResponse,
+  Method3CalculationBasis,
+  Method3ReferenceDataResponse,
   NaicsOption,
 }
 
@@ -79,6 +89,42 @@ export async function calculateMethod2(
   })
 
   return body as Method2CalculateResponse
+}
+
+export async function fetchMethod3ReferenceData(): Promise<Method3ReferenceDataResponse> {
+  if (window.electronAPI?.backend) {
+    return window.electronAPI.backend.listMethod3ReferenceData()
+  }
+  return requestLocalApi({ path: '/method3/reference-data' }) as Promise<Method3ReferenceDataResponse>
+}
+
+export async function fetchMethod3Basis(
+  payload: Method3BasisRequest,
+): Promise<Method3CalculationBasis> {
+  if (window.electronAPI?.backend) {
+    return window.electronAPI.backend.getMethod3Basis(payload)
+  }
+  const query = new URLSearchParams({
+    purchase_year: String(payload.purchase_year),
+    purchase_month: String(payload.purchase_month),
+    purchase_type: payload.purchase_type,
+    country_code: payload.country_code,
+    sector_code: payload.sector_code,
+  })
+  return requestLocalApi({ path: `/method3/basis?${query.toString()}` }) as Promise<Method3CalculationBasis>
+}
+
+export async function calculateMethod3(
+  payload: Method3CalculateRequest,
+): Promise<Method3CalculateResponse> {
+  if (window.electronAPI?.backend) {
+    return window.electronAPI.backend.calculateMethod3(payload)
+  }
+  return requestLocalApi({
+    path: '/method3/calculate',
+    method: 'POST',
+    json: payload,
+  }) as Promise<Method3CalculateResponse>
 }
 
 export async function fetchNaicsOptions(): Promise<NaicsOption[]> {

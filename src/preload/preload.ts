@@ -38,6 +38,12 @@ const electronApi: ElectronApi = {
       ipcRenderer.invoke(BACKEND_CHANNELS.deleteDocument, workspaceId, documentId),
     sendMethod2Chat: (request) =>
       ipcRenderer.invoke(BACKEND_CHANNELS.sendMethod2Chat, request),
+    listMethod3ReferenceData: () =>
+      ipcRenderer.invoke(BACKEND_CHANNELS.listMethod3ReferenceData),
+    getMethod3Basis: (request) =>
+      ipcRenderer.invoke(BACKEND_CHANNELS.getMethod3Basis, request),
+    calculateMethod3: (request) =>
+      ipcRenderer.invoke(BACKEND_CHANNELS.calculateMethod3, request),
   },
   history: {
     save: (input: SaveCalculationHistoryInput) =>

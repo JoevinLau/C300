@@ -202,3 +202,93 @@ export interface Method2CalculateResponse {
   }
   notes: Record<string, string>
 }
+
+export type Method3PurchaseType =
+  | 'imported_raw_material'
+  | 'local_processing'
+  | 'overseas_processing'
+
+export interface Method3Country {
+  code: string
+  name: string
+}
+
+export interface Method3Sector {
+  code: string
+  name: string
+  naics_code?: string | null
+}
+
+export interface Method3PurchaseTypeOption {
+  code: Method3PurchaseType
+  label: string
+  price_index_type: string
+  price_index_label: string
+}
+
+export interface Method3DatasetSummary {
+  version: string
+  reference_price_year: number
+  currency: 'SGD'
+  price_basis: 'purchaser_price'
+  release_date?: string | null
+  attribution: string
+}
+
+export interface Method3ReferenceDataResponse {
+  dataset: Method3DatasetSummary
+  countries: Method3Country[]
+  sectors: Method3Sector[]
+  purchase_types: Method3PurchaseTypeOption[]
+}
+
+export interface Method3BasisRequest {
+  purchase_year: number
+  purchase_month: number
+  purchase_type: Method3PurchaseType
+  country_code: string
+  sector_code: string
+}
+
+export interface Method3CalculationBasis {
+  dataset_version: string
+  country_code: string
+  country_name: string
+  sector_code: string
+  sector_name: string
+  purchase_type: Method3PurchaseType
+  purchase_type_label: string
+  price_index_type: string
+  price_index_label: string
+  purchase_period: string
+  purchase_index: number
+  reference_price_year: number
+  reference_index: number
+  reference_index_method: 'annual_average'
+  index_base_year: number
+  price_basis: 'purchaser_price'
+  currency: 'SGD'
+  emission_factor: number
+  factor_unit: 'kgCO2e/SGD'
+  factor_source: string
+  price_index_source: string
+}
+
+export interface Method3CalculateRequest extends Method3BasisRequest {
+  invoice_id: string
+  purchase_description: string
+  invoice_amount_sgd: number
+}
+
+export interface Method3CalculateResponse {
+  invoice_id: string
+  purchase_description: string
+  original_spend_sgd: number
+  normalized_spend_sgd: number
+  adjustment_factor: number
+  adjustment_percent: number
+  estimated_emissions_kgco2e: number
+  estimated_emissions_tco2e: number
+  calculated_at: string
+  basis: Method3CalculationBasis
+}

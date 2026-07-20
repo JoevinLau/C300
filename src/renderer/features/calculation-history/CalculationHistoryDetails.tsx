@@ -20,6 +20,8 @@ import type {
   CalculationCategory,
   Method2CalculateRequest,
   Method2CalculateResponse,
+  Method3CalculateRequest,
+  Method3CalculateResponse,
 } from '../../../shared/calculator-types'
 import type {
   CalculationHistoryDetail,
@@ -78,6 +80,12 @@ type Method2HistoryDetail = CalculationHistoryDetail & {
   method: 'method2'
   request: Method2CalculateRequest
   result: Method2CalculateResponse
+}
+
+type Method3HistoryDetail = CalculationHistoryDetail & {
+  method: 'method3'
+  request: Method3CalculateRequest
+  result: Method3CalculateResponse
 }
 
 function formatKg(value: number): string {
@@ -439,9 +447,63 @@ function Method2Details({ record }: { record: Method2HistoryDetail }) {
   )
 }
 
+function Method3Details({ record }: { record: Method3HistoryDetail }) {
+  const { request, result } = record
+  const basis = result.basis
+  return (
+    <div className="space-y-6">
+      <section className="space-y-3">
+        <SectionHeading eyebrow="Snapshot" title="Method 3 calculation basis" />
+        <div className="grid grid-cols-2 gap-2">
+          <Metric label="Original spend" value={sgd.format(result.original_spend_sgd)} />
+          <Metric label="Normalised spend" value={sgd.format(result.normalized_spend_sgd)} />
+          <Metric label="Purchase period" value={basis.purchase_period} />
+          <Metric label="Dataset" value={basis.dataset_version} />
+          <Metric label="Country" value={`${basis.country_code} · ${basis.country_name}`} />
+          <Metric label="Sector" value={basis.sector_code} />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <SectionHeading eyebrow="Price normalisation" title="Saved SingStat index snapshot" />
+        <Card className="gap-0 py-0 shadow-none">
+          <CardContent className="space-y-3 px-4 py-4">
+            <p className="text-sm text-zinc-700">{basis.price_index_label}</p>
+            <div className="grid grid-cols-2 gap-2">
+              <Metric label="Purchase index" value={preciseNumber.format(basis.purchase_index)} />
+              <Metric label={`${basis.reference_price_year} annual average`} value={preciseNumber.format(basis.reference_index)} />
+            </div>
+            <p className="rounded-md bg-zinc-100 p-3 font-mono text-xs leading-5 text-zinc-700">
+              {sgd.format(request.invoice_amount_sgd)} × {preciseNumber.format(basis.reference_index)} ÷ {preciseNumber.format(basis.purchase_index)} = {sgd.format(result.normalized_spend_sgd)}
+            </p>
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="space-y-3">
+        <SectionHeading eyebrow="Open CEDA" title="Country-specific factor snapshot" />
+        <Card className="gap-0 py-0 shadow-none">
+          <CardContent className="space-y-3 px-4 py-4">
+            <p className="font-semibold text-zinc-950">{basis.sector_code} · {basis.sector_name}</p>
+            <p className="text-sm text-zinc-600">{basis.country_name} · Purchaser Price · SGD</p>
+            <p className="font-mono text-sm text-lime-800">{preciseNumber.format(basis.emission_factor)} kgCO2e/SGD</p>
+            <div className="rounded-md bg-lime-100 p-3 font-mono text-sm font-semibold text-lime-950">
+              {sgd.format(result.normalized_spend_sgd)} × {preciseNumber.format(basis.emission_factor)} = {formatKg(result.estimated_emissions_kgco2e)}
+            </div>
+          </CardContent>
+        </Card>
+      </section>
+    </div>
+  )
+}
+
 export function CalculationHistoryDetails({ record }: { record: CalculationHistoryDetail }) {
   if (record.method === 'useeio') {
     return <UseeioDetails record={record as UseeioHistoryDetail} />
+  }
+
+  if (record.method === 'method3') {
+    return <Method3Details record={record as Method3HistoryDetail} />
   }
 
   return <Method2Details record={record as Method2HistoryDetail} />

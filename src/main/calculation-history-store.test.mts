@@ -141,6 +141,77 @@ function createMethod2Input() {
   }
 }
 
+function createMethod3Input() {
+  return {
+    method: 'method3',
+    request: {
+      invoice_id: 'INV-M3-001',
+      purchase_description: 'Imported aluminium block',
+      purchase_year: 2026,
+      purchase_month: 5,
+      invoice_amount_sgd: 20_000,
+      purchase_type: 'imported_raw_material',
+      country_code: 'CHN',
+      sector_code: '331313',
+    },
+    result: {
+      invoice_id: 'INV-M3-001',
+      purchase_description: 'Imported aluminium block',
+      original_spend_sgd: 20_000,
+      normalized_spend_sgd: 18_789.14,
+      adjustment_factor: 0.939457,
+      adjustment_percent: -6.0543,
+      estimated_emissions_kgco2e: 32_714.62,
+      estimated_emissions_tco2e: 32.71462,
+      calculated_at: '2026-07-21T00:00:00.000Z',
+      basis: {
+        dataset_version: 'CEDA 2025',
+        country_code: 'CHN',
+        country_name: 'China',
+        sector_code: '331313',
+        sector_name: 'Alumina refining and primary aluminum production',
+        purchase_type: 'imported_raw_material',
+        purchase_type_label: 'Imported Raw Material',
+        price_index_type: 'import_manufactured_goods',
+        price_index_label: 'Import Price Index - Manufactured Goods',
+        purchase_period: 'May 2026',
+        purchase_index: 101.088,
+        reference_price_year: 2025,
+        reference_index: 94.967833,
+        reference_index_method: 'annual_average',
+        index_base_year: 2023,
+        price_basis: 'purchaser_price',
+        currency: 'SGD',
+        emission_factor: 1.741145,
+        factor_unit: 'kgCO2e/SGD',
+        factor_source: 'Open CEDA',
+        price_index_source: 'Singapore Department of Statistics',
+      },
+    },
+  }
+}
+
+test('stores a reproducible Method 3 factor and index snapshot', (t) => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'c300-history-method3-'))
+  const databasePath = path.join(directory, 'history.sqlite3')
+  const store = new CalculationHistoryStore(databasePath, {
+    createId: () => 'history-method3',
+    now: () => new Date('2026-07-21T01:00:00.000Z'),
+  })
+  t.after(() => {
+    store.close()
+    rmSync(directory, { force: true, recursive: true })
+  })
+
+  const saved = store.save(createMethod3Input())
+  assert.equal(saved.method, 'method3')
+  assert.equal(saved.totalAmountSgd, 20_000)
+  assert.equal(saved.totalEmissionsKgCo2e, 32_714.62)
+  assert.equal(saved.transport, null)
+  assert.equal(saved.result.basis.reference_index_method, 'annual_average')
+  assert.equal(saved.result.basis.emission_factor, 1.741145)
+})
+
 test('persists immutable calculation snapshots and supports method pagination', (t) => {
   const directory = mkdtempSync(path.join(tmpdir(), 'c300-history-'))
   const databasePath = path.join(directory, 'history.sqlite3')

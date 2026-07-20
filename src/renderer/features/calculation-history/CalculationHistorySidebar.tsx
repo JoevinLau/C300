@@ -10,6 +10,7 @@ import {
   Loader2,
   RefreshCw,
   SearchX,
+  Workflow,
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -61,6 +62,7 @@ const filters: Array<{ id: HistoryFilter; label: string }> = [
   { id: 'all', label: 'All' },
   { id: 'useeio', label: 'USEEIO' },
   { id: 'method2', label: 'Method 2' },
+  { id: 'method3', label: 'Method 3' },
 ]
 
 function parseDate(value: string): Date | null {
@@ -75,11 +77,12 @@ function formatDate(value: string, detailed = false): string {
 }
 
 function getMethodLabel(method: CalculationHistoryMethod): string {
-  return method === 'useeio' ? 'USEEIO' : 'Method 2'
+  if (method === 'useeio') return 'USEEIO'
+  return method === 'method2' ? 'Method 2' : 'Method 3'
 }
 
 function MethodMark({ method }: { method: CalculationHistoryMethod }) {
-  const Icon = method === 'useeio' ? FileSpreadsheet : Factory
+  const Icon = method === 'useeio' ? FileSpreadsheet : method === 'method2' ? Factory : Workflow
 
   return (
     <span
@@ -87,7 +90,9 @@ function MethodMark({ method }: { method: CalculationHistoryMethod }) {
         'flex size-9 shrink-0 items-center justify-center rounded-md border',
         method === 'useeio'
           ? 'border-lime-500/20 bg-lime-100 text-lime-800'
-          : 'border-teal-500/20 bg-teal-100 text-teal-800',
+          : method === 'method2'
+            ? 'border-teal-500/20 bg-teal-100 text-teal-800'
+            : 'border-amber-500/20 bg-amber-100 text-amber-800',
       )}
     >
       <Icon className="size-4" />
@@ -128,7 +133,11 @@ function TimelineItem({
         aria-hidden="true"
         className={cn(
           'absolute top-6 left-0 z-10 size-4 rounded-full border-[3px] border-white ring-1 ring-zinc-900/15 transition-colors',
-          item.method === 'useeio' ? 'bg-lime-500 group-hover:bg-lime-600' : 'bg-teal-500 group-hover:bg-teal-600',
+          item.method === 'useeio'
+            ? 'bg-lime-500 group-hover:bg-lime-600'
+            : item.method === 'method2'
+              ? 'bg-teal-500 group-hover:bg-teal-600'
+              : 'bg-amber-500 group-hover:bg-amber-600',
         )}
       />
       <Button
@@ -148,7 +157,9 @@ function TimelineItem({
                       'rounded-full px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-[0.1em]',
                       item.method === 'useeio'
                         ? 'bg-lime-100 text-lime-800'
-                        : 'bg-teal-100 text-teal-800',
+                        : item.method === 'method2'
+                          ? 'bg-teal-100 text-teal-800'
+                          : 'bg-amber-100 text-amber-800',
                     )}
                   >
                     {getMethodLabel(item.method)}
@@ -200,7 +211,7 @@ function EmptyState({ filter }: { filter: HistoryFilter }) {
       <p className="mt-2 text-sm leading-6 text-zinc-500">
         {isFiltered
           ? 'Choose another filter or complete a new calculation using this method.'
-          : 'Complete a USEEIO or Method 2 calculation and its saved snapshot will appear here.'}
+          : 'Complete a USEEIO, Method 2, or Method 3 calculation and its saved snapshot will appear here.'}
       </p>
     </div>
   )

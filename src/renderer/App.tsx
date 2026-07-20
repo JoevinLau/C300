@@ -23,6 +23,7 @@ import {
 
 const Method1Page = lazy(() => import('@/features/method1/Method1Page'))
 const Method2Page = lazy(() => import('@/features/method2/Method2Page'))
+const Method3Page = lazy(() => import('@/features/method3/Method3Page'))
 const NaicsMappingPage = lazy(() => import('@/features/naics-mapping/NaicsMappingPage'))
 
 const modules = [
@@ -59,7 +60,7 @@ const modules = [
     icon: Workflow,
     title: 'Method 3',
     href: '#method-3',
-    disabled: true,
+    disabled: false,
     description:
       'Calculate spend-based emissions using purchase amounts and mapped sector emission factors.',
   },
@@ -195,6 +196,7 @@ function App() {
   if (route === '#naics-mapping') page = <NaicsMappingPage />
   if (route === '#method-1') page = <Method1Page onHistorySaved={refreshHistory} />
   if (route === '#method-2') page = <Method2Page onHistorySaved={refreshHistory} />
+  if (route === '#method-3') page = <Method3Page onHistorySaved={refreshHistory} />
 
   return (
     <>

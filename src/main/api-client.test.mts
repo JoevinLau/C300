@@ -20,6 +20,19 @@ test('allows known backend routes and rejects arbitrary URLs', async () => {
     assert.deepEqual(result, { machines: [] })
     assert.equal(requests[0]?.url, 'http://127.0.0.1:8000/method2/machines')
 
+    await requestLocalApi({ path: '/method3/reference-data' })
+    await requestLocalApi({
+      path: '/method3/basis?purchase_year=2026&purchase_month=5',
+    })
+    await requestLocalApi({ path: '/method3/calculate', method: 'POST', json: {} })
+    assert.equal(requests[1]?.url, 'http://127.0.0.1:8000/method3/reference-data')
+    assert.equal(
+      requests[2]?.url,
+      'http://127.0.0.1:8000/method3/basis?purchase_year=2026&purchase_month=5',
+    )
+    assert.equal(requests[3]?.url, 'http://127.0.0.1:8000/method3/calculate')
+    assert.equal(requests[3]?.init?.method, 'POST')
+
     await assert.rejects(
       requestLocalApi({ path: 'https://example.com/steal-data' }),
       /route is not allowed/,
@@ -28,7 +41,7 @@ test('allows known backend routes and rejects arbitrary URLs', async () => {
       requestLocalApi({ path: '/unapproved', method: 'POST', json: {} }),
       /route is not allowed/,
     )
-    assert.equal(requests.length, 1)
+    assert.equal(requests.length, 4)
   } finally {
     globalThis.fetch = originalFetch
   }

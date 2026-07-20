@@ -61,5 +61,18 @@ export function createBackendHandlers({
       }),
     sendMethod2Chat: (chatRequest) =>
       request({ path: '/method2-chat', method: 'POST', json: chatRequest }),
+    listMethod3ReferenceData: () => request({ path: '/method3/reference-data' }),
+    getMethod3Basis: (basisRequest) => {
+      const query = new URLSearchParams({
+        purchase_year: String(basisRequest.purchase_year),
+        purchase_month: String(basisRequest.purchase_month),
+        purchase_type: basisRequest.purchase_type,
+        country_code: basisRequest.country_code,
+        sector_code: basisRequest.sector_code,
+      })
+      return request({ path: `/method3/basis?${query.toString()}` })
+    },
+    calculateMethod3: (method3Request) =>
+      request({ path: '/method3/calculate', method: 'POST', json: method3Request }),
   }
 }
