@@ -58,8 +58,8 @@ pnpm install
 Create the API environment:
 
 ```sh
-python3 -m venv api/venv
-source api/venv/bin/activate
+python3 -m venv .venv-api
+source .venv-api/bin/activate
 python -m pip install -r api/requirements.txt
 ```
 
@@ -116,7 +116,7 @@ stored under Electron's platform-specific `userData` directory.
 Run FastAPI by itself when working only on the backend:
 
 ```sh
-source api/venv/bin/activate
+source .venv-api/bin/activate
 python api/main.py
 ```
 
@@ -180,7 +180,7 @@ build/                  PyInstaller and installer configuration
 ### Backend or calculation unavailable
 
 - Wait for `FastAPI is ready` in the development terminal.
-- Confirm `api/venv` exists and contains every package in
+- Confirm `.venv-api` exists and contains every package in
   `api/requirements.txt`.
 - Verify the database variables and required reference tables. The app does not
   substitute development constants when authoritative data is unavailable.

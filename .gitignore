@@ -2,6 +2,7 @@
 node_modules/
 .pnpm-store/
 .venv-api/
+.venv/
 .uv-cache/
 .uv-python/
 .playwright-browsers/
@@ -10,6 +11,12 @@ api/venv/
 venv/
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage/
+htmlcov/
 
 # Build output
 out/
@@ -21,8 +28,10 @@ rag-data/
 result.html
 result.png
 before_singapore_click.png
-__pycache__/
-*.pyc
+all_text.txt
+electron.vite.config.*.mjs
+calculation/prototypes/emission_results_*.xlsx
+calculation/prototypes/final_emission_output.xlsx
 
 # Vite / tooling caches
 .vite/
@@ -44,6 +53,7 @@ yarn-error.log*
 .env
 .env.*
 !.env.example
+*.local.json
 
 # OS / editor files
 .DS_Store
