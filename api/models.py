@@ -322,6 +322,7 @@ class EcoTransitTransport(StrictApiModel):
     chosen_emissions_kg: float | None = None
     distance_km: float | None = None
     energy_mj: float | None = None
+    route_legs: list[dict[str, Any]] | None = None
     source: str
     estimated: bool
     raw: dict[str, Any]

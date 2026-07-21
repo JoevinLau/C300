@@ -5,14 +5,23 @@ import { createBackendHandlers } from './backend-ipc.ts'
 
 test('maps named capabilities to fixed backend routes', async () => {
   const requests: unknown[] = []
+  const options: unknown[] = []
   const handlers = createBackendHandlers({
     calculate: async (payload) => payload as never,
-    request: async (request) => {
+    request: async (request, requestOptions) => {
       requests.push(request)
+      options.push(requestOptions)
       return null as never
     },
   })
 
+  await handlers.calculateTransport({
+    origin_country: 'South Korea',
+    port_of_loading: 'Port of Busan',
+    port_of_discharge: 'Singapore',
+    weight_kg: 100,
+    transport_mode: 'sea',
+  })
   await handlers.searchNaics('steel & alloy')
   await handlers.deleteDocument('workspace/a', 'document?b')
   await handlers.confirmNaics('steel', '331110')
@@ -25,6 +34,17 @@ test('maps named capabilities to fixed backend routes', async () => {
   })
 
   assert.deepEqual(requests, [
+    {
+      path: '/ecotransit',
+      method: 'POST',
+      json: {
+        origin_country: 'South Korea',
+        port_of_loading: 'Port of Busan',
+        port_of_discharge: 'Singapore',
+        weight_kg: 100,
+        transport_mode: 'sea',
+      },
+    },
     { path: '/api/naics/search?q=steel%20%26%20alloy' },
     {
       path: '/rag/documents/document%3Fb?workspace_id=workspace%2Fa',
@@ -42,6 +62,13 @@ test('maps named capabilities to fixed backend routes', async () => {
     {
       path: '/method3/basis?purchase_year=2026&purchase_month=5&purchase_type=imported_raw_material&country_code=CHN&sector_code=331313',
     },
+  ])
+  assert.deepEqual(options, [
+    { timeoutMs: 180_000 },
+    undefined,
+    undefined,
+    undefined,
+    undefined,
   ])
 })
 

@@ -84,11 +84,19 @@ Optional settings:
 DB_POOL_SIZE=3
 ECOTRANSIT_API_URL=https://your-licensed-endpoint.example/calculate
 ECOTRANSIT_API_TOKEN=your_token
+ECOTRANSIT_ENABLE_SCRAPER=0
+ECOTRANSIT_USERNAME=your_ecotransit_web_username
+ECOTRANSIT_PASSWORD=your_ecotransit_web_password
 RAG_EMBEDDING_MODEL=text-embedding-3-small
 RAG_CHAT_MODEL=gpt-4.1-mini
 RAG_TOP_K=6
 RAG_SCORE_THRESHOLD=0.25
 ```
+
+Set `ECOTRANSIT_ENABLE_SCRAPER=1` to use the Playwright web scraper when
+licensed EcoTransit API credentials are not configured. The scraper depends on
+the public calculator remaining accessible. If EcoTransit redirects to sign-in,
+also set `ECOTRANSIT_USERNAME` and `ECOTRANSIT_PASSWORD`.
 
 Start the desktop app:
 

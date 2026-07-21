@@ -2,13 +2,15 @@ import type { BackendCapabilities } from '../shared/backend-capabilities'
 import type { CalculateRequest, CalculateResponse } from '../shared/calculator-types'
 import type { LocalApiRequest } from '../shared/local-api-types'
 
+const TRANSPORT_TIMEOUT_MS = 180_000
+
 export type BackendHandlerMap = {
   [Key in keyof BackendCapabilities]: BackendCapabilities[Key]
 }
 
 export interface BackendHandlerDependencies {
   calculate(payload: CalculateRequest): Promise<CalculateResponse>
-  request<T>(request: LocalApiRequest): Promise<T>
+  request<T>(request: LocalApiRequest, options?: { timeoutMs?: number }): Promise<T>
 }
 
 export function createBackendHandlers({
@@ -18,7 +20,10 @@ export function createBackendHandlers({
   return {
     calculateUseeio: calculate,
     calculateTransport: (payload) =>
-      request({ path: '/ecotransit', method: 'POST', json: payload }),
+      request(
+        { path: '/ecotransit', method: 'POST', json: payload },
+        { timeoutMs: TRANSPORT_TIMEOUT_MS },
+      ),
     listMethod2Machines: () => request({ path: '/method2/machines' }),
     calculateMethod2: (payload) =>
       request({ path: '/method2/calculate', method: 'POST', json: payload }),

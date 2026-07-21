@@ -127,6 +127,12 @@ export interface EcoTransitResponse {
     chosen_emissions_kg: number | null
     distance_km: number | null
     energy_mj: number | null
+    route_legs?: Array<{
+      from: string
+      to: string
+      distance_km: number | null
+      emissions_kg: number | null
+    }>
     source: string
     estimated: boolean
     raw: Record<string, unknown>

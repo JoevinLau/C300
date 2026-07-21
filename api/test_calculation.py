@@ -14,6 +14,7 @@ if str(API_DIR) not in sys.path:
     sys.path.insert(0, str(API_DIR))
 
 import main
+from ecotransit_scraper import _parse_result_text
 import models
 import service
 from services.emissions import calculate_batch_emissions as calculate_batch_with_repository
@@ -406,6 +407,51 @@ class CalculationApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["transport"]["estimated"])
         self.assertIn("Local transport estimate", response.json()["transport"]["source"])
+
+    def test_transport_scraper_failure_explains_root_cause(self):
+        payload = {
+            "port_of_loading": "Port Klang",
+            "port_of_discharge": "Singapore",
+            "weight_kg": 100.0,
+            "transport_mode": "sea",
+            "origin_country": "Malaysia",
+        }
+        environment = {
+            "ECOTRANSIT_API_URL": "",
+            "ECOTRANSIT_API_TOKEN": "",
+            "ECOTRANSIT_ENABLE_SCRAPER": "1",
+        }
+
+        with (
+            patch.dict(main.os.environ, environment, clear=False),
+            patch.object(main, "calculate_ecotransit", side_effect=RuntimeError("sign-in required")),
+        ):
+            response = self.client.post("/ecotransit", json=payload)
+
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("sign-in required", response.text)
+
+    def test_transport_result_parser_keeps_route_legs_and_ignores_tonne_km(self):
+        result = _parse_result_text(
+            """
+            Port of Busan -> Shanghai
+            13.13 kg CO2e
+            832 km
+            Shanghai -> Singapore
+            40.96 kg CO2e
+            2595 km
+            4 286.4 tonne-km
+            CO2e [kg] 54.09
+            """
+        )
+
+        self.assertEqual(
+            result["route_legs"],
+            [
+                {"from": "Port of Busan", "to": "Shanghai", "distance_km": 832.0, "emissions_kg": 13.13},
+                {"from": "Shanghai", "to": "Singapore", "distance_km": 2595.0, "emissions_kg": 40.96},
+            ],
+        )
 
 
 if __name__ == "__main__":

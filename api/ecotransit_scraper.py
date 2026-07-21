@@ -3,8 +3,15 @@ import re
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+
 
 ECOTRANSIT_CALCULATOR_URL = "https://emissioncalculator.ecotransit.world/"
+API_DIR = Path(__file__).resolve().parent
+ROOT_DIR = API_DIR.parent
+
+load_dotenv(ROOT_DIR / ".env")
+load_dotenv(API_DIR / ".env", override=True)
 
 AIRPORT_SEARCH_OVERRIDES = {
     "port of shanghai": "Shanghai Pudong",
@@ -64,14 +71,78 @@ def _click_if_visible(page: Any, selector: str, timeout: int = 1500) -> None:
         pass
 
 
+def _add_route_section(page: Any) -> None:
+    for selector in (
+        "#create-section-button",
+        "vaadin-button#create-section-button",
+        "vaadin-button:has-text('Add')",
+        "button:has-text('Add')",
+        "text=Add section",
+    ):
+        try:
+            page.locator(selector).first.click(timeout=5000)
+            page.wait_for_timeout(1000)
+            return
+        except Exception:
+            pass
+
+
+def _is_auth_page(page: Any) -> bool:
+    current_url = page.url.lower()
+    return "openid-connect/auth" in current_url or "auth-1.ecotransit.org" in current_url
+
+
+def _complete_sign_in_if_needed(page: Any) -> None:
+    if not _is_auth_page(page):
+        return
+
+    username = os.getenv("ECOTRANSIT_USERNAME", "").strip()
+    password = os.getenv("ECOTRANSIT_PASSWORD", "").strip()
+    if not username or not password:
+        raise RuntimeError(
+            "EcoTransit public calculator requires sign-in before the scraper can access the location fields. "
+            "Set ECOTRANSIT_USERNAME and ECOTRANSIT_PASSWORD, or configure ECOTRANSIT_API_URL and "
+            "ECOTRANSIT_API_TOKEN for licensed EcoTransit results."
+        )
+
+    username_field = page.locator(
+        "input#username, input[name='username'], input[type='email']",
+    ).first
+    password_field = page.locator("input#password, input[name='password'], input[type='password']").first
+    username_field.wait_for(state="visible", timeout=15000)
+    username_field.fill(username)
+    password_field.fill(password)
+
+    for selector in (
+        "input#kc-login",
+        "button#kc-login",
+        "input[type='submit']",
+        "button[type='submit']",
+    ):
+        try:
+            page.locator(selector).first.click(timeout=5000)
+            break
+        except Exception:
+            pass
+    else:
+        page.get_by_role("button", name=re.compile("sign in|log in|login", re.IGNORECASE)).click(
+            timeout=5000,
+        )
+
+    try:
+        page.wait_for_load_state("networkidle", timeout=30000)
+    except Exception:
+        page.wait_for_load_state("domcontentloaded", timeout=30000)
+
+    if _is_auth_page(page):
+        raise RuntimeError(
+            "EcoTransit sign-in did not complete. Check ECOTRANSIT_USERNAME and ECOTRANSIT_PASSWORD."
+        )
+
+
 def _visible_location_input(page: Any, location_index: int) -> Any:
     page.wait_for_load_state("domcontentloaded")
-    current_url = page.url.lower()
-    if "openid-connect/auth" in current_url or "auth-1.ecotransit.org" in current_url:
-        raise RuntimeError(
-            "EcoTransit public calculator now requires sign-in, so the automated scraper cannot access the location fields. "
-            "Configure ECOTRANSIT_API_URL and ECOTRANSIT_API_TOKEN for licensed EcoTransit results."
-        )
+    _complete_sign_in_if_needed(page)
 
     location_inputs = page.locator("input[placeholder='Location']")
     try:
@@ -81,7 +152,7 @@ def _visible_location_input(page: Any, location_index: int) -> Any:
         pass
 
     if location_index > 0:
-        _click_if_visible(page, "#create-section-button", timeout=3000)
+        _add_route_section(page)
         try:
             location_inputs.nth(location_index).wait_for(state="visible", timeout=12000)
             return location_inputs.nth(location_index)
@@ -118,9 +189,10 @@ def _select_location(page: Any, input_index: int, text: str, transport_mode: str
 
     location_input = _visible_location_input(page, location_index)
     location_input.click(timeout=15000)
-    location_input.fill("")
-    location_input.press_sequentially(search_text, delay=80)
-    page.wait_for_timeout(3000)
+    page.keyboard.press("Control+A")
+    page.keyboard.press("Backspace")
+    location_input.press_sequentially(search_text, delay=250)
+    page.wait_for_timeout(6000)
 
     cells = page.locator("vaadin-grid-cell-content")
     try:
@@ -148,15 +220,21 @@ def _select_location(page: Any, input_index: int, text: str, transport_mode: str
     for preferred_type in type_priority:
         for row_start, row in rows:
             if len(row) >= 4 and row[2] == preferred_type:
-                if search_text.lower() in row[1].lower() or row[1].lower() in search_text.lower():
+                if search_text.lower() in row[1].lower():
                     cells.nth(row_start + 1).click(timeout=5000)
-                    page.wait_for_timeout(800)
+                    try:
+                        page.get_by_label("cancel location search").wait_for(state="detached", timeout=5000)
+                    except Exception:
+                        page.wait_for_timeout(800)
                     return
 
     for row_start, row in rows:
         if len(row) >= 2 and row[1]:
             cells.nth(row_start + 1).click(timeout=5000)
-            page.wait_for_timeout(800)
+            try:
+                page.get_by_label("cancel location search").wait_for(state="detached", timeout=5000)
+            except Exception:
+                page.wait_for_timeout(800)
             return
 
     raise RuntimeError(f"Could not select EcoTransit location result for '{text}'.")
@@ -189,7 +267,62 @@ def _click_calculate(page: Any) -> None:
     page.get_by_role("button", name=re.compile("calculate", re.IGNORECASE)).click(timeout=10000)
 
 
-def _parse_result_text(text: str) -> dict[str, float | None]:
+def _parse_route_legs(text: str) -> list[dict[str, Any]]:
+    route_legs: list[dict[str, Any]] = []
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    leg_pattern = re.compile(
+        r"^(?P<from>.+?)\s*(?:->|→)\s*(?P<to>.+?)"
+        r"(?:\s+(?P<emissions>[\d\s.,]+)\s*kg\s*CO(?:2|₂)e?)?$",
+        flags=re.IGNORECASE,
+    )
+    measurement_words = {"km", "tonne", "tonne-km", "kg", "co2e", "mj"}
+
+    for index, line in enumerate(lines):
+        match = leg_pattern.match(line)
+        if not match:
+            continue
+
+        from_name = match.group("from").strip()
+        to_name = match.group("to").strip()
+        if len(from_name) < 2 or len(to_name) < 2:
+            continue
+        if from_name.lower() in measurement_words or to_name.lower() in measurement_words:
+            continue
+        if not re.search(r"[A-Za-z]", from_name) or not re.search(r"[A-Za-z]", to_name):
+            continue
+        if from_name.lower() in {"from", "origin"} or to_name.lower() in {"to", "destination"}:
+            continue
+
+        emissions_kg = _to_float(match.group("emissions") or "")
+        distance_km = None
+        for followup in lines[index + 1 : index + 4]:
+            distance_match = re.search(r"([\d\s.,]+)\s*km\b", followup, flags=re.IGNORECASE)
+            if distance_match:
+                distance_km = _to_float(distance_match.group(1))
+            if emissions_kg is None:
+                emissions_match = re.search(
+                    r"([\d\s.,]+)\s*kg\s*CO(?:2|₂)e?",
+                    followup,
+                    flags=re.IGNORECASE,
+                )
+                if emissions_match:
+                    emissions_kg = _to_float(emissions_match.group(1))
+            if distance_km is not None and emissions_kg is not None:
+                break
+
+        route_legs.append(
+            {
+                "from": from_name,
+                "to": to_name,
+                "distance_km": distance_km,
+                "emissions_kg": emissions_kg,
+            }
+        )
+
+    return route_legs
+
+
+def _parse_result_text(text: str) -> dict[str, Any]:
     distance_km = _first_number(
         [
             r"([\d\s.,]+)\s*km\s*[\r\n]+\s*[\d\s.,]+\s*tonne-km",
@@ -217,6 +350,7 @@ def _parse_result_text(text: str) -> dict[str, float | None]:
         "distance_km": distance_km,
         "co2e_kg": co2e_kg,
         "energy_mj": energy_mj,
+        "route_legs": _parse_route_legs(text),
     }
 
 
@@ -225,7 +359,7 @@ def calculate_ecotransit(
     weight_kg: float,
     port_of_discharge: str = "Singapore",
     transport_mode: str = "sea",
-) -> dict[str, float | None]:
+) -> dict[str, Any]:
     if not port_of_loading.strip():
         raise ValueError("port_of_loading is required")
     if not port_of_discharge.strip():

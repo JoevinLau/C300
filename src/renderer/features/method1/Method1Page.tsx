@@ -245,7 +245,6 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
   const loadingPortOptions = selectedTransportPort?.loadingPorts ?? []
   const routeProcess = [
     transportPortOfLoading.trim() || 'Port of loading',
-    ...(selectedTransportPort?.intermediatePorts ?? []),
     transportPortOfDischarge.trim() || PORT_OF_DISCHARGE,
   ]
   const routeLegs = buildRouteLegEmissions(routeProcess, transportMode, transportResult)

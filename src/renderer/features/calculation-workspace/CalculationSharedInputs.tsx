@@ -267,6 +267,29 @@ export function buildRouteLegEmissions(
   _transportMode: string,
   transportResult: EcoTransitResponse | null,
 ): RouteLegEmission[] {
+  const actualRouteLegs = transportResult?.transport.route_legs?.filter((leg) => leg.from.trim() && leg.to.trim()) ?? []
+  if (actualRouteLegs.length > 0) {
+    return actualRouteLegs.map((leg) => ({
+      from: leg.from,
+      to: leg.to,
+      distanceKm: leg.distance_km,
+      emissionsKg: leg.emissions_kg,
+      estimated: false,
+    }))
+  }
+
+  if (transportResult?.transport) {
+    return [
+      {
+        from: transportResult.transport.port_of_loading,
+        to: transportResult.transport.port_of_discharge,
+        distanceKm: transportResult.transport.distance_km,
+        emissionsKg: transportResult.transport.chosen_emissions_kg,
+        estimated: false,
+      },
+    ]
+  }
+
   const routeLegs = routeProcess.slice(0, -1).map((from, index) => ({
     from,
     to: routeProcess[index + 1],
@@ -581,6 +604,8 @@ export function Method1SpendInputSections({
   showYearColumn = false,
   showAllocationStepBadge = true,
   showNaicsFactorDetails = false,
+  allocationAction = null,
+  allocationResult = null,
 }: {
   form: Record<Method1FormKey, string>
   hasInvoiceTotal: boolean
@@ -614,6 +639,8 @@ export function Method1SpendInputSections({
   showYearColumn?: boolean
   showAllocationStepBadge?: boolean
   showNaicsFactorDetails?: boolean
+  allocationAction?: React.ReactNode
+  allocationResult?: React.ReactNode
 }) {
   const categories = METHOD1_CATEGORIES.filter((cat) => visibleCategories.includes(cat.id))
   const categoryAmounts = categories.map((cat) => {
@@ -672,12 +699,12 @@ export function Method1SpendInputSections({
                 </CardDescription>
               </div>
             </div>
-            {showPresetButtons ? (
+            {allocationAction ?? (showPresetButtons ? (
               <div className="flex shrink-0 flex-wrap gap-2">
                 <Button type="button" variant="outline" size="sm" onClick={applyDefaultSplit} disabled={!hasInvoiceTotal}>50 / 35 / 15</Button>
                 <Button type="button" variant="ghost" size="sm" onClick={distributeEqually} disabled={!hasInvoiceTotal}>Split equally</Button>
               </div>
-            ) : null}
+            ) : null)}
           </div>
         </CardHeader>
         <CardContent className="space-y-5 py-5">
@@ -723,6 +750,8 @@ export function Method1SpendInputSections({
             <span className="font-mono font-semibold tabular-nums">{currency.format(allocationSum)}{hasInvoiceTotal ? ` / ${currency.format(totalSgd)}` : ''}</span>
           </div>
           ) : null}
+
+          {allocationResult}
 
           <div className="overflow-hidden rounded-lg border border-zinc-900/12">
             <div
@@ -881,7 +910,6 @@ export function Method1TransportationSection({
   const loadingPortOptions = selectedTransportPort?.loadingPorts ?? []
   const routeProcess = [
     transportPortOfLoading.trim() || 'Port of loading',
-    ...(selectedTransportPort?.intermediatePorts ?? []),
     transportPortOfDischarge.trim() || PORT_OF_DISCHARGE,
   ]
   const routeLegs = buildRouteLegEmissions(routeProcess, transportMode, transportResult)

@@ -494,7 +494,7 @@ def ecotransit(data: EcoTransitRequest):
             return estimate_transport_response(data, str(exc))
         raise HTTPException(
             status_code=502,
-            detail="EcoTransit could not calculate this route; no estimate was authorized.",
+            detail=f"EcoTransit could not calculate this route: {exc}",
         ) from exc
     except Exception as exc:
         logger.exception("EcoTransit scraper failed: %s", exc)
@@ -502,7 +502,7 @@ def ecotransit(data: EcoTransitRequest):
             return estimate_transport_response(data, "EcoTransit scraper failed.")
         raise HTTPException(
             status_code=502,
-            detail="EcoTransit could not calculate this route; no estimate was authorized.",
+            detail="EcoTransit scraper failed before returning a result.",
         ) from exc
 
     return {
@@ -515,6 +515,7 @@ def ecotransit(data: EcoTransitRequest):
             "chosen_emissions_kg": result.get("co2e_kg"),
             "distance_km": result.get("distance_km"),
             "energy_mj": result.get("energy_mj"),
+            "route_legs": result.get("route_legs"),
             "source": "EcoTransit World",
             "estimated": False,
             "raw": result,

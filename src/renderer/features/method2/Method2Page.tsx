@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type React from 'react'
 import {
   AlertCircle,
@@ -199,6 +199,24 @@ function buildComponents(projection: Method2ResultProjection | null, transportSu
       ],
     },
     {
+      id: 'surface',
+      label: 'Surface treatment',
+      description: 'Anodizing, plating, heat treatment, polishing, or coating.',
+      icon: Paintbrush,
+      source: 'Authoritative NAICS reference database',
+      formula: 'Cost -> FX -> GDP deflator -> NAICS factor -> emissions',
+      valueKg: emissionsByKey.get('surface_treatment') ?? 0,
+      confidence: 'Primary',
+      rowClass: 'border-rose-400/20 bg-rose-400/[0.04]',
+      barClass: 'bg-rose-400',
+      textClass: 'text-rose-700',
+      details: [
+        { label: 'NAICS proxy', value: surfaceTreatment?.naicsCode ?? 'Not calculated' },
+        { label: 'Cost basis', value: currency.format(surfaceTreatment?.amountSgd ?? 0) },
+        { label: 'Reuse', value: 'Method 1 compute_emissions' },
+      ],
+    },
+    {
       id: 'transport',
       label: 'Transportation',
       description: 'EcoTransit transport emissions copied from Method 1 behavior.',
@@ -232,24 +250,6 @@ function buildComponents(projection: Method2ResultProjection | null, transportSu
         { label: 'Machine', value: machiningEntry ? `${machiningEntry.machineType} / ${machiningEntry.dutyLevel}` : 'Not calculated' },
         { label: 'Hourly factor', value: machiningEntry ? `${machiningEntry.hourlyEmission} kg CO2e/hr` : 'Select machine' },
         { label: 'Grid source', value: machiningEntry?.gridSource ?? 'Not calculated' },
-      ],
-    },
-    {
-      id: 'surface',
-      label: 'Surface treatment',
-      description: 'Anodizing, plating, heat treatment, polishing, or coating.',
-      icon: Paintbrush,
-      source: 'Authoritative NAICS reference database',
-      formula: 'Cost -> FX -> GDP deflator -> NAICS factor -> emissions',
-      valueKg: emissionsByKey.get('surface_treatment') ?? 0,
-      confidence: 'Primary',
-      rowClass: 'border-rose-400/20 bg-rose-400/[0.04]',
-      barClass: 'bg-rose-400',
-      textClass: 'text-rose-700',
-      details: [
-        { label: 'NAICS proxy', value: surfaceTreatment?.naicsCode ?? 'Not calculated' },
-        { label: 'Cost basis', value: currency.format(surfaceTreatment?.amountSgd ?? 0) },
-        { label: 'Reuse', value: 'Method 1 compute_emissions' },
       ],
     },
   ]
@@ -314,6 +314,8 @@ function ResultsPanel({
 }
 
 export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
+  const resultsRef = useRef<HTMLDivElement>(null)
+  const scrollResultsAfterCalculate = useRef(false)
   const [workspaceId] = useState(createMethod2WorkspaceId)
   const [machineLibrary, setMachineLibrary] = useState<Method2MachineReference[]>([])
   const [machineLibraryError, setMachineLibraryError] = useState<string | null>(null)
@@ -430,6 +432,65 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
     () => buildComponents(resultProjection, transportSummary),
     [resultProjection, transportSummary],
   )
+  const costInputResult = useMemo(() => {
+    if (!resultProjection) return null
+    const rawMaterial = resultProjection.spendCategories.find((category) => category.key === 'raw_material')
+    const surfaceTreatment = resultProjection.spendCategories.find((category) => category.key === 'surface_treatment')
+    const costItems = [
+      rawMaterial
+        ? { ...rawMaterial, icon: Layers, textClass: 'text-lime-700', bgClass: 'bg-lime-400/10' }
+        : null,
+      surfaceTreatment
+        ? { ...surfaceTreatment, icon: Paintbrush, textClass: 'text-rose-700', bgClass: 'bg-rose-400/10' }
+        : null,
+    ].filter((item): item is NonNullable<typeof item> => Boolean(item))
+    const costTotal = costItems.reduce((sum, item) => sum + item.emissions, 0)
+
+    return (
+      <div className="rounded-lg border border-lime-500/25 bg-lime-50/70 px-4 py-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-lime-800">Cost input result</p>
+            <p className="mt-1 font-mono text-2xl font-semibold text-zinc-950">
+              {kg.format(costTotal)} kg CO2e
+            </p>
+          </div>
+          <p className="text-xs text-lime-900/70">Raw material + surface treatment</p>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {costItems.map((item) => {
+            const Icon = item.icon
+            return (
+              <div key={item.key} className="rounded-md border border-zinc-900/10 bg-white/80 px-3 py-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className={`flex size-7 shrink-0 items-center justify-center rounded-md ${item.bgClass}`}>
+                      <Icon className={`size-4 ${item.textClass}`} />
+                    </span>
+                    <span className="truncate text-sm font-medium text-zinc-900">{item.label}</span>
+                  </span>
+                  <span className={`shrink-0 font-mono text-sm font-semibold ${item.textClass}`}>
+                    {kg.format(item.emissions)} kg
+                  </span>
+                </div>
+                <p className="mt-1 font-mono text-xs text-muted-foreground">
+                  {currency.format(item.amountSgd)} x {item.factor.toFixed(4)} kgCO2e/USD
+                </p>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }, [resultProjection])
+
+  useEffect(() => {
+    if (!resultProjection || !scrollResultsAfterCalculate.current) return
+    scrollResultsAfterCalculate.current = false
+    requestAnimationFrame(() => {
+      resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }, [resultProjection])
 
   function invalidateMachiningResult() {
     setMachiningResult(null)
@@ -507,6 +568,110 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
     workspace.distributeEqually()
   }
 
+  function buildMethod2Request({
+    includeTransport,
+    includeMachining,
+  }: {
+    includeTransport: boolean
+    includeMachining: boolean
+  }): Method2CalculateRequest | null {
+    if (!allocationValid) {
+      workspace.calculation.fail('Enter at least one raw material or surface treatment amount before calculating Method 2.')
+      return null
+    }
+
+    if (includeTransport && !transportResult) {
+      workspace.calculation.fail('Calculate transport before calculating Method 2 so transportation is included.')
+      return null
+    }
+
+    const rawSum = rawItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.raw_material_sgd)
+    const surfSum = surfaceItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.surface_treatment_sgd)
+    const year = Number(form.year)
+    if (!isSupportedCalculationYear(year)) {
+      workspace.calculation.fail(
+        `Enter a valid assessment year from ${MIN_CALCULATION_YEAR} to ${MAX_CALCULATION_YEAR}.`,
+      )
+      return null
+    }
+
+    return {
+      part_id: form.invoice_id.trim() || demoPart.partId,
+      year,
+      raw_material_sgd: rawSum,
+      surface_treatment_sgd: surfSum,
+      naics: {
+        raw_material: (rawItems[0]?.naics ?? form.naics_raw_material).trim(),
+        fabrication: (fabItems[0]?.naics ?? form.naics_fabrication).trim(),
+        surface_treatment: (surfaceItems[0]?.naics ?? form.naics_surface_treatment).trim(),
+      },
+      transport_emissions_kg: includeTransport ? (transportResult?.transport?.chosen_emissions_kg ?? 0) : 0,
+      transport_source: includeTransport ? (transportResult?.transport.source ?? 'EcoTransit World') : 'Not included',
+      machining_entries: includeMachining
+        ? rows.map((row) => ({
+            machine_type: row.machineType,
+            duty_level: row.dutyLevel,
+            operating_hours: Number(row.operatingHours),
+          }))
+        : [],
+    }
+  }
+
+  async function runMethod2Calculation(
+    calculationRequest: Method2CalculateRequest,
+    {
+      saveHistory,
+      scrollToResults,
+    }: {
+      saveHistory: boolean
+      scrollToResults: boolean
+    },
+  ) {
+    scrollResultsAfterCalculate.current = scrollToResults
+    const response = await workspace.calculation.run(
+      () => calculateMethod2(calculationRequest),
+      async (response) => {
+        setResultRequest(calculationRequest)
+        setMachiningResult({
+          entries: response.machining.entries.map((entry, index) => ({
+            id: rows[index]?.id ?? `machine-result-${index}`,
+            machineType: entry.machineType,
+            dutyLevel: entry.dutyLevel,
+            operatingHours: entry.operatingHours,
+            avgKW: entry.avgKW,
+            hourlyEmission: entry.hourlyEmission,
+            emissions: entry.emissions,
+          })),
+          total: response.machining.total,
+        })
+        setMachiningError(null)
+
+        if (saveHistory) {
+          await saveCalculationHistory({
+            method: 'method2',
+            request: calculationRequest,
+            result: response,
+            transport: toCalculationHistoryTransport(transportResult),
+          })
+        }
+      },
+    )
+    if (!response) scrollResultsAfterCalculate.current = false
+  }
+
+  async function handleCostCalculate() {
+    workspace.calculation.prepare()
+    const calculationRequest = buildMethod2Request({
+      includeTransport: false,
+      includeMachining: false,
+    })
+    if (!calculationRequest) return
+    await runMethod2Calculation(calculationRequest, {
+      saveHistory: false,
+      scrollToResults: false,
+    })
+  }
+
   async function handleTransportCalculate(event?: React.SyntheticEvent) {
     if (event) event.preventDefault()
     await workspace.transport.run()
@@ -547,73 +712,15 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
 
   async function handleCalculate() {
     workspace.calculation.prepare()
-
-    if (!allocationValid) {
-      workspace.calculation.fail('Enter at least one raw material or surface treatment amount before calculating Method 2.')
-      return
-    }
-
-    if (!transportResult) {
-      workspace.calculation.fail('Calculate transport before calculating Method 2 so transportation is included.')
-      return
-    }
-
-    const rawSum = rawItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.raw_material_sgd)
-    const surfSum = surfaceItems.reduce((sum, item) => sum + parseAmount(item.amount), 0) || parseAmount(form.surface_treatment_sgd)
-    const year = Number(form.year)
-    if (!isSupportedCalculationYear(year)) {
-      workspace.calculation.fail(
-        `Enter a valid assessment year from ${MIN_CALCULATION_YEAR} to ${MAX_CALCULATION_YEAR}.`,
-      )
-      return
-    }
-
-    const transportEmissions = transportResult?.transport?.chosen_emissions_kg ?? 0
-
-    const calculationRequest = {
-      part_id: form.invoice_id.trim() || demoPart.partId,
-      year,
-      raw_material_sgd: rawSum,
-      surface_treatment_sgd: surfSum,
-      naics: {
-        raw_material: (rawItems[0]?.naics ?? form.naics_raw_material).trim(),
-        fabrication: (fabItems[0]?.naics ?? form.naics_fabrication).trim(),
-        surface_treatment: (surfaceItems[0]?.naics ?? form.naics_surface_treatment).trim(),
-      },
-      transport_emissions_kg: transportEmissions,
-      transport_source: transportResult.transport.source,
-      machining_entries: rows.map((row) => ({
-        machine_type: row.machineType,
-        duty_level: row.dutyLevel,
-        operating_hours: Number(row.operatingHours),
-      })),
-    }
-    await workspace.calculation.run(
-      () => calculateMethod2(calculationRequest),
-      async (response) => {
-        setResultRequest(calculationRequest)
-        setMachiningResult({
-          entries: response.machining.entries.map((entry, index) => ({
-            id: rows[index]?.id ?? `machine-result-${index}`,
-            machineType: entry.machineType,
-            dutyLevel: entry.dutyLevel,
-            operatingHours: entry.operatingHours,
-            avgKW: entry.avgKW,
-            hourlyEmission: entry.hourlyEmission,
-            emissions: entry.emissions,
-          })),
-          total: response.machining.total,
-        })
-        setMachiningError(null)
-
-        await saveCalculationHistory({
-          method: 'method2',
-          request: calculationRequest,
-          result: response,
-          transport: toCalculationHistoryTransport(transportResult),
-        })
-      },
-    )
+    const calculationRequest = buildMethod2Request({
+      includeTransport: true,
+      includeMachining: true,
+    })
+    if (!calculationRequest) return
+    await runMethod2Calculation(calculationRequest, {
+      saveHistory: true,
+      scrollToResults: true,
+    })
   }
 
   return (
@@ -714,6 +821,18 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
                   showYearColumn
                   showAllocationStepBadge={false}
                   showNaicsFactorDetails
+                  allocationResult={costInputResult}
+                  allocationAction={(
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handleCostCalculate}
+                      disabled={calculateLoading}
+                    >
+                      {calculateLoading ? <Loader2 className="animate-spin" /> : <Calculator />}
+                      Calculate emissions
+                    </Button>
+                  )}
                 />
 
                 <Method1TransportationSection
@@ -737,7 +856,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
                   handleTransportCalculate={handleTransportCalculate}
                 />
 
-                <Card className="gap-0 overflow-hidden border-zinc-900/12 bg-white py-0 shadow-sm">
+                <Card ref={resultsRef} className="gap-0 overflow-hidden border-zinc-900/12 bg-white py-0 shadow-sm">
                   <CardHeader className="border-b border-zinc-900/10 bg-[#faf8f1] px-5 py-4">
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3">
