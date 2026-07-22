@@ -1,7 +1,8 @@
 ﻿import { useState, useRef } from 'react'
-import { ArrowLeft, Upload, FileSpreadsheet, Check, X, AlertCircle, Loader2, Globe, Eye, Download, CheckCircle, RefreshCw } from 'lucide-react'
+import { Upload, FileSpreadsheet, Check, X, AlertCircle, Loader2, Globe, Eye, Download, CheckCircle, RefreshCw, DatabaseZap } from 'lucide-react'
 
 import { AppBackground } from '@/components/AppBackground'
+import { WorkspaceFrame, WorkspaceRail } from '@/components/WorkspaceShell'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -212,24 +213,21 @@ function NaicsMappingPage() {
 
   return (
     <AppBackground>
-      <section className="relative z-10 mx-auto grid min-h-[calc(100vh-2rem)] w-full max-w-7xl gap-4 lg:grid-cols-[16rem_1fr]">
-        <aside className="flex flex-col justify-between rounded-lg bg-zinc-950 p-5 text-white shadow-2xl shadow-zinc-950/20">
-          <div>
-            <a
-              href="#"
-              className="mb-6 flex size-10 items-center justify-center rounded-md bg-zinc-800 text-lime-300 transition-colors hover:bg-zinc-700"
-            >
-              <ArrowLeft className="size-5" />
-            </a>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-lime-300">Workspace</p>
-            <h1 className="mt-3 text-2xl font-semibold leading-tight tracking-tight">
-              NAICS Mapping
-            </h1>
-            <p className="text-sm leading-6 text-zinc-300">
-              Prepare company, supplier, or spend-category records by assigning NAICS codes before calculating sector-based carbon factors.
-            </p>
+      <WorkspaceFrame>
+        <WorkspaceRail
+          icon={DatabaseZap}
+          eyebrow="Data preparation"
+          title="NAICS mapping"
+          description="Assign sector codes to supplier and spend records before calculating emissions."
+        >
+          <div className="space-y-2 text-sm">
+            {['Upload source', 'Map columns', 'Match sectors', 'Review results'].map((label, index) => (
+              <div key={label} className={index + 1 === step ? 'font-semibold text-white' : 'text-zinc-400'}>
+                {label}
+              </div>
+            ))}
           </div>
-        </aside>
+        </WorkspaceRail>
 
         <div className="grid gap-4">
           {/* Step 1: Upload */}
@@ -608,7 +606,7 @@ function NaicsMappingPage() {
             </CardContent>
           </Card>
         </div>
-      </section>
+      </WorkspaceFrame>
     </AppBackground>
   )
 }

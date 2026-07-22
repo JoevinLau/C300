@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import {
   AlertCircle,
-  ArrowLeft,
   Calculator,
   CheckCircle2,
   CircleDollarSign,
@@ -12,6 +11,7 @@ import {
   X,
 } from 'lucide-react'
 import { AppBackground } from '@/components/AppBackground'
+import { WorkspaceFrame, WorkspaceRail } from '@/components/WorkspaceShell'
 import {
   buildRouteLegEmissions,
   METHOD1_CATEGORIES as CATEGORIES,
@@ -413,40 +413,15 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
 
   return (
     <AppBackground>
-      <section className="relative z-10 mx-auto grid w-full max-w-[92rem] gap-4 pb-8 lg:grid-cols-[12rem_minmax(0,1fr)] 2xl:grid-cols-[12rem_minmax(0,1fr)_20rem]">
-        <aside className="min-w-0 rounded-lg bg-zinc-950 p-4 text-white lg:sticky lg:top-4 lg:self-start">
-          <Button
-            variant="ghost"
-            className="-ml-2 mb-8 text-zinc-300 hover:bg-white/10 hover:text-white"
-            onClick={() => {
-              window.location.hash = ''
-            }}
-          >
-            <ArrowLeft />
-            Back to workflows
-          </Button>
-
-          <div className="space-y-5">
-            <div className="flex size-12 items-center justify-center rounded-md bg-lime-300 text-zinc-950">
-                <FileSpreadsheet className="size-6" />
-              </div>
-              <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-lime-300">USEEIO</p>
-              <h1 className="mt-3 text-4xl font-semibold tracking-tight">
-                USEEIO
-              </h1>
-              </div>
-              <p className="text-sm leading-6 text-zinc-300">
-                Spend-based calculator for invoice-level carbon estimates. Allocate spend across
-                manufacturing stages and apply sector emission factors.
-              </p>
-            </div>
-
-          <div className="mt-8 border-t border-white/10 pt-5">
+      <WorkspaceFrame className="2xl:grid-cols-[15rem_minmax(0,1fr)_20rem]">
+        <WorkspaceRail
+          icon={FileSpreadsheet}
+          eyebrow="Spend method"
+          title="USEEIO"
+          description="Allocate invoice spend across manufacturing stages and apply sector emission factors."
+        >
             <StepIndicator activeStep={result ? 2 : activeStep} />
-          </div>
-
-          <div className="mt-8 grid gap-2">
+          <div className="mt-6 grid gap-2">
               <Button type="button" variant="outline" size="sm" onClick={loadDemo}>
                 <Sparkles />
                 Load demo
@@ -455,7 +430,7 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
                 Reset
               </Button>
           </div>
-        </aside>
+        </WorkspaceRail>
 
         <form onSubmit={handleCalculate} className="contents">
           <div className="min-w-0 space-y-4">
@@ -899,7 +874,7 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
                         <div className="mt-2 text-xs text-muted-foreground">Source: {transportResult.transport.source}</div>
                         {transportResult.transport.estimated ? (
                           <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                            Estimated result — verify it before using it for reporting.
+                            Estimated result. Verify it before using it for reporting.
                           </div>
                         ) : null}
                       </div>
@@ -986,7 +961,7 @@ function Method1Page({ onHistorySaved }: { onHistorySaved?: () => void }) {
 
 
         </form>
-      </section>
+      </WorkspaceFrame>
     </AppBackground>
   )
 }

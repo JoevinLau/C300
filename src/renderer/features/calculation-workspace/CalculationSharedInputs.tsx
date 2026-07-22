@@ -329,12 +329,14 @@ export function SearchableNaicsSelect({
   preferredCode,
   naicsByCode,
   onChange,
+  showFullDescription = false,
 }: {
   value: string
   options: NaicsOption[]
   preferredCode: string
   naicsByCode: Map<string, NaicsOption>
   onChange: (value: string) => void
+  showFullDescription?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -465,7 +467,7 @@ export function SearchableNaicsSelect({
         : null}
       {selected ? (
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-          <span className="line-clamp-1">{selected.description}</span>
+          <span className={cn(showFullDescription ? 'break-words' : 'line-clamp-1')}>{selected.description}</span>
           {typeof selectedFactor === 'number' ? (
             <span className="font-mono text-lime-700">
               {selectedFactor.toFixed(3)} kgCO2e/USD
@@ -651,6 +653,7 @@ export function Method1SpendInputSections({
     if (amount === 0) amount = parseAmount(form[cat.amountKey])
     return { ...cat, amount }
   })
+  const useLineItemRows = showYearColumn && !showShareColumn
 
   return (
     <>
@@ -753,114 +756,239 @@ export function Method1SpendInputSections({
 
           {allocationResult}
 
-          <div className="overflow-hidden rounded-lg border border-zinc-900/12">
-            <div
-              className={cn(
-                'hidden bg-zinc-950/5 px-3 py-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground md:grid md:gap-2',
-                showYearColumn && showShareColumn
-                  ? 'md:grid-cols-[11rem_9.5rem_6.5rem_3rem_minmax(9.5rem,1fr)]'
-                  : showYearColumn
-                    ? 'md:grid-cols-[11rem_9.5rem_6.5rem_minmax(9.5rem,1fr)]'
-                    : showShareColumn
-                      ? 'md:grid-cols-[11rem_9.5rem_3rem_minmax(9.5rem,1fr)]'
-                      : 'md:grid-cols-[11rem_9.5rem_minmax(9.5rem,1fr)]',
-              )}
-            >
-              <span>Component</span>
-              <span>Amount (SGD)</span>
-              {showYearColumn ? <span>Year</span> : null}
-              {showShareColumn ? <span className="text-right">Share</span> : null}
-              <span>NAICS sector</span>
-            </div>
-            <div className="divide-y divide-zinc-900/12">
-              {categoryAmounts.map((cat) => {
-                const pct = allocationPercentages[cat.id]
-                const items = cat.id === 'raw' ? rawItems : cat.id === 'fabrication' ? fabItems : surfaceItems
-                return (
-                  <div
-                    key={cat.id}
-                    className={cn(
-                      'grid gap-3 px-3 py-4 md:items-start md:gap-2',
-                      showYearColumn && showShareColumn
-                        ? 'md:grid-cols-[11rem_9.5rem_6.5rem_3rem_minmax(9.5rem,1fr)]'
-                        : showYearColumn
-                          ? 'md:grid-cols-[11rem_9.5rem_6.5rem_minmax(9.5rem,1fr)]'
-                          : showShareColumn
-                            ? 'md:grid-cols-[11rem_9.5rem_3rem_minmax(9.5rem,1fr)]'
-                            : 'md:grid-cols-[11rem_9.5rem_minmax(9.5rem,1fr)]',
-                      cat.rowClass,
-                    )}
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg border border-zinc-900/12 bg-zinc-950/5', cat.textClass)}>
-                        <cat.icon className="size-4" />
-                      </span>
-                      <div className="min-w-0">
-                        <p className="whitespace-nowrap text-sm font-semibold">{cat.label}</p>
-                        <p className="truncate text-xs text-muted-foreground">{cat.sector}</p>
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs sm:sr-only">{cat.label} amounts</Label>
-                      <div className="space-y-2">
-                        {items.map((item, index) => (
-                          <div key={index} className="flex min-w-0 items-center gap-1.5">
-                            <Input type="number" min={0} step="0.01" placeholder="0.00" disabled={!hasInvoiceTotal} value={item.amount} onChange={(event) => updateItem(cat.id, index, { amount: event.target.value })} className="h-9 min-w-0 flex-1 text-right font-mono tabular-nums" />
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="size-8"
-                              onClick={() => removeItem(cat.id, index)}
-                              disabled={items.length <= 1}
-                              aria-label={`Remove ${cat.label} entry ${index + 1}`}
+          <div className="@container overflow-hidden rounded-lg border border-zinc-900/12">
+            {useLineItemRows ? (
+              <>
+                <div className="hidden bg-zinc-950/5 px-3 py-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground @min-[30rem]:grid @min-[30rem]:grid-cols-[minmax(6.5rem,1fr)_minmax(4.75rem,0.65fr)_4.5rem_minmax(8rem,1.25fr)_1.75rem] @min-[30rem]:gap-2">
+                  <span>Component</span>
+                  <span>Amount (SGD)</span>
+                  <span>Year</span>
+                  <span>NAICS sector</span>
+                  <span className="sr-only">Actions</span>
+                </div>
+                <div className="divide-y divide-zinc-900/12">
+                  {categoryAmounts.map((cat) => {
+                    const items = cat.id === 'raw' ? rawItems : cat.id === 'fabrication' ? fabItems : surfaceItems
+                    return (
+                      <div key={cat.id} className={cn('px-3 py-4', cat.rowClass)}>
+                        <div>
+                          {items.map((item, index) => (
+                            <div
+                              key={index}
+                              className={cn(
+                                'relative grid gap-3 py-3 first:pt-0 last:pb-0',
+                                index > 0 && 'border-t border-zinc-900/10',
+                                '@min-[30rem]:grid-cols-[minmax(6.5rem,1fr)_minmax(4.75rem,0.65fr)_4.5rem_minmax(8rem,1.25fr)_1.75rem] @min-[30rem]:items-start @min-[30rem]:gap-2',
+                              )}
                             >
-                              <X />
-                            </Button>
+                              <div className="flex min-w-0 items-center gap-2.5 pr-10 @min-[30rem]:pr-0">
+                                <span className={cn('flex size-8 shrink-0 items-center justify-center rounded-lg border border-zinc-900/12 bg-zinc-950/5', cat.textClass)}>
+                                  {index === 0 ? <cat.icon className="size-4" /> : <span className="font-mono text-xs font-semibold">{index + 1}</span>}
+                                </span>
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold">{index === 0 ? cat.label : `Line ${index + 1}`}</p>
+                                  <p className="text-xs text-muted-foreground">{index === 0 ? cat.sector : cat.label}</p>
+                                </div>
+                              </div>
+
+                              <div className="min-w-0 space-y-1">
+                                <Label className="text-xs @min-[30rem]:sr-only">{cat.label} amount {index + 1}</Label>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  step="0.01"
+                                  placeholder="0.00"
+                                  disabled={!hasInvoiceTotal}
+                                  value={item.amount}
+                                  onChange={(event) => updateItem(cat.id, index, { amount: event.target.value })}
+                                  className="h-9 min-w-0 text-right font-mono tabular-nums"
+                                />
+                              </div>
+
+                              <div className="min-w-0 space-y-1">
+                                <Label className="text-xs @min-[30rem]:sr-only">Assessment year</Label>
+                                {index === 0 ? (
+                                  <Input
+                                    type="number"
+                                    min={MIN_CALCULATION_YEAR}
+                                    max={MAX_CALCULATION_YEAR}
+                                    value={form.year}
+                                    onChange={(event) => updateField('year', event.target.value)}
+                                    className="h-9 min-w-0 px-2 font-mono tabular-nums"
+                                  />
+                                ) : (
+                                  <div
+                                    className="flex h-9 items-center rounded-md border border-zinc-900/10 bg-white/55 px-2 font-mono text-sm text-muted-foreground tabular-nums"
+                                    title="Shared assessment year"
+                                  >
+                                    {form.year}
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="min-w-0 space-y-1.5">
+                                <Label className="text-xs @min-[30rem]:sr-only">{cat.label} NAICS sector {index + 1}</Label>
+                                <SearchableNaicsSelect
+                                  value={item.naics}
+                                  options={naicsOptions}
+                                  preferredCode={cat.defaultNaics}
+                                  naicsByCode={naicsByCode}
+                                  onChange={(value) => updateItem(cat.id, index, { naics: value })}
+                                  showFullDescription
+                                />
+                                {showNaicsFactorDetails ? (
+                                  <p className="text-[11px] leading-snug text-muted-foreground">
+                                    {naicsByCode.get(item.naics)?.kgco2e_per_usd != null
+                                      ? `Database factor: ${naicsByCode.get(item.naics)?.kgco2e_per_usd?.toFixed(4)} kg CO2e/USD`
+                                      : naicsOptions.length > 0
+                                        ? 'No factor returned for this NAICS code'
+                                        : 'Loading NAICS factors from the Method 1 database'}
+                                  </p>
+                                ) : null}
+                              </div>
+
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className={cn('absolute right-0 size-8 @min-[30rem]:static @min-[30rem]:size-7', index === 0 ? 'top-0' : 'top-3')}
+                                onClick={() => removeItem(cat.id, index)}
+                                disabled={items.length <= 1}
+                                aria-label={`Remove ${cat.label} entry ${index + 1}`}
+                              >
+                                <X />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="mt-3 grid @min-[30rem]:grid-cols-[minmax(6.5rem,1fr)_minmax(4.75rem,0.65fr)_4.5rem_minmax(8rem,1.25fr)_1.75rem] @min-[30rem]:gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="h-8 w-fit @min-[30rem]:col-start-2"
+                            onClick={() => addItem(cat.id)}
+                            disabled={!hasInvoiceTotal}
+                          >
+                            Add {cat.label.toLowerCase()}
+                          </Button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            ) : (
+              <>
+                <div
+                  className={cn(
+                    'hidden bg-zinc-950/5 px-3 py-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground md:grid md:gap-2',
+                    showYearColumn && showShareColumn
+                      ? 'md:grid-cols-[11rem_9.5rem_6.5rem_3rem_minmax(9.5rem,1fr)]'
+                      : showYearColumn
+                        ? 'md:grid-cols-[11rem_9.5rem_6.5rem_minmax(9.5rem,1fr)]'
+                        : showShareColumn
+                          ? 'md:grid-cols-[11rem_9.5rem_3rem_minmax(9.5rem,1fr)]'
+                          : 'md:grid-cols-[11rem_9.5rem_minmax(9.5rem,1fr)]',
+                  )}
+                >
+                  <span>Component</span>
+                  <span>Amount (SGD)</span>
+                  {showYearColumn ? <span>Year</span> : null}
+                  {showShareColumn ? <span className="text-right">Share</span> : null}
+                  <span>NAICS sector</span>
+                </div>
+                <div className="divide-y divide-zinc-900/12">
+                  {categoryAmounts.map((cat) => {
+                    const pct = allocationPercentages[cat.id]
+                    const items = cat.id === 'raw' ? rawItems : cat.id === 'fabrication' ? fabItems : surfaceItems
+                    return (
+                      <div
+                        key={cat.id}
+                        className={cn(
+                          'grid gap-3 px-3 py-4 md:items-start md:gap-2',
+                          showYearColumn && showShareColumn
+                            ? 'md:grid-cols-[11rem_9.5rem_6.5rem_3rem_minmax(9.5rem,1fr)]'
+                            : showYearColumn
+                              ? 'md:grid-cols-[11rem_9.5rem_6.5rem_minmax(9.5rem,1fr)]'
+                              : showShareColumn
+                                ? 'md:grid-cols-[11rem_9.5rem_3rem_minmax(9.5rem,1fr)]'
+                                : 'md:grid-cols-[11rem_9.5rem_minmax(9.5rem,1fr)]',
+                          cat.rowClass,
+                        )}
+                      >
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg border border-zinc-900/12 bg-zinc-950/5', cat.textClass)}>
+                            <cat.icon className="size-4" />
+                          </span>
+                          <div className="min-w-0">
+                            <p className="whitespace-nowrap text-sm font-semibold">{cat.label}</p>
+                            <p className="truncate text-xs text-muted-foreground">{cat.sector}</p>
                           </div>
-                        ))}
-                        <Button type="button" size="sm" className="h-8" onClick={() => addItem(cat.id)} disabled={!hasInvoiceTotal}>Add</Button>
-                      </div>
-                    </div>
-                    {showYearColumn ? (
-                      <div className="space-y-1">
-                        <Label className="text-xs md:sr-only">{cat.label} year</Label>
-                        <Input type="number" min={MIN_CALCULATION_YEAR} max={MAX_CALCULATION_YEAR} value={form.year} onChange={(event) => updateField('year', event.target.value)} className="h-9 font-mono tabular-nums" />
-                      </div>
-                    ) : null}
-                    {showShareColumn ? (
-                      <p className={cn('text-right font-mono text-sm tabular-nums md:pt-2', cat.textClass)}>{cat.amount > 0 ? `${pct.toFixed(1)}%` : '-'}</p>
-                    ) : null}
-                    <div className={cn('min-w-0 space-y-1.5', showYearColumn && showShareColumn ? 'md:col-start-5' : showYearColumn ? 'md:col-start-4' : showShareColumn ? 'md:col-start-4' : 'md:col-start-3')}>
-                      <Label className="text-xs md:sr-only">{cat.label} NAICS codes</Label>
-                      <div className="space-y-2">
-                        {items.map((item, index) => (
-                          <div key={index} className="space-y-1.5">
-                            <SearchableNaicsSelect
-                              value={item.naics}
-                              options={naicsOptions}
-                              preferredCode={cat.defaultNaics}
-                              naicsByCode={naicsByCode}
-                              onChange={(value) => updateItem(cat.id, index, { naics: value })}
-                            />
-                            {showNaicsFactorDetails ? (
-                              <p className="text-[11px] leading-snug text-muted-foreground">
-                                {naicsByCode.get(item.naics)?.kgco2e_per_usd != null
-                                  ? `${naicsByCode.get(item.naics)?.kgco2e_per_usd?.toFixed(4)} kg CO2e/USD from the Method 1 NAICS database`
-                                  : naicsOptions.length > 0
-                                    ? 'No factor returned for this NAICS code'
-                                    : 'Loading NAICS factors from the Method 1 database'}
-                              </p>
-                            ) : null}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs sm:sr-only">{cat.label} amounts</Label>
+                          <div className="space-y-2">
+                            {items.map((item, index) => (
+                              <div key={index} className="flex min-w-0 items-center gap-1.5">
+                                <Input type="number" min={0} step="0.01" placeholder="0.00" disabled={!hasInvoiceTotal} value={item.amount} onChange={(event) => updateItem(cat.id, index, { amount: event.target.value })} className="h-9 min-w-0 flex-1 text-right font-mono tabular-nums" />
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-8"
+                                  onClick={() => removeItem(cat.id, index)}
+                                  disabled={items.length <= 1}
+                                  aria-label={`Remove ${cat.label} entry ${index + 1}`}
+                                >
+                                  <X />
+                                </Button>
+                              </div>
+                            ))}
+                            <Button type="button" size="sm" className="h-8" onClick={() => addItem(cat.id)} disabled={!hasInvoiceTotal}>Add</Button>
                           </div>
-                        ))}
+                        </div>
+                        {showYearColumn ? (
+                          <div className="space-y-1">
+                            <Label className="text-xs md:sr-only">{cat.label} year</Label>
+                            <Input type="number" min={MIN_CALCULATION_YEAR} max={MAX_CALCULATION_YEAR} value={form.year} onChange={(event) => updateField('year', event.target.value)} className="h-9 font-mono tabular-nums" />
+                          </div>
+                        ) : null}
+                        {showShareColumn ? (
+                          <p className={cn('text-right font-mono text-sm tabular-nums md:pt-2', cat.textClass)}>{cat.amount > 0 ? `${pct.toFixed(1)}%` : '-'}</p>
+                        ) : null}
+                        <div className={cn('min-w-0 space-y-1.5', showYearColumn && showShareColumn ? 'md:col-start-5' : showYearColumn ? 'md:col-start-4' : showShareColumn ? 'md:col-start-4' : 'md:col-start-3')}>
+                          <Label className="text-xs md:sr-only">{cat.label} NAICS codes</Label>
+                          <div className="space-y-2">
+                            {items.map((item, index) => (
+                              <div key={index} className="space-y-1.5">
+                                <SearchableNaicsSelect
+                                  value={item.naics}
+                                  options={naicsOptions}
+                                  preferredCode={cat.defaultNaics}
+                                  naicsByCode={naicsByCode}
+                                  onChange={(value) => updateItem(cat.id, index, { naics: value })}
+                                />
+                                {showNaicsFactorDetails ? (
+                                  <p className="text-[11px] leading-snug text-muted-foreground">
+                                    {naicsByCode.get(item.naics)?.kgco2e_per_usd != null
+                                      ? `${naicsByCode.get(item.naics)?.kgco2e_per_usd?.toFixed(4)} kg CO2e/USD from the Method 1 NAICS database`
+                                      : naicsOptions.length > 0
+                                        ? 'No factor returned for this NAICS code'
+                                        : 'Loading NAICS factors from the Method 1 database'}
+                                  </p>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-xs leading-snug text-muted-foreground">Type a code or keyword to filter NAICS options.</p>
+                        </div>
                       </div>
-                      <p className="text-xs leading-snug text-muted-foreground">Type a code or keyword to filter NAICS options.</p>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+                    )
+                  })}
+                </div>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -1047,7 +1175,7 @@ export function Method1TransportationSection({
                 <div className="mt-2 text-xs text-muted-foreground">Source: {transportResult.transport.source}</div>
                 {transportResult.transport.estimated ? (
                   <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                    Estimated result — verify it before using it for reporting.
+                    Estimated result. Verify it before using it for reporting.
                   </div>
                 ) : null}
               </div>

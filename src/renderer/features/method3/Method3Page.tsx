@@ -1,6 +1,5 @@
 import {
   AlertCircle,
-  ArrowLeft,
   Calculator,
   CheckCircle2,
   ChevronDown,
@@ -13,6 +12,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { AppBackground } from '@/components/AppBackground'
+import { WorkspaceFrame, WorkspaceIntro, WorkspaceRail } from '@/components/WorkspaceShell'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -492,20 +492,20 @@ export default function Method3Page({ onHistorySaved }: Method3PageProps) {
 
   return (
     <AppBackground>
-      <main className="relative z-10 mx-auto w-full max-w-7xl space-y-4">
-        <header className="rounded-lg border border-zinc-900/12 bg-white p-5 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <a href="#" className="inline-flex items-center gap-2 text-sm font-medium text-zinc-600 hover:text-zinc-950">
-                <ArrowLeft className="size-4" /> Back to workflows
-              </a>
-              <p className="mt-5 text-xs font-semibold uppercase tracking-[0.18em] text-lime-700">Scope 3 · Purchased Goods and Services</p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-950">Method 3: Open CEDA Spend-Based Calculation</h1>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">
-                Estimate emissions using invoice expenditure and country-specific Open CEDA emission factors.
-              </p>
-            </div>
-            {referenceData ? (
+      <WorkspaceFrame>
+        <WorkspaceRail
+          icon={ReceiptText}
+          eyebrow="Spend method"
+          title="Method 3"
+          description="Estimate purchased-goods emissions with country-specific Open CEDA factors."
+        />
+
+        <main className="min-w-0 space-y-4">
+          <WorkspaceIntro
+            eyebrow="Scope 3 purchased goods and services"
+            title="Open CEDA calculation"
+            description="Normalise invoice expenditure to the active reference year, then apply the selected country and sector factor."
+            actions={referenceData ? (
               <div className="grid grid-cols-2 gap-x-5 gap-y-2 rounded-lg border border-zinc-900/10 bg-zinc-50 px-4 py-3 text-xs">
                 <span className="text-zinc-500">Dataset</span><strong>{referenceData.dataset.version}</strong>
                 <span className="text-zinc-500">Reference</span><strong>{referenceData.dataset.reference_price_year} average</strong>
@@ -513,12 +513,12 @@ export default function Method3Page({ onHistorySaved }: Method3PageProps) {
                 <span className="text-zinc-500">Basis</span><strong>Purchaser Price</strong>
               </div>
             ) : null}
-          </div>
-          <div className="mt-4 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm leading-5 text-amber-900">
+          >
+          <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm leading-5 text-amber-900">
             <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
             All expenditure is normalised to the active Open CEDA reference price year using the 12-month annual-average index before applying the emission factor.
           </div>
-        </header>
+          </WorkspaceIntro>
 
         {referenceError ? (
           <div className="flex gap-3 rounded-lg border border-red-200 bg-red-50 p-4" role="alert">
@@ -609,8 +609,9 @@ export default function Method3Page({ onHistorySaved }: Method3PageProps) {
           </section>
           {result ? <ResultsPanel result={result} /> : null}
         </form>
-        <p className="pb-4 text-center text-xs text-zinc-500">Open CEDA attribution: {referenceData?.dataset.attribution ?? 'CEDA by Watershed'}</p>
-      </main>
+          <p className="pb-4 text-center text-xs text-zinc-500">Open CEDA attribution: {referenceData?.dataset.attribution ?? 'CEDA by Watershed'}</p>
+        </main>
+      </WorkspaceFrame>
     </AppBackground>
   )
 }

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type React from 'react'
 import {
   AlertCircle,
-  ArrowLeft,
   Bot,
   Calculator,
   CloudUpload,
@@ -24,6 +23,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 
 import { AppBackground } from '@/components/AppBackground'
+import { WorkspaceFrame, WorkspaceRail } from '@/components/WorkspaceShell'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -725,25 +725,13 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
 
   return (
     <AppBackground>
-      <section className="relative z-10 mx-auto grid w-full max-w-[92rem] gap-4 pb-8 lg:grid-cols-[12rem_minmax(0,1fr)]">
-        <aside className="rounded-lg bg-zinc-950 p-4 text-white lg:sticky lg:top-4 lg:self-start">
-          <Button variant="ghost" className="-ml-2 mb-8 text-zinc-300 hover:bg-white/10 hover:text-white" onClick={() => { window.location.hash = '' }}>
-            <ArrowLeft />
-            Back to workflows
-          </Button>
-
-          <div className="space-y-5">
-            <div className="flex size-12 items-center justify-center rounded-md bg-lime-300 text-zinc-950">
-              <MessageCircle className="size-6" />
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-lime-300">Activity data</p>
-              <h1 className="mt-3 text-4xl font-semibold tracking-tight">Method 2</h1>
-            </div>
-            <p className="text-sm leading-6 text-zinc-300">
-              Hybrid emissions estimate using Method 1 spend logic, EcoTransit transport, and temporary machine-hour data.
-            </p>
-            <div className="mt-8 border-t border-white/10 pt-5">
+      <WorkspaceFrame>
+        <WorkspaceRail
+          icon={MessageCircle}
+          eyebrow="Activity method"
+          title="Method 2"
+          description="Combine spend logic, EcoTransit transport, and machine-hour activity data in one hybrid estimate."
+        >
               <Method1StepIndicator
                 activeStep={2}
                 steps={[
@@ -752,9 +740,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
                   { id: 3, title: 'Review', description: 'Breakdown' },
                 ]}
               />
-            </div>
-          </div>
-        </aside>
+        </WorkspaceRail>
 
         <div className="space-y-4">
           <main className="space-y-4">
@@ -1300,7 +1286,7 @@ export default function Method2Page({ onHistorySaved }: { onHistorySaved?: () =>
             <span className="hidden sm:inline">Need any help?</span>
           </Button>
         </div>
-      </section>
+      </WorkspaceFrame>
     </AppBackground>
   )
 }
