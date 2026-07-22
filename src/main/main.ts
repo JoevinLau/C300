@@ -53,8 +53,8 @@ function registerApiHandlers() {
     request: requestLocalApi,
   })
   Object.entries(BACKEND_CHANNELS).forEach(([capability, channel]) => {
-    ipcMain.handle(channel, (_event, ...args: unknown[]) => {
-      assertBackendReady()
+    ipcMain.handle(channel, async (_event, ...args: unknown[]) => {
+      await getBackendRuntime().waitUntilReady()
       const handler = backendHandlers[capability as keyof typeof backendHandlers]
       return Reflect.apply(handler, undefined, args)
     })
@@ -71,10 +71,6 @@ function registerApiHandlers() {
   ipcMain.handle('calculation-history:get', (_event, id: string) =>
     getCalculationHistoryStore().get(id),
   )
-}
-
-function assertBackendReady() {
-  getBackendRuntime().assertReady()
 }
 
 function createWindow() {
@@ -121,8 +117,8 @@ function handleBackendStatusChange(status: BackendRuntimeStatus) {
   }
 }
 
-async function promptForBackendRecovery(error?: string) {
-  if (backendFailurePromptOpen) return
+async function promptForBackendRecovery(error?: string): Promise<boolean> {
+  if (backendFailurePromptOpen) return false
   backendFailurePromptOpen = true
   try {
     const result = await dialog.showMessageBox({
@@ -138,14 +134,15 @@ async function promptForBackendRecovery(error?: string) {
     if (result.response === 0) {
       try {
         await getBackendRuntime().start()
+        return true
       } catch (retryError) {
         const message = retryError instanceof Error ? retryError.message : String(retryError)
         backendFailurePromptOpen = false
-        await promptForBackendRecovery(message)
+        return promptForBackendRecovery(message)
       }
-    } else {
-      app.quit()
     }
+    app.quit()
+    return false
   } finally {
     backendFailurePromptOpen = false
   }
@@ -159,9 +156,8 @@ function openAppWindow() {
   void openWindowWhileBackendStarts({
     openWindow: createWindow,
     startBackend: startApiServer,
-    onBackendFailure: async (error) => {
-      await promptForBackendRecovery(error instanceof Error ? error.message : String(error))
-    },
+    onBackendFailure: (error) =>
+      promptForBackendRecovery(error instanceof Error ? error.message : String(error)),
   })
 }
 

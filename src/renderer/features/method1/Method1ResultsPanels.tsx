@@ -1,21 +1,18 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import {
   AlertCircle,
   Calculator,
   ChevronDown,
   Cog,
-  Download,
   Layers,
   Loader2,
   Paintbrush,
 } from 'lucide-react'
-import { PDFDownloadLink } from '@react-pdf/renderer'
 import {
   METHOD1_CATEGORIES as CATEGORIES,
   currency,
 } from '@/features/calculation-workspace/CalculationSharedInputs'
-import { UseeioResultsPdf } from './UseeioResultsPdf'
-import { Button, buttonVariants } from '@/components/ui/button'
+import { Button } from '@/components/ui/button'
 import {
   createUseeioResultProjection,
   type UseeioResultProjection,
@@ -26,6 +23,10 @@ import type {
   NaicsOption,
 } from '@/lib/calculator-api'
 import { cn } from '@/lib/utils'
+
+const UseeioPdfDownload = lazy(() =>
+  import('./UseeioPdfDownload').then((module) => ({ default: module.UseeioPdfDownload })),
+)
 
 const usd = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -276,23 +277,13 @@ export function ResultsPanel({
         </div>
       ) : null}
 
-      <PDFDownloadLink
-        className={buttonVariants({ className: 'w-full' })}
-        document={
-          <UseeioResultsPdf
-            projection={projection}
-            transport={transport}
-          />
-        }
-        fileName={`useeio-${result.invoice_id.replace(/[^a-z0-9_-]+/gi, '-')}.pdf`}
-      >
-        {({ loading: preparingPdf }: { loading: boolean }) => (
-          <>
-            {preparingPdf ? <Loader2 className="animate-spin" /> : <Download />}
-            {preparingPdf ? 'Preparing PDF…' : 'Download PDF'}
-          </>
-        )}
-      </PDFDownloadLink>
+      <Suspense fallback={<Button className="w-full" disabled>Loading PDF tools…</Button>}>
+        <UseeioPdfDownload
+          projection={projection}
+          transport={transport}
+          fileName={`useeio-${result.invoice_id.replace(/[^a-z0-9_-]+/gi, '-')}.pdf`}
+        />
+      </Suspense>
     </div>
   )
 }

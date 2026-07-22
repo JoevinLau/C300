@@ -21,16 +21,22 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 
-const Method1Page = lazy(() => import('@/features/method1/Method1Page'))
-const Method2Page = lazy(() => import('@/features/method2/Method2Page'))
-const Method3Page = lazy(() => import('@/features/method3/Method3Page'))
-const NaicsMappingPage = lazy(() => import('@/features/naics-mapping/NaicsMappingPage'))
+const loadMethod1Page = () => import('@/features/method1/Method1Page')
+const loadMethod2Page = () => import('@/features/method2/Method2Page')
+const loadMethod3Page = () => import('@/features/method3/Method3Page')
+const loadNaicsMappingPage = () => import('@/features/naics-mapping/NaicsMappingPage')
+
+const Method1Page = lazy(loadMethod1Page)
+const Method2Page = lazy(loadMethod2Page)
+const Method3Page = lazy(loadMethod3Page)
+const NaicsMappingPage = lazy(loadNaicsMappingPage)
 
 const modules = [
   {
     icon: DatabaseZap,
     title: 'NAICS mapping',
     href: '#naics-mapping',
+    load: loadNaicsMappingPage,
     disabled: false,
     description:
       'Map portfolio companies or spend categories to NAICS codes before calculating emissions factors.',
@@ -44,6 +50,7 @@ const modules = [
     icon: FileSpreadsheet,
     title: 'USEEIO',
     href: '#method-1',
+    load: loadMethod1Page,
     disabled: false,
     description:
       'Split invoice spend across raw material, fabrication, and surface treatment, then calculate emissions with NAICS factors.',
@@ -52,6 +59,7 @@ const modules = [
     icon: BarChart3,
     title: 'Method 2',
     href: '#method-2',
+    load: loadMethod2Page,
     disabled: false,
     description:
       'Estimate emissions from activity data such as energy use, materials, logistics, or production volume.',
@@ -60,6 +68,7 @@ const modules = [
     icon: Workflow,
     title: 'Method 3',
     href: '#method-3',
+    load: loadMethod3Page,
     disabled: false,
     description:
       'Calculate spend-based emissions using purchase amounts and mapped sector emission factors.',
@@ -103,8 +112,14 @@ function HomePage() {
                 href={module.disabled ? undefined : module.href}
                 aria-disabled={module.disabled || undefined}
                 onClick={(event) => {
-                  if (module.disabled) event.preventDefault()
+                  event.preventDefault()
+                  if (module.disabled) return
+                  void module.load().then(() => {
+                    window.location.hash = module.href
+                  })
                 }}
+                onMouseEnter={() => void module.load()}
+                onFocus={() => void module.load()}
                 className={`group grid min-h-[15rem] grid-rows-[auto_1fr_auto] rounded-lg border border-zinc-900/12 bg-white p-5 text-left shadow-sm transition-all focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none ${
                   module.disabled
                     ? 'cursor-not-allowed opacity-65'
@@ -146,39 +161,6 @@ function HomePage() {
   )
 }
 
-function RouteLoadingPage() {
-  return (
-    <AppBackground>
-      <main
-        className="relative z-10 mx-auto flex min-h-[calc(100vh-2rem)] w-full max-w-7xl items-center justify-center"
-        aria-busy="true"
-      >
-        <div
-          className="w-full max-w-md rounded-lg border border-zinc-900/12 bg-white p-6 shadow-sm"
-          role="status"
-          aria-live="polite"
-        >
-          <div className="flex items-center gap-4">
-            <span
-              className="flex size-11 shrink-0 items-center justify-center rounded-md bg-zinc-950 text-lime-300"
-              aria-hidden="true"
-            >
-              <Workflow className="size-5 animate-pulse" />
-            </span>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                Loading workflow
-              </p>
-              <p className="mt-1 text-sm text-zinc-700">Preparing the calculation workspace…</p>
-            </div>
-          </div>
-        </div>
-      </main>
-    </AppBackground>
-  )
-}
-
-
 function App() {
   const [route, setRoute] = useState(() => window.location.hash)
   const [historyRefreshToken, setHistoryRefreshToken] = useState(0)
@@ -200,7 +182,7 @@ function App() {
 
   return (
     <>
-      <Suspense fallback={<RouteLoadingPage />}>{page}</Suspense>
+      <Suspense fallback={null}>{page}</Suspense>
       <CalculationHistorySidebar refreshToken={historyRefreshToken} />
     </>
   )

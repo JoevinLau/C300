@@ -1,7 +1,7 @@
 export interface DesktopStartupOptions {
   openWindow: () => void
   startBackend: () => Promise<void>
-  onBackendFailure: (error: unknown) => Promise<void>
+  onBackendFailure: (error: unknown) => Promise<boolean>
 }
 
 export async function openWindowWhileBackendStarts({

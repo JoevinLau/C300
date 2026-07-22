@@ -1,6 +1,5 @@
 ﻿import { useState, useRef } from 'react'
 import { ArrowLeft, Upload, FileSpreadsheet, Check, X, AlertCircle, Loader2, Globe, Eye, Download, CheckCircle, RefreshCw } from 'lucide-react'
-import * as XLSX from 'xlsx'
 
 import { AppBackground } from '@/components/AppBackground'
 import { Button } from '@/components/ui/button'
@@ -52,7 +51,7 @@ function SourceGuide() {
 }
 
 function NaicsMappingPage() {
-  const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null)
+  const [workbook, setWorkbook] = useState<import('xlsx').WorkBook | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const workflow = useNaicsMappingWorkflow()
   const {
@@ -72,11 +71,12 @@ function NaicsMappingPage() {
     step,
   } = workflow
 
-  const processSheet = (
-    nextWorkbook: XLSX.WorkBook,
+  const processSheet = async (
+    nextWorkbook: import('xlsx').WorkBook,
     sheetName: string,
     fileName = excelData?.fileName ?? '',
   ) => {
+    const XLSX = await import('xlsx')
     const sheet = nextWorkbook.Sheets[sheetName]
     const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as unknown[][]
     const data = extractSheetData(matrix, {
@@ -95,12 +95,13 @@ function NaicsMappingPage() {
     const file = event.target.files?.[0]
     if (!file) return
     const reader = new FileReader()
-    reader.onload = (loadEvent) => {
+    reader.onload = async (loadEvent) => {
       try {
+        const XLSX = await import('xlsx')
         const bytes = new Uint8Array(loadEvent.target?.result as ArrayBuffer)
         const nextWorkbook = XLSX.read(bytes, { type: 'array' })
         setWorkbook(nextWorkbook)
-        processSheet(nextWorkbook, nextWorkbook.SheetNames[0], file.name)
+        await processSheet(nextWorkbook, nextWorkbook.SheetNames[0], file.name)
       } catch (error) {
         console.error('Error parsing Excel:', error)
         alert('Failed to parse Excel file')
@@ -163,7 +164,8 @@ function NaicsMappingPage() {
     workflow.editRow(index, field, value)
   }
 
-  const handleExportFull = () => {
+  const handleExportFull = async () => {
+    const XLSX = await import('xlsx')
     const ws = XLSX.utils.json_to_sheet(buildExportRows(calculationResults ?? mappedData))
     const outputWorkbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(outputWorkbook, ws, 'NAICS Mapping')
@@ -278,7 +280,9 @@ function NaicsMappingPage() {
                   {excelData.allSheets && excelData.allSheets.length > 1 && (
                     <Select
                       value={excelData.selectedSheet}
-                      onValueChange={(value) => workbook && processSheet(workbook, value)}
+                      onValueChange={(value) => {
+                        if (workbook) void processSheet(workbook, value)
+                      }}
                     >
                       <SelectTrigger className="w-48">
                         <SelectValue placeholder="Select sheet" />

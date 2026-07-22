@@ -120,6 +120,24 @@ test('starts one managed backend when concurrent callers request startup', async
   assert.equal(fixture.getSupervisor()?.starts, 1)
 })
 
+test('waits for an in-flight backend startup before serving a capability', async () => {
+  let releasePort!: (port: number) => void
+  const selectedPort = new Promise<number>((resolve) => {
+    releasePort = resolve
+  })
+  const fixture = runtimeOptions({ selectPort: () => selectedPort })
+  const runtime = new DesktopBackendRuntime(fixture.options)
+
+  const startup = runtime.start()
+  const capabilityReady = runtime.waitUntilReady()
+
+  releasePort(43123)
+  await Promise.all([startup, capabilityReady])
+
+  assert.equal(runtime.status.state, 'ready')
+  assert.equal(fixture.getSupervisor()?.starts, 1)
+})
+
 test('reports a clear error while the managed backend is unavailable', () => {
   const fixture = runtimeOptions()
   const runtime = new DesktopBackendRuntime(fixture.options)

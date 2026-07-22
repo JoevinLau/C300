@@ -258,6 +258,18 @@ export class DesktopBackendRuntime {
     )
   }
 
+  waitUntilReady(): Promise<void> {
+    if (this.status.state === 'ready') return Promise.resolve()
+    if (this.startTask) return this.startTask
+
+    try {
+      this.assertReady()
+      return Promise.resolve()
+    } catch (error) {
+      return Promise.reject(error)
+    }
+  }
+
   start(): Promise<void> {
     if (this.status.state === 'ready') return Promise.resolve()
     if (this.startTask) return this.startTask
